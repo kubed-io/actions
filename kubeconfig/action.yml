@@ -1,0 +1,25 @@
+name: Configure Kubeconfig
+description: Fetches kubeconfig from GCP Secret Manager and sets KUBECONFIG in the environment.
+inputs:
+  secret:
+    description: GCP Secret Manager secret in format project/name
+    required: false
+    default: kelly-ferrone/github-kubeconfig
+runs:
+  using: composite
+  steps:
+
+  - name: Get Kubeconfig
+    id: kube
+    uses: google-github-actions/get-secretmanager-secrets@v3
+    with:
+      secrets: |-
+        kubeconfig:${{ inputs.secret }}
+
+  - name: Write Kubeconfig
+    shell: bash
+    env:
+      KUBECONFIG_DATA: ${{ steps.kube.outputs.kubeconfig }}
+    run: |
+      echo "$KUBECONFIG_DATA" > "$RUNNER_TEMP/kubeconfig"
+      echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> $GITHUB_ENV
