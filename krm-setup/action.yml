@@ -1,0 +1,30 @@
+name: Setup KRM
+description: >
+  Clones kubed-io/krm and installs kubectl, kustomize, helm, krew, kompose,
+  and yq into the runner. Adds all kubectl plugins and krm-py console scripts
+  to PATH via pip install of the kubed-krm PyPI package.
+runs:
+  using: composite
+  steps:
+
+  - name: Checkout KRM
+    uses: actions/checkout@v6
+    with:
+      repository: kubed-io/krm
+      path: .krm
+
+  - name: Install KRM tools
+    shell: bash
+    env:
+      TARGETPLATFORM: linux/amd64
+      INSTALLDIR: ${{ runner.temp }}/krm
+      WORKDIR: ${{ github.workspace }}/.krm
+    run: |
+      mkdir -p "$INSTALLDIR"
+      bash "$GITHUB_WORKSPACE/.krm/build/install.sh"
+      echo "$INSTALLDIR" >> "$GITHUB_PATH"
+      echo "$GITHUB_WORKSPACE/.krm/kubectl" >> "$GITHUB_PATH"
+
+  - name: Install KRM Python
+    shell: bash
+    run: pip install kubed-krm
