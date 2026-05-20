@@ -1,0 +1,53 @@
+name: Kubectl
+description: Runs a kubectl command and writes the output to the job step summary.
+inputs:
+  cmd:
+    description: kubectl subcommand to run (e.g. build, up)
+    required: true
+  args:
+    description: Arguments passed after the command
+    required: false
+    default: .
+  namespace:
+    description: Target namespace (-n)
+    required: false
+runs:
+  using: composite
+  steps:
+
+  - name: Build Args
+    id: args
+    shell: bash
+    run: |
+      ARGS="${{ inputs.cmd }}"
+      if [ -n "${{ inputs.namespace }}" ]; then
+        ARGS="$ARGS --namespace=${{ inputs.namespace }}"
+      fi
+      ARGS="$ARGS ${{ inputs.args }}"
+      echo "args=$ARGS" >> $GITHUB_OUTPUT
+
+  - name: Kubectl
+    id: kubectl
+    shell: bash
+    env:
+      ARGS: ${{ steps.args.outputs.args }}
+    run: kubectl $ARGS | tee "$RUNNER_TEMP/kubectl-out.txt"
+
+  - name: Summary
+    id: summary
+    if: always()
+    shell: bash
+    env:
+      CMD: ${{ inputs.cmd }}
+    run: |
+      {
+        echo "## \`kubectl $CMD\`"
+        echo
+        if [ "$CMD" = "build" ]; then
+          echo '```yaml'
+        else
+          echo '```'
+        fi
+        cat "$RUNNER_TEMP/kubectl-out.txt"
+        echo '```'
+      } >> "$GITHUB_STEP_SUMMARY"
