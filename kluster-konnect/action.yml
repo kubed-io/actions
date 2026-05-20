@@ -1,26 +1,29 @@
 name: Kluster Konnect
 description: >
-  Authenticates to GCP via OIDC, configures kubeconfig, and optionally
-  connects to OpenVPN. Detects in-cluster SA credentials automatically —
-  on a self-hosted runner inside the cluster, kubeconfig is built from
-  the mounted service account token and GCP auth is skipped entirely.
+  Authenticates to GCP via OIDC, configures kubeconfig, and connects to
+  OpenVPN. Detects in-cluster SA credentials automatically — on a
+  self-hosted runner inside the cluster, kubeconfig is built from the
+  mounted service account token and GCP auth, VPN, and kubeconfig fetch
+  are all skipped.
 inputs:
   workload_identity_provider:
     description: GCP Workload Identity Federation provider resource name
     required: true
+  project:
+    description: GCP project ID
+    required: true
   service_account:
-    description: GCP service account email to impersonate
-    required: true
+    description: GCP service account name (not full email)
+    required: false
+    default: github
   kubeconfig_secret:
-    description: GCP Secret Manager secret for kubeconfig (format project/name)
-    required: true
-  vpn:
-    description: Connect to OpenVPN
+    description: GCP Secret Manager secret name for kubeconfig
     required: false
-    default: 'false'
+    default: github-kubeconfig
   vpn_secret:
-    description: GCP Secret Manager secret for VPN credentials (format project/name)
+    description: GCP Secret Manager secret name for VPN credentials
     required: false
+    default: github-openvpn
 runs:
   using: composite
   steps:
@@ -59,13 +62,20 @@ runs:
         echo "in_cluster=false" >> $GITHUB_OUTPUT
       fi
 
+  - name: Authenticate to GCP
+    if: steps.cluster.outputs.in_cluster != 'true'
+    uses: google-github-actions/auth@v3
+    with:
+      workload_identity_provider: ${{ inputs.workload_identity_provider }}
+      service_account: ${{ inputs.service_account }}@${{ inputs.project }}.iam.gserviceaccount.com
+
   - name: Get kubeconfig from GCP
     id: kube_secret
     if: steps.cluster.outputs.in_cluster != 'true'
     uses: google-github-actions/get-secretmanager-secrets@v3
     with:
       secrets: |-
-        kubeconfig:${{ inputs.kubeconfig_secret }}
+        kubeconfig:${{ inputs.project }}/${{ inputs.kubeconfig_secret }}
 
   - name: Write kubeconfig
     if: steps.cluster.outputs.in_cluster != 'true'
@@ -81,15 +91,15 @@ runs:
 
   - name: Get VPN credentials
     id: vpn_secret
-    if: inputs.vpn == 'true'
+    if: steps.cluster.outputs.in_cluster != 'true'
     uses: google-github-actions/get-secretmanager-secrets@v3
     with:
       secrets: |-
-        openvpn:${{ inputs.vpn_secret }}
+        openvpn:${{ inputs.project }}/${{ inputs.vpn_secret }}
 
   - name: Parse VPN credentials
     id: vpn
-    if: inputs.vpn == 'true'
+    if: steps.cluster.outputs.in_cluster != 'true'
     shell: bash
     env:
       SECRET: ${{ steps.vpn_secret.outputs.openvpn }}
@@ -99,14 +109,14 @@ runs:
       echo "$SECRET" | jq -r '.profile' > "$RUNNER_TEMP/profile.ovpn"
 
   - name: Install OpenVPN
-    if: inputs.vpn == 'true'
+    if: steps.cluster.outputs.in_cluster != 'true'
     shell: bash
     run: |
       sudo apt-get update
       sudo apt-get install -y openvpn openvpn-systemd-resolved
 
   - name: Connect to VPN
-    if: inputs.vpn == 'true'
+    if: steps.cluster.outputs.in_cluster != 'true'
     uses: kota65535/github-openvpn-connect-action@v2
     with:
       config_file: ${{ runner.temp }}/profile.ovpn

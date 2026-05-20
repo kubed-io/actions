@@ -1,13 +1,13 @@
 # Kluster Konnect
 
-Authenticates to GCP via OIDC, configures kubeconfig, and optionally connects to OpenVPN. The standard first step for any workflow that needs cluster access.
+Authenticates to GCP via OIDC, configures kubeconfig, and connects to OpenVPN. The standard first step for any workflow that needs cluster access.
 
-## Kubeconfig detection
+## Behaviour
 
-| Environment | Behaviour |
+| Environment | What happens |
 |---|---|
-| Self-hosted runner inside the cluster | Builds kubeconfig from the mounted SA token — GCP auth skipped entirely |
-| Cloud runner (e.g. `ubuntu-latest`) | Authenticates to GCP via OIDC and fetches kubeconfig from Secret Manager |
+| Self-hosted runner inside the cluster | Builds kubeconfig from the mounted SA token — GCP auth, VPN, and kubeconfig fetch are all skipped |
+| Cloud runner (e.g. `ubuntu-latest`) | GCP OIDC auth → fetch kubeconfig → connect to VPN |
 
 `KUBECONFIG` is set in `$GITHUB_ENV` so all subsequent steps have cluster access automatically.
 
@@ -17,36 +17,15 @@ Authenticates to GCP via OIDC, configures kubeconfig, and optionally connects to
 - uses: kubed-io/actions/kluster-konnect@main
   with:
     workload_identity_provider: projects/000000000000/locations/global/workloadIdentityPools/pool/providers/github
-    service_account: github@your-project.iam.gserviceaccount.com
-    kubeconfig_secret: your-project/github-kubeconfig
-```
-
-With VPN:
-```yaml
-- uses: kubed-io/actions/kluster-konnect@main
-  with:
-    workload_identity_provider: ...
-    service_account: ...
-    kubeconfig_secret: ...
-    vpn: 'true'
-    vpn_secret: your-project/github-openvpn
-```
-
-Self-hosted runner (GCP inputs still required but auth and kubeconfig fetch are skipped):
-```yaml
-- uses: kubed-io/actions/kluster-konnect@main
-  with:
-    workload_identity_provider: ...
-    service_account: ...
-    kubeconfig_secret: ...
+    project: your-gcp-project
 ```
 
 ## Inputs
 
-| Input | Required | Description |
-|---|---|---|
-| `workload_identity_provider` | yes | GCP WIF provider resource name |
-| `service_account` | yes | GCP service account email to impersonate |
-| `kubeconfig_secret` | yes | GCP Secret Manager secret for kubeconfig (`project/name`) |
-| `vpn` | no | Connect to OpenVPN (default: `false`) |
-| `vpn_secret` | no | GCP Secret Manager secret for VPN credentials (`project/name`) |
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `workload_identity_provider` | yes | — | GCP WIF provider resource name |
+| `project` | yes | — | GCP project ID |
+| `service_account` | no | `github` | GCP service account name (email constructed as `name@project.iam.gserviceaccount.com`) |
+| `kubeconfig_secret` | no | `github-kubeconfig` | Secret Manager secret name for kubeconfig (prefixed with `project/`) |
+| `vpn_secret` | no | `github-openvpn` | Secret Manager secret name for VPN credentials (prefixed with `project/`) |
