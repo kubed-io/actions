@@ -31,7 +31,10 @@ runs:
     shell: bash
     env:
       ARGS: ${{ steps.args.outputs.args }}
-    run: kubectl $ARGS | tee "$RUNNER_TEMP/kubectl-out.txt"
+    run: |
+      OUT="$RUNNER_TEMP/kubectl-out.txt"
+      kubectl $ARGS | tee "$OUT"
+      echo "output_file=$OUT" >> $GITHUB_OUTPUT
 
   - name: Summary
     id: summary

@@ -15,6 +15,12 @@ Runs a kubectl command and writes the output to the GitHub Actions step summary.
     args: apps/openldap
 ```
 
+## Outputs
+
+| Output | Description |
+|---|---|
+| `output_file` | Absolute path to the file containing the full kubectl output |
+
 ## Inputs
 
 | Input | Required | Default | Description |
