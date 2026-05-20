@@ -31,6 +31,7 @@ runs:
     shell: bash
     env:
       ARGS: ${{ steps.args.outputs.args }}
+      KUBECTL_APPLYSET: "true"
     run: |
       OUT="$RUNNER_TEMP/kubectl-out.txt"
       kubectl $ARGS | tee "$OUT"
