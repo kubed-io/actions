@@ -117,7 +117,7 @@ runs:
 
   - name: Connect to VPN
     if: steps.cluster.outputs.in_cluster != 'true'
-    uses: kota65535/github-openvpn-connect-action@v2
+    uses: kota65535/github-openvpn-connect-action@v3
     with:
       config_file: ${{ runner.temp }}/profile.ovpn
       username: ${{ steps.vpn.outputs.username }}
