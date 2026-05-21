@@ -1,0 +1,28 @@
+name: Rclone Setup
+description: >
+  Installs rclone and configures a GCS remote using Application Default
+  Credentials. Run after google-github-actions/auth so env_auth picks up
+  the exported credentials automatically.
+
+runs:
+  using: composite
+  steps:
+
+  - name: Install dependencies
+    shell: bash
+    run: |
+      if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y --no-install-recommends rclone gnupg jq
+      elif command -v apk &>/dev/null; then
+        apk add --no-cache rclone gnupg jq
+      fi
+
+  - name: Configure rclone GCS remote
+    shell: bash
+    run: |
+      mkdir -p ~/.config/rclone
+      cat > ~/.config/rclone/rclone.conf <<'EOF'
+      [gcs]
+      type = google cloud storage
+      env_auth = true
+      EOF

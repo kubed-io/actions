@@ -1,0 +1,86 @@
+name: GPG Restore
+description: >
+  Downloads an encrypted backup from GCS, decrypts with GPG, and extracts into
+  a target directory. Streams directly from GCS without staging to disk.
+  Assumes GCP auth is already configured (google-github-actions/auth) and
+  the calling job has id-token: write.
+inputs:
+  path:
+    description: Destination directory to extract into
+    required: true
+  bucket:
+    description: GCS bucket name
+    required: true
+  prefix:
+    description: Key prefix within the bucket where backups are stored
+    required: true
+  filename:
+    description: Specific backup filename to restore, defaults to latest
+    required: false
+    default: ''
+  gpg_secret:
+    description: GCP Secret Manager secret name containing GPG credentials JSON
+    required: false
+    default: gpg
+
+runs:
+  using: composite
+  steps:
+
+  - name: Get GPG credentials from GCP
+    id: gpg
+    uses: google-github-actions/get-secretmanager-secrets@v3
+    with:
+      secrets: |-
+        gpg:${{ env.GOOGLE_CLOUD_PROJECT }}/${{ inputs.gpg_secret }}
+
+  - name: Import GPG private key
+    shell: bash
+    env:
+      GPG_SECRET: ${{ steps.gpg.outputs.gpg }}
+    run: |
+      set -euo pipefail
+      key_file="$(mktemp)"
+      passphrase="$(echo "$GPG_SECRET" | jq -r '.password')"
+      echo "$GPG_SECRET" | jq -r '."private.key"' > "$key_file"
+      gpg --batch --pinentry-mode loopback --passphrase "$passphrase" --import "$key_file"
+      rm -f "$key_file"
+
+  - name: Resolve backup filename
+    id: resolve
+    shell: bash
+    env:
+      FILENAME: ${{ inputs.filename }}
+      BUCKET: ${{ inputs.bucket }}
+      PREFIX: ${{ inputs.prefix }}
+    run: |
+      set -euo pipefail
+      filename="$FILENAME"
+      if [ -z "$filename" ]; then
+        filename="$(rclone lsf "gcs:$BUCKET/$PREFIX/" --files-only | sort -r | head -1)"
+        echo "Resolved latest backup: $filename"
+      fi
+      echo "filename=$filename" >> $GITHUB_OUTPUT
+
+  - name: Decrypt and extract
+    shell: bash
+    env:
+      GPG_SECRET: ${{ steps.gpg.outputs.gpg }}
+      BUCKET: ${{ inputs.bucket }}
+      PREFIX: ${{ inputs.prefix }}
+      FILENAME: ${{ steps.resolve.outputs.filename }}
+      DEST_PATH: ${{ inputs.path }}
+    run: |
+      set -euo pipefail
+      src="gcs:$BUCKET/$PREFIX/$FILENAME"
+      dest="$DEST_PATH"
+      passphrase="$(echo "$GPG_SECRET" | jq -r '.password')"
+
+      mkdir -p "$dest"
+      echo "Restoring $src → $dest"
+
+      rclone cat "$src" \
+        | gpg --batch --pinentry-mode loopback --passphrase "$passphrase" --decrypt \
+        | tar xz -C "$dest"
+
+      echo "Restore complete"

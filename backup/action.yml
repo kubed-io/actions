@@ -1,0 +1,106 @@
+name: GPG Backup
+description: >
+  Tars a directory, encrypts with GPG using credentials from GCP Secret Manager,
+  and uploads to a GCS bucket. Assumes GCP auth is already configured
+  (google-github-actions/auth) and the calling job has id-token: write.
+inputs:
+  path:
+    description: Local directory to back up
+    required: true
+  bucket:
+    description: GCS bucket name
+    required: true
+  prefix:
+    description: Key prefix within the bucket, defaults to basename of path
+    required: false
+    default: ''
+  gpg_secret:
+    description: GCP Secret Manager secret name containing GPG credentials JSON
+    required: false
+    default: gpg
+  keep:
+    description: Number of backups to retain per prefix (0 = keep all)
+    required: false
+    default: '7'
+
+runs:
+  using: composite
+  steps:
+
+  - name: Get GPG credentials from GCP
+    id: gpg
+    uses: google-github-actions/get-secretmanager-secrets@v3
+    with:
+      secrets: |-
+        gpg:${{ env.GOOGLE_CLOUD_PROJECT }}/${{ inputs.gpg_secret }}
+
+  - name: Import GPG public key
+    shell: bash
+    env:
+      GPG_SECRET: ${{ steps.gpg.outputs.gpg }}
+    run: |
+      set -euo pipefail
+      echo "$GPG_SECRET" | jq -r '."public.key"' | gpg --import
+
+  - name: Create encrypted archive
+    id: archive
+    shell: bash
+    env:
+      GPG_SECRET: ${{ steps.gpg.outputs.gpg }}
+      SRC_PATH: ${{ inputs.path }}
+      PREFIX: ${{ inputs.prefix }}
+    run: |
+      set -euo pipefail
+      src="$SRC_PATH"
+      basename="$(basename "$src")"
+      prefix="${PREFIX:-$basename}"
+      timestamp="$(date -u +%Y%m%d-%H%M%S)"
+      artifact="${basename}-${timestamp}.tar.gz.gpg"
+      email="$(echo "$GPG_SECRET" | jq -r '.email')"
+
+      tar czf - -C "$(dirname "$src")" "$basename" \
+        | gpg --encrypt \
+              --recipient "$email" \
+              --trust-model always \
+              --output "$RUNNER_TEMP/$artifact"
+
+      echo "artifact=$RUNNER_TEMP/$artifact" >> $GITHUB_OUTPUT
+      echo "artifact_name=$artifact" >> $GITHUB_OUTPUT
+      echo "prefix=$prefix" >> $GITHUB_OUTPUT
+      echo "Encrypted archive: $artifact ($(du -h "$RUNNER_TEMP/$artifact" | cut -f1))"
+
+  - name: Upload to GCS
+    shell: bash
+    env:
+      ARTIFACT: ${{ steps.archive.outputs.artifact }}
+      BUCKET: ${{ inputs.bucket }}
+      ARCHIVE_PREFIX: ${{ steps.archive.outputs.prefix }}
+      ARTIFACT_NAME: ${{ steps.archive.outputs.artifact_name }}
+    run: |
+      set -euo pipefail
+      echo "Uploading to: gcs:$BUCKET/$ARCHIVE_PREFIX/$ARTIFACT_NAME"
+      rclone copy "$ARTIFACT" "gcs:$BUCKET/$ARCHIVE_PREFIX/" --gcs-bucket-policy-only --verbose
+
+  - name: Prune old backups
+    if: inputs.keep != '0'
+    shell: bash
+    env:
+      KEEP: ${{ inputs.keep }}
+      BUCKET: ${{ inputs.bucket }}
+      ARCHIVE_PREFIX: ${{ steps.archive.outputs.prefix }}
+    run: |
+      set -euo pipefail
+      remote="gcs:$BUCKET/$ARCHIVE_PREFIX"
+
+      files="$(rclone lsf "$remote/" --files-only | sort -r)"
+      count="$(echo "$files" | grep -c . || true)"
+
+      if [ "$count" -gt "$KEEP" ]; then
+        echo "Pruning old backups (keeping $KEEP of $count)..."
+        echo "$files" | tail -n "+$(( KEEP + 1 ))" | while read -r file; do
+          echo "Deleting: $file"
+          rclone deletefile "${remote}/${file}" --gcs-bucket-policy-only
+        done
+      else
+        echo "Found $count backup(s), no pruning needed"
+      fi
