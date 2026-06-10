@@ -21,6 +21,14 @@ runs:
   - name: Setup QEMU
     id: setup-qemu
     uses: docker/setup-qemu-action@v4
+    with:
+      # Skip caching the tonistiigi/binfmt installer image. The actions/cache
+      # entry that backs it (`docker.io--tonistiigi--binfmt-latest-linux-x64`)
+      # is repo-wide, so reservations race when image builds overlap or when
+      # a prior run dies mid-save and leaves a stale reservation. The binfmt
+      # image is ~5MB; re-pulling on every run is cheaper than the annotation
+      # noise (and the time spent diagnosing it).
+      cache-image: false
 
   - name: Set up Docker Buildx
     id: buildx

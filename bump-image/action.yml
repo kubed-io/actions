@@ -1,0 +1,46 @@
+name: Bump Image Tag
+description: >-
+  Update an image tag in a kustomization (newTag) or Helm values (imageTag)
+  file and commit the change back to the repository.
+inputs:
+  file:
+    description: 'Path to the file that contains the tag key (e.g. components/base/kustomization.yaml or components/helm/values.yaml)'
+    required: true
+  tag:
+    description: 'The new tag to set'
+    required: true
+  key:
+    description: 'The YAML key that holds the tag. newTag for kustomize images, imageTag for a Helm values file.'
+    required: false
+    default: newTag
+runs:
+  using: composite
+  steps:
+
+  - name: Bump image tag
+    shell: bash
+    env:
+      BUMP_FILE: ${{ inputs.file }}
+      BUMP_TAG: ${{ inputs.tag }}
+      BUMP_KEY: ${{ inputs.key }}
+      REPO_NAME: ${{ github.event.repository.name }}
+    run: |
+      set -euo pipefail
+
+      # Rewrite only the "<key>: ..." line so the file's comments/format stay
+      # byte-stable. Pipe delimiter keeps file paths readable; the tag is
+      # quoted so all-digit tags (e.g. a numeric SHA) parse as a string.
+      sed -i -E "s|^(\s*${BUMP_KEY}:\s*).*|\1\"${BUMP_TAG}\"|" "$BUMP_FILE"
+
+      # Nothing changed (tag already current) — skip the commit instead of
+      # failing the job on an empty commit.
+      if git diff --quiet -- "$BUMP_FILE"; then
+        echo "No change to ${BUMP_FILE}; ${BUMP_KEY} is already ${BUMP_TAG}."
+        exit 0
+      fi
+
+      git config user.name  "github-actions[bot]"
+      git config user.email "github-actions[bot]@users.noreply.github.com"
+      git add "$BUMP_FILE"
+      git commit -m "${REPO_NAME}: bump image tag to ${BUMP_TAG} [skip ci]"
+      git push
