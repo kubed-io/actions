@@ -33,3 +33,11 @@ Return a structured object with exactly two fields:
   latest feedback so it is always the full, self-contained spec a builder
   (Copilot) could follow without re-reading the thread. Prefer specifics (paths,
   resource names, commands) over generalities; keep it tight and skimmable.
+
+This `plan` is published verbatim into the **issue body**, below a divider and
+under the human's original request — it literally becomes the prompt GitHub
+Copilot reads when the issue is assigned to it. So write it as the spec the
+builder will execute, not as a message to the human (that's what `reply` is for).
+On later runs the issue body you're given in context already contains your prior
+plan below the divider; treat that as the current draft to refine, not as new
+human input.

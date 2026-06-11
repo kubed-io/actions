@@ -5,7 +5,9 @@ description: >
   bash, or GitHub tools — so it physically cannot implement, commit, branch, open
   a PR, or post to GitHub. All GitHub I/O is done by deterministic github-script
   steps: a pre-step hands Claude the conversation as a file, and a post-step posts
-  a short reply plus upserts ONE pinned plan comment.
+  a short reply plus syncs the plan into the issue body (below a hard divider,
+  under the human's original request) — so it becomes the prompt GitHub Copilot
+  reads when the issue is assigned to it.
 
   Caller responsibilities: check out the repo, run kluster-konnect (its GCP auth
   is what fetches the keys), provide an Anthropic key + a GitHub (app) token, and
@@ -29,7 +31,10 @@ inputs:
     required: false
     default: "40"
   marker:
-    description: Sentinel first line that identifies the single pinned plan comment.
+    description: >
+      Hidden HTML-comment marker that bounds the agent-maintained plan section in
+      the issue body. Everything before it is the human's request (left untouched);
+      everything after is regenerated each run.
     required: false
     default: "<!-- plan-agent -->"
   scratch_dir:
@@ -94,9 +99,9 @@ runs:
           --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
           --json-schema '${{ steps.setup.outputs.schema }}'
 
-    # Deterministic publish: upsert the single pinned plan comment from `plan`
-    # (created first run, edited in place after) and post `reply` as a short new
-    # comment. The agent never touched GitHub — this step does.
+    # Deterministic publish: sync `plan` into the issue body below a hard divider
+    # (the human's request stays above it, untouched) and post `reply` as a short
+    # new comment. The agent never touched GitHub — this step does.
     - name: Publish plan + reply
       if: ${{ steps.claude.outputs.structured_output != '' }}
       uses: actions/github-script@v9
