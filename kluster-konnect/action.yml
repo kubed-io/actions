@@ -71,8 +71,11 @@ runs:
         echo "in_cluster=false" >> $GITHUB_OUTPUT
       fi
 
+  # GCP auth is the action's foundation — always done off-cluster, regardless of
+  # the kubeconfig/vpn toggles, so callers can use it for just GCP auth (e.g. to
+  # read a Secret Manager secret) without pulling a kubeconfig or VPN.
   - name: Authenticate to GCP
-    if: steps.cluster.outputs.in_cluster != 'true' && (inputs.kubeconfig == 'true' || inputs.vpn == 'true')
+    if: steps.cluster.outputs.in_cluster != 'true'
     uses: google-github-actions/auth@v3
     with:
       workload_identity_provider: ${{ inputs.workload_identity_provider }}
