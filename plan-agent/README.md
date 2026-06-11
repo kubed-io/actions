@@ -61,6 +61,8 @@ Caller responsibilities: check out the repo, run `kluster-konnect` (its GCP auth
 | File | Purpose |
 |---|---|
 | `action.yml` | Composite action definition |
+| `setup.sh` | Builds the system prompt (role + `context_file`) and minifies the schema → step outputs |
 | `system-prompt.md` | Agent role — loaded via `--append-system-prompt-file` |
+| `output-schema.json` | Structured-output schema (`reply`, `plan`) — minified into `--json-schema` |
 | `gather-context.js` | Writes the issue + thread to `context.md` for the agent to read |
 | `publish-plan.js` | Posts `reply` + upserts the pinned plan comment from `structured_output` |

@@ -51,24 +51,14 @@ runs:
 
     # $GITHUB_ACTION_PATH is this action's dir in every step (composite run steps
     # and the nested github-script steps alike), so it's how each step reaches the
-    # sibling files. Build the system prompt (role + optional app context) into a
-    # temp file for --append-system-prompt-file and minify the JSON schema.
+    # sibling files. setup.sh builds the system prompt + minifies the schema and
+    # writes both as step outputs.
     - name: Setup
       id: setup
       shell: bash
       env:
         CONTEXT_FILE: ${{ inputs.context_file }}
-      run: |
-        sys="$RUNNER_TEMP/plan-agent-system.md"
-        cp "$GITHUB_ACTION_PATH/system-prompt.md" "$sys"
-        if [ -n "$CONTEXT_FILE" ] && [ -f "$GITHUB_WORKSPACE/$CONTEXT_FILE" ]; then
-          { printf '\n\n## Repository-specific context\n\n'; cat "$GITHUB_WORKSPACE/$CONTEXT_FILE"; } >> "$sys"
-        fi
-        echo "system_prompt_file=$sys" >> "$GITHUB_OUTPUT"
-        # Minify the schema file to one line for claude_args (--json-schema is
-        # inline JSON, and claude_args splits on newlines).
-        schema="$(jq -c . "$GITHUB_ACTION_PATH/output-schema.json")"
-        echo "schema=$schema" >> "$GITHUB_OUTPUT"
+      run: bash "$GITHUB_ACTION_PATH/setup.sh"
 
     # Hand the agent the issue + full comment thread as a file it can Read — so it
     # never needs (blocked) GitHub access for context.
