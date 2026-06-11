@@ -4,7 +4,8 @@ description: >
   OpenVPN. Detects in-cluster SA credentials automatically — on a
   self-hosted runner inside the cluster, kubeconfig is built from the
   mounted service account token and GCP auth, VPN, and kubeconfig fetch
-  are all skipped.
+  are all skipped. The `kubeconfig` and `vpn` toggles let a caller opt into
+  each capability independently (both default on for backwards compatibility).
 inputs:
   workload_identity_provider:
     description: GCP Workload Identity Federation provider resource name
@@ -24,6 +25,14 @@ inputs:
     description: GCP Secret Manager secret name for VPN credentials
     required: false
     default: github-openvpn
+  kubeconfig:
+    description: Fetch + configure kubeconfig from GCP Secret Manager (when not in-cluster)
+    required: false
+    default: "true"
+  vpn:
+    description: Connect to OpenVPN (when not in-cluster)
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -63,7 +72,7 @@ runs:
       fi
 
   - name: Authenticate to GCP
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && (inputs.kubeconfig == 'true' || inputs.vpn == 'true')
     uses: google-github-actions/auth@v3
     with:
       workload_identity_provider: ${{ inputs.workload_identity_provider }}
@@ -71,14 +80,14 @@ runs:
 
   - name: Get kubeconfig from GCP
     id: kube_secret
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && inputs.kubeconfig == 'true'
     uses: google-github-actions/get-secretmanager-secrets@v3
     with:
       secrets: |-
         kubeconfig:${{ inputs.project }}/${{ inputs.kubeconfig_secret }}
 
   - name: Write kubeconfig
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && inputs.kubeconfig == 'true'
     shell: bash
     env:
       KUBECONFIG_DATA: ${{ steps.kube_secret.outputs.kubeconfig }}
@@ -91,7 +100,7 @@ runs:
 
   - name: Get VPN credentials
     id: vpn_secret
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && inputs.vpn == 'true'
     uses: google-github-actions/get-secretmanager-secrets@v3
     with:
       secrets: |-
@@ -99,7 +108,7 @@ runs:
 
   - name: Parse VPN credentials
     id: vpn
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && inputs.vpn == 'true'
     shell: bash
     env:
       SECRET: ${{ steps.vpn_secret.outputs.openvpn }}
@@ -109,14 +118,14 @@ runs:
       echo "$SECRET" | jq -r '.profile' > "$RUNNER_TEMP/profile.ovpn"
 
   - name: Install OpenVPN
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && inputs.vpn == 'true'
     shell: bash
     run: |
       sudo apt-get update
       sudo apt-get install -y openvpn openvpn-systemd-resolved
 
   - name: Connect to VPN
-    if: steps.cluster.outputs.in_cluster != 'true'
+    if: steps.cluster.outputs.in_cluster != 'true' && inputs.vpn == 'true'
     uses: kota65535/github-openvpn-connect-action@v3
     with:
       config_file: ${{ runner.temp }}/profile.ovpn
