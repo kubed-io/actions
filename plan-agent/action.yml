@@ -1,16 +1,15 @@
 name: Plan Agent (Claude)
 description: >
-  The "plan" half of an issue → plan → build loop. Runs claude-code-action as a
-  plan-only agent that does repo homework and writes the full plan to a gitignored
-  file, then a github-script step publishes that file into ONE pinned comment
-  (created the first time, edited in place after). The agent never writes to
-  GitHub itself — all comment surgery is deterministic here, so it doesn't depend
-  on the agent's (sandbox-blocked) GitHub-write tools.
+  The "plan" half of an issue → plan → build loop. Claude reads the issue thread
+  and repo and returns a structured {reply, plan}. It is given NO write, edit,
+  bash, or GitHub tools — so it physically cannot implement, commit, branch, open
+  a PR, or post to GitHub. All GitHub I/O is done by deterministic github-script
+  steps: a pre-step hands Claude the conversation as a file, and a post-step posts
+  a short reply plus upserts ONE pinned plan comment.
 
-  Caller responsibilities: check out the repo, install the toolchain the homework
-  needs (e.g. krm-setup for `kubectl build`), provide an Anthropic key and a
-  GitHub token (typically a GitHub App installation token), and gitignore the
-  plan_file path.
+  Caller responsibilities: check out the repo, run kluster-konnect (its GCP auth
+  is what fetches the keys), provide an Anthropic key + a GitHub (app) token, and
+  gitignore the scratch_dir.
 
 inputs:
   anthropic_api_key:
@@ -18,8 +17,8 @@ inputs:
     required: true
   github_token:
     description: >
-      Token the agent reads/comments with — typically a GitHub App installation
-      token so comments come from your app.
+      Token the action comments with — typically a GitHub App installation token
+      so comments come from your app.
     required: true
   model:
     description: Claude model (alias like `sonnet`/`opus`, or a full id).
@@ -29,69 +28,92 @@ inputs:
     description: Max Claude Code turns (homework headroom; only used turns are billed).
     required: false
     default: "40"
-  label_trigger:
-    description: Issue label that triggers the first plan (claude-code-action label_trigger).
-    required: false
-    default: claude
   marker:
     description: Sentinel first line that identifies the single pinned plan comment.
     required: false
     default: "<!-- plan-agent -->"
-  plan_file:
+  scratch_dir:
     description: >
-      Repo-relative path the agent writes the plan to. MUST be gitignored — that
-      keeps the write inside the sandbox (allowed) while git sees no change (no
-      branch/PR). The system prompt points the agent at this exact path.
+      Gitignored dir for the conversation hand-off file the agent reads. MUST be
+      gitignored in the caller repo.
     required: false
-    default: .plan/plan.md
+    default: .plan
+  context_file:
+    description: >
+      Optional repo-relative file of app-specific guidance, appended to the
+      agent's system prompt (e.g. conventions only this repo cares about).
+    required: false
+    default: ""
 
 runs:
   using: composite
   steps:
 
-    # Fill the plan-file placeholder in the prompt and collapse it to one line
-    # (claude_args splits on newlines, so --append-system-prompt must be single-line).
-    # $GITHUB_ACTION_PATH always points to THIS action's dir, so publish-plan.js
-    # is reachable in both the bash and github-script steps.
-    - name: Load system prompt
-      id: prompt
+    # $GITHUB_ACTION_PATH is this action's dir in every step (composite run steps
+    # and the nested github-script steps alike), so it's how each step reaches the
+    # sibling files. Build the system prompt (role + optional app context) into a
+    # temp file for --append-system-prompt-file and minify the JSON schema.
+    - name: Setup
+      id: setup
       shell: bash
       env:
-        PLAN_FILE: ${{ inputs.plan_file }}
+        CONTEXT_FILE: ${{ inputs.context_file }}
       run: |
-        text="$(sed "s#__PLAN_FILE__#${PLAN_FILE}#g" "$GITHUB_ACTION_PATH/system-prompt.md" \
-          | tr '\n' ' ' | sed -e 's/  */ /g' -e 's/^ *//' -e 's/ *$//')"
-        echo "text=$text" >> "$GITHUB_OUTPUT"
+        sys="$RUNNER_TEMP/plan-agent-system.md"
+        cp "$GITHUB_ACTION_PATH/system-prompt.md" "$sys"
+        if [ -n "$CONTEXT_FILE" ] && [ -f "$GITHUB_WORKSPACE/$CONTEXT_FILE" ]; then
+          { printf '\n\n## Repository-specific context\n\n'; cat "$GITHUB_WORKSPACE/$CONTEXT_FILE"; } >> "$sys"
+        fi
+        echo "system_prompt_file=$sys" >> "$GITHUB_OUTPUT"
+        # Minify the schema file to one line for claude_args (--json-schema is
+        # inline JSON, and claude_args splits on newlines).
+        schema="$(jq -c . "$GITHUB_ACTION_PATH/output-schema.json")"
+        echo "schema=$schema" >> "$GITHUB_OUTPUT"
 
-    # Interactive mode: the action reads the issue + thread and posts Claude's
-    # short reply through its own token path. Claude only produces CONTENT — it
-    # writes the full plan to the gitignored plan_file (so no branch/PR) and keeps
-    # its reply short. Write is allowed only so it can save that file; Edit/
-    # MultiEdit stay disallowed so it can't modify repo files.
+    # Hand the agent the issue + full comment thread as a file it can Read — so it
+    # never needs (blocked) GitHub access for context.
+    - name: Gather issue context
+      uses: actions/github-script@v9
+      env:
+        SCRATCH_DIR: ${{ inputs.scratch_dir }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          await require(`${process.env.GITHUB_ACTION_PATH}/gather-context.js`)({ github, context, core });
+
+    # Automation mode + --json-schema: the agent reads the context file + repo and
+    # returns {reply, plan} as structured output. Write/Edit/Bash/etc. are all
+    # disallowed, so it has only read-only tools — it cannot modify the repo, run
+    # commands, commit, or open a PR. It does no GitHub I/O at all.
     - name: Plan with Claude
+      id: claude
       uses: anthropics/claude-code-action@v1
       with:
         anthropic_api_key: ${{ inputs.anthropic_api_key }}
         github_token: ${{ inputs.github_token }}
         show_full_output: true
-        display_report: true
-        label_trigger: ${{ inputs.label_trigger }}
+        prompt: |
+          Produce or refine the plan for this issue. The issue body and the full
+          comment thread are in the file ${{ inputs.scratch_dir }}/context.md at
+          the repo root — read it first, then do repo homework with your read-only
+          tools. Return the structured { reply, plan } object per your role.
         claude_args: |
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max_turns }}
-          --disallowedTools Edit,MultiEdit,NotebookEdit
-          --append-system-prompt "${{ steps.prompt.outputs.text }}"
+          --disallowedTools Bash,Edit,Write,MultiEdit,NotebookEdit
+          --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
+          --json-schema '${{ steps.setup.outputs.schema }}'
 
-    # Publish the plan file into ONE pinned comment, edited in place (found by the
-    # sentinel first line). Created the first run, updated thereafter.
-    - name: Publish plan comment
-      if: success()
+    # Deterministic publish: upsert the single pinned plan comment from `plan`
+    # (created first run, edited in place after) and post `reply` as a short new
+    # comment. The agent never touched GitHub — this step does.
+    - name: Publish plan + reply
+      if: ${{ steps.claude.outputs.structured_output != '' }}
       uses: actions/github-script@v9
       env:
-        PLAN_FILE: ${{ inputs.plan_file }}
         MARKER: ${{ inputs.marker }}
+        STRUCTURED: ${{ steps.claude.outputs.structured_output }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
-          const publish = require(`${process.env.GITHUB_ACTION_PATH}/publish-plan.js`);
-          await publish({ github, context, core });
+          await require(`${process.env.GITHUB_ACTION_PATH}/publish-plan.js`)({ github, context, core });

@@ -1,81 +1,66 @@
 # Plan Agent (Claude)
 
-The "plan" half of an issue → plan → build loop. Claude does homework on the repo, writes a structured plan to a gitignored file, and a deterministic step publishes that file into a single pinned comment (created the first time, edited in place after). The agent never writes to GitHub itself.
+The "plan" half of an issue → plan → build loop. Claude reads the issue thread + repo and returns a structured `{ reply, plan }`. It is given **no write, edit, bash, or GitHub tools** — so it physically cannot implement, commit, branch, open a PR, or post to GitHub. Deterministic `github-script` steps do all GitHub I/O: a pre-step hands Claude the conversation as a file, and a post-step posts a short reply plus upserts **one pinned plan comment** (created the first run, edited in place after).
+
+This separation is the whole point: a plan agent that *could* write would eventually treat "we should change X" as a build order. Here it can't — building is exclusively the downstream builder's job (e.g. assign GitHub Copilot to the issue).
 
 ## How it works
 
-1. **Trigger** — an issue gets the `claude` label (first plan) or a human posts a comment containing `@claude` (iteration).
-2. **Homework** — Claude reads the issue, all comments, and relevant repo files. It never guesses.
-3. **Plan file** — Claude writes the full plan as GitHub-flavored markdown to `.plan/plan.md` (gitignored, so no branch or PR is created). Its visible reply is short (1–3 sentences).
-4. **Publish** — `publish-plan.js` upserts the plan file into one pinned comment identified by a sentinel marker line.
+1. **Trigger** (in the *caller's* `if`) — an issue gets the `claude` label (first plan), or a human posts a comment containing `@claude` (iteration).
+2. **Gather** — `gather-context.js` writes the issue body + full comment thread to `<scratch_dir>/context.md` (gitignored).
+3. **Plan** — Claude (automation mode, `--json-schema`) reads that file + repo with read-only tools and returns `{ reply, plan }`. No file writes, no commands, no GitHub.
+4. **Publish** — `publish-plan.js` upserts `plan` into one pinned comment (sentinel-marked) and posts `reply` as a short new comment.
 
 ## Usage
 
-Caller responsibilities: check out the repo, install any toolchain the homework needs, provide secrets, and gitignore the plan file path.
+Caller responsibilities: check out the repo, run `kluster-konnect` (its GCP auth is what fetches the keys), provide an Anthropic key + a GitHub App token, and **gitignore `scratch_dir`**.
 
 ```yaml
-- name: Checkout
-  uses: actions/checkout@v6
-
-- name: KRM Setup
-  uses: kubed-io/actions/krm-setup@main
-
-- name: Konnect
-  uses: kubed-io/actions/kluster-konnect@main
+- uses: actions/checkout@v6
+- uses: kubed-io/actions/kluster-konnect@main
   with:
     workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
     project: ${{ vars.GCP_PROJECT }}
-    kubeconfig: ${{ contains(github.event.issue.labels.*.name, 'kube') }}
-    vpn: ${{ contains(github.event.issue.labels.*.name, 'vpn') }}
-
-- name: Get secrets
-  id: secrets
+- id: secrets
   uses: google-github-actions/get-secretmanager-secrets@v3
   with:
     secrets: |-
       anthropic:${{ vars.GCP_PROJECT }}/anthropic
       github_app:${{ vars.GCP_PROJECT }}/github-app
-
-- name: Mint app token
-  id: app-token
+- id: app-token
   uses: actions/create-github-app-token@v3
   with:
     client-id: ${{ fromJson(steps.secrets.outputs.github_app).github_app_client_id }}
     private-key: ${{ fromJson(steps.secrets.outputs.github_app).github_app_private_key }}
-
-- name: Plan Agent
-  uses: kubed-io/actions/plan-agent@main
+- uses: kubed-io/actions/plan-agent@main
   with:
     anthropic_api_key: ${{ steps.secrets.outputs.anthropic }}
     github_token: ${{ steps.app-token.outputs.token }}
+    # context_file: .github/plan-agent.md   # optional app-specific guidance
 ```
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |---|---|---|---|
-| `anthropic_api_key` | yes | — | Anthropic API key passed to claude-code-action |
-| `github_token` | yes | — | Token used to post/edit comments — typically a GitHub App installation token |
-| `model` | no | `sonnet` | Claude model alias (`sonnet`, `opus`) or full model id |
+| `anthropic_api_key` | yes | — | Anthropic API key for claude-code-action |
+| `github_token` | yes | — | Token used for all comment I/O — typically a GitHub App installation token |
+| `model` | no | `sonnet` | Claude model alias (`sonnet`, `opus`) or full id |
 | `max_turns` | no | `40` | Max Claude Code turns (only used turns are billed) |
-| `label_trigger` | no | `claude` | Issue label that fires the first plan run |
-| `marker` | no | `<!-- plan-agent -->` | Sentinel first line that identifies the single pinned plan comment |
-| `plan_file` | no | `.plan/plan.md` | Repo-relative path Claude writes the plan to — must be gitignored |
+| `marker` | no | `<!-- plan-agent -->` | Sentinel first line identifying the single pinned plan comment |
+| `scratch_dir` | no | `.plan` | Gitignored dir for the `context.md` hand-off file — **must be gitignored** |
+| `context_file` | no | `""` | Optional repo-relative file of app-specific guidance, appended to the agent's system prompt |
 
-## Labels
+## Notes
 
-The workflow consuming this action should gate on labels to control what the agent can access:
-
-| Label | Effect |
-|---|---|
-| `claude` | Trigger — fires the first plan |
-| `kube` | Pass to `kluster-konnect` to load kubeconfig (enables `kubectl get` live resources) |
-| `vpn` | Pass to `kluster-konnect` to connect OpenVPN (in-network access) |
+- The caller's job `if` is the real gate (e.g. require `@claude` in the comment body so a comment without it never spins a runner).
+- The agent has **no Bash**, so it can't run `kubectl build`/`kubectl get` — it reads kustomize/krm YAML directly. (Trade-off taken deliberately: full Bash would re-open the door to git/implementation.)
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `action.yml` | Composite action definition |
-| `system-prompt.md` | Agent system prompt — `__PLAN_FILE__` is replaced at runtime with `inputs.plan_file` |
-| `publish-plan.js` | Upserts the plan file into a single pinned comment via the GitHub REST API |
+| `system-prompt.md` | Agent role — loaded via `--append-system-prompt-file` |
+| `gather-context.js` | Writes the issue + thread to `context.md` for the agent to read |
+| `publish-plan.js` | Posts `reply` + upserts the pinned plan comment from `structured_output` |

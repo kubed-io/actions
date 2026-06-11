@@ -1,0 +1,15 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reply": {
+      "type": "string",
+      "description": "Short, friendly, conversational message (1-3 sentences) about what changed this round or what you need from the human. Never the full plan."
+    },
+    "plan": {
+      "type": "string",
+      "description": "The complete current plan in GitHub-flavored markdown: Problem, Approach, Steps, Open questions, Risks/trade-offs."
+    }
+  },
+  "required": ["reply", "plan"]
+}
