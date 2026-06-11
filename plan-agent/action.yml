@@ -1,0 +1,97 @@
+name: Plan Agent (Claude)
+description: >
+  The "plan" half of an issue → plan → build loop. Runs claude-code-action as a
+  plan-only agent that does repo homework and writes the full plan to a gitignored
+  file, then a github-script step publishes that file into ONE pinned comment
+  (created the first time, edited in place after). The agent never writes to
+  GitHub itself — all comment surgery is deterministic here, so it doesn't depend
+  on the agent's (sandbox-blocked) GitHub-write tools.
+
+  Caller responsibilities: check out the repo, install the toolchain the homework
+  needs (e.g. krm-setup for `kubectl build`), provide an Anthropic key and a
+  GitHub token (typically a GitHub App installation token), and gitignore the
+  plan_file path.
+
+inputs:
+  anthropic_api_key:
+    description: Anthropic API key for claude-code-action.
+    required: true
+  github_token:
+    description: >
+      Token the agent reads/comments with — typically a GitHub App installation
+      token so comments come from your app.
+    required: true
+  model:
+    description: Claude model (alias like `sonnet`/`opus`, or a full id).
+    required: false
+    default: sonnet
+  max_turns:
+    description: Max Claude Code turns (homework headroom; only used turns are billed).
+    required: false
+    default: "40"
+  label_trigger:
+    description: Issue label that triggers the first plan (claude-code-action label_trigger).
+    required: false
+    default: claude
+  marker:
+    description: Sentinel first line that identifies the single pinned plan comment.
+    required: false
+    default: "<!-- plan-agent -->"
+  plan_file:
+    description: >
+      Repo-relative path the agent writes the plan to. MUST be gitignored — that
+      keeps the write inside the sandbox (allowed) while git sees no change (no
+      branch/PR). The system prompt points the agent at this exact path.
+    required: false
+    default: .plan/plan.md
+
+runs:
+  using: composite
+  steps:
+
+    # Fill the plan-file placeholder in the prompt and collapse it to one line
+    # (claude_args splits on newlines, so --append-system-prompt must be single-line).
+    # $GITHUB_ACTION_PATH always points to THIS action's dir, so publish-plan.js
+    # is reachable in both the bash and github-script steps.
+    - name: Load system prompt
+      id: prompt
+      shell: bash
+      env:
+        PLAN_FILE: ${{ inputs.plan_file }}
+      run: |
+        text="$(sed "s#__PLAN_FILE__#${PLAN_FILE}#g" "$GITHUB_ACTION_PATH/system-prompt.md" \
+          | tr '\n' ' ' | sed -e 's/  */ /g' -e 's/^ *//' -e 's/ *$//')"
+        echo "text=$text" >> "$GITHUB_OUTPUT"
+
+    # Interactive mode: the action reads the issue + thread and posts Claude's
+    # short reply through its own token path. Claude only produces CONTENT — it
+    # writes the full plan to the gitignored plan_file (so no branch/PR) and keeps
+    # its reply short. Write is allowed only so it can save that file; Edit/
+    # MultiEdit stay disallowed so it can't modify repo files.
+    - name: Plan with Claude
+      uses: anthropics/claude-code-action@v1
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        github_token: ${{ inputs.github_token }}
+        show_full_output: true
+        display_report: true
+        label_trigger: ${{ inputs.label_trigger }}
+        claude_args: |
+          --model ${{ inputs.model }}
+          --max-turns ${{ inputs.max_turns }}
+          --disallowedTools Edit,MultiEdit,NotebookEdit
+          --append-system-prompt "${{ steps.prompt.outputs.text }}"
+
+    # Publish the plan file into ONE pinned comment, edited in place (found by the
+    # sentinel first line). Created the first run, updated thereafter.
+    - name: Publish plan comment
+      if: success()
+      uses: actions/github-script@v9
+      env:
+        PLAN_FILE: ${{ inputs.plan_file }}
+        MARKER: ${{ inputs.marker }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          const publish = require(`${process.env.GITHUB_ACTION_PATH}/publish-plan.js`);
+          await publish({ github, context, core });
