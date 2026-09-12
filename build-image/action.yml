@@ -18,6 +18,25 @@ runs:
   using: composite
   steps:
   
+  # buildx's `type=gha` cache backend reads ACTIONS_RUNTIME_TOKEN and
+  # ACTIONS_RESULTS_URL from the environment, and ACTIONS_CACHE_SERVICE_V2 to
+  # select the v2 cache API that replaced the retired v1. The runner hands those
+  # to JS actions only — never to a `run:` step — so the `docker buildx bake`
+  # below cannot see them, and without them the cache is a SILENT no-op: it
+  # neither imports nor exports and reports nothing.
+  #
+  # Found in kubed-io/selenium-flow, whose docker-compose.yaml had carried
+  # cache-to/cache-from since it was written and had never once produced a
+  # CACHED layer. With this, a source-only multi-arch build there went from
+  # 9m30 to ~2m20. Every repo calling this action was in the same state.
+  #
+  # Getting the list wrong is worse than not having it: omitting the V2 flag
+  # made buildx talk to the decommissioned v1 endpoint, which answers with an
+  # HTML error page, which fails the BUILD rather than just the cache. That is
+  # the argument for this action over exporting the variables by hand.
+  - name: Expose GitHub Runtime
+    uses: crazy-max/ghaction-github-runtime@v4
+
   - name: Setup QEMU
     id: setup-qemu
     uses: docker/setup-qemu-action@v4
