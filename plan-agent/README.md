@@ -52,6 +52,35 @@ Caller responsibilities: check out the repo, run `kluster-konnect` (its GCP auth
 | `marker` | no | `<!-- plan-agent -->` | Hidden marker bounding the plan section in the issue body (human's request stays above it; plan regenerated below) |
 | `scratch_dir` | no | `.plan` | Gitignored dir for the `context.md` hand-off file — **must be gitignored** |
 | `context_file` | no | `""` | Optional repo-relative file of app-specific guidance, appended to the agent's system prompt |
+| `mcp_config` | no | `""` | Optional extra MCP servers — inline JSON or a path to a JSON file. Rendered through `envsubst` to a temp `.mcp.json` (so `${VAR}` placeholders are filled from env, never hardcoded) and passed to `claude-code-action` via `--mcp-config`, merged with the built-in GitHub MCP |
+| `extra_disallowed_tools` | no | `""` | Optional comma-separated tools appended to the built-in `--disallowedTools` (`Bash,Edit,Write,MultiEdit,NotebookEdit`) — deny an MCP server's write tools to keep an MCP-enabled run read-only |
+
+### Read-only MCP example (n8n)
+
+Give the plan agent read access to a live n8n instance via its MCP server while
+denying every n8n write tool, so it can inspect real workflows but cannot mutate
+them. The bearer token is injected via env (never written into YAML): export it to
+the job env (e.g. from Secret Manager) as `N8N_MCP_TOKEN`, and reference it as
+`${N8N_MCP_TOKEN}` inside `mcp_config` — `setup.sh` interpolates it at runtime.
+
+```yaml
+# earlier in the job, promote the secret to the job env so setup.sh's envsubst sees it:
+- name: Export n8n MCP token
+  env:
+    TOKEN: ${{ steps.secrets.outputs.n8n_mcp_token }}
+  run: echo "N8N_MCP_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+- uses: kubed-io/actions/plan-agent@main
+  with:
+    anthropic_api_key: ${{ steps.secrets.outputs.anthropic }}
+    github_token: ${{ steps.app-token.outputs.token }}
+    context_file: agents/workflow-maker/AGENT.md
+    mcp_config: >-
+      {"mcpServers":{"n8n":{"type":"http",
+      "url":"http://n8n-mcp.flow.svc.cluster.local:3000/mcp",
+      "headers":{"Authorization":"Bearer ${N8N_MCP_TOKEN}"}}}}
+    extra_disallowed_tools: mcp__n8n__n8n_create_workflow,mcp__n8n__n8n_update_full_workflow,mcp__n8n__n8n_update_partial_workflow,mcp__n8n__n8n_delete_workflow
+```
 
 ## Notes
 

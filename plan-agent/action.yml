@@ -49,6 +49,25 @@ inputs:
       agent's system prompt (e.g. conventions only this repo cares about).
     required: false
     default: ""
+  mcp_config:
+    description: >
+      Optional extra MCP servers, as an inline JSON string OR a path (absolute, or
+      repo-relative under the workspace) to a JSON file. When set, setup.sh renders
+      it to a temp .mcp.json through envsubst and passes it to claude-code-action
+      via --mcp-config (merged with the built-in GitHub MCP). Env-var placeholders
+      like ${N8N_MCP_TOKEN} are interpolated from the environment at runtime, so a
+      bearer token can be supplied via env and is never hardcoded here. Unset = no
+      extra MCP servers (default behavior).
+    required: false
+    default: ""
+  extra_disallowed_tools:
+    description: >
+      Optional comma-separated tool names appended to the built-in --disallowedTools
+      (Bash,Edit,Write,MultiEdit,NotebookEdit). Use to deny an MCP server's write
+      tools so an MCP-enabled run stays read-only (e.g. the n8n write tools). Unset =
+      only the built-in list is denied (default behavior).
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -63,6 +82,8 @@ runs:
       shell: bash
       env:
         CONTEXT_FILE: ${{ inputs.context_file }}
+        MCP_CONFIG: ${{ inputs.mcp_config }}
+        EXTRA_DISALLOWED_TOOLS: ${{ inputs.extra_disallowed_tools }}
       run: bash "$GITHUB_ACTION_PATH/setup.sh"
 
     # Hand the agent the issue + full comment thread as a file it can Read — so it
@@ -95,9 +116,10 @@ runs:
         claude_args: |
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max_turns }}
-          --disallowedTools Bash,Edit,Write,MultiEdit,NotebookEdit
+          --disallowedTools ${{ steps.setup.outputs.disallowed_tools }}
           --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
           --json-schema '${{ steps.setup.outputs.schema }}'
+          ${{ steps.setup.outputs.mcp_config_file != '' && format('--mcp-config {0}', steps.setup.outputs.mcp_config_file) || '' }}
 
     # Deterministic publish: sync `plan` into the issue body below a hard divider
     # (the human's request stays above it, untouched) and post `reply` as a short
