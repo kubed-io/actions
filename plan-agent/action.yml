@@ -32,6 +32,14 @@ inputs:
       Token the action comments with — typically a GitHub App installation token
       so comments come from your app.
     required: true
+  prompt:
+    description: >
+      Optional task for Claude. When set it replaces the issue prompt, so the action
+      also works without an issue (e.g. workflow_dispatch); the answer comes back in
+      the `reply` output. Gathering and publishing to an issue only happen when the
+      event has one.
+    required: false
+    default: ""
   mode:
     description: >
       `plan` (default): return {reply, plan}; the plan is synced into the issue body.
@@ -130,6 +138,17 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  reply:
+    description: The agent's reply (also posted to the issue, when there is one).
+    value: ${{ steps.claude.outputs.structured_output != '' && fromJson(steps.claude.outputs.structured_output).reply || '' }}
+  session_id:
+    description: The Claude session ID; the same session_key gives the same one.
+    value: ${{ steps.claude.outputs.session_id }}
+  conclusion:
+    description: success or failure of the Claude run.
+    value: ${{ steps.claude.outputs.conclusion }}
+
 runs:
   using: composite
   steps:
@@ -156,6 +175,7 @@ runs:
     # Hand the agent the issue + full comment thread as a file it can Read — so it
     # never needs (blocked) GitHub access for context.
     - name: Gather issue context
+      if: github.event.issue.number
       uses: actions/github-script@v9
       env:
         SCRATCH_DIR: ${{ inputs.scratch_dir }}
@@ -182,7 +202,8 @@ runs:
         # A resumed reply session already holds the conversation, so it reads only the
         # new message; context.md stays there to catch up on anything it missed.
         prompt: >-
-          ${{ inputs.mode == 'reply' && steps.setup.outputs.resumed == 'true'
+          ${{ inputs.prompt != '' && inputs.prompt
+            || inputs.mode == 'reply' && steps.setup.outputs.resumed == 'true'
             && format('There is a new message in this issue, in the file {0}/latest.md at the repo root; your earlier turns are in this session. Answer it. If you need to catch up on comments you have not seen, the whole thread is in {0}/context.md. Return the structured reply object per your role.', inputs.scratch_dir)
             || inputs.mode == 'reply'
             && format('Answer the latest message in this issue. The issue body and the full comment thread are in the file {0}/context.md at the repo root; read it first. Return the structured reply object per your role.', inputs.scratch_dir)
@@ -199,7 +220,7 @@ runs:
     # (the human's request stays above it, untouched) and post `reply` as a short
     # new comment. The agent never touched GitHub — this step does.
     - name: Publish plan + reply
-      if: ${{ steps.claude.outputs.structured_output != '' }}
+      if: github.event.issue.number && steps.claude.outputs.structured_output != ''
       uses: actions/github-script@v9
       env:
         MARKER: ${{ inputs.marker }}
