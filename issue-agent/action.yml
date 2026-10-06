@@ -2,7 +2,7 @@ name: Issue Agent (Claude)
 description: >
   Runs a repo's Claude agent in a GitHub issue. You choose the agent
   (.claude/agents/<name>.md); this action only adds the issue plumbing: the thread
-  as a file, a short reply contract, the reply posted as a comment, and one
+  as a file, a short reply contract, a "working" comment that becomes the reply, and one
   resumable session per key. It also takes a one-off prompt, with or without an
   issue, so a dispatch can join an issue's conversation or stand alone.
 
@@ -98,6 +98,9 @@ outputs:
   issue_number:
     description: The issue the run worked in, empty for a one-off.
     value: ${{ steps.issue.outputs.number }}
+  comment_id:
+    description: The comment the reply is in.
+    value: ${{ steps.ack.outputs.comment_id }}
   session_id:
     description: The Claude session ID.
     value: ${{ steps.claude.outputs.session_id }}
@@ -146,6 +149,21 @@ runs:
         script: |
           await require(`${process.env.GITHUB_ACTION_PATH}/gather-context.js`)({ github, context, core });
 
+    # The reply's comment goes up first, as a spinner and a link to this run, and the
+    # answer replaces it.
+    - name: Acknowledge
+      id: ack
+      if: steps.issue.outputs.number != ''
+      uses: actions/github-script@v9
+      env:
+        ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        PROMPT: ${{ inputs.prompt }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          await require(`${process.env.GITHUB_ACTION_PATH}/acknowledge.js`)({ github, context, core });
+
     # What Claude is asked: a one-off prompt as-is (with the thread file named when
     # there is an issue); a resumed session only the newest message; a new one the
     # whole thread.
@@ -177,13 +195,29 @@ runs:
           ${{ inputs.claude_args }}
 
     - name: Post the reply
-      if: steps.issue.outputs.number != '' && steps.claude.outputs.structured_output != ''
+      # an empty reply fails here, so Report failure clears the spinner
+      if: steps.issue.outputs.number != ''
       uses: actions/github-script@v9
       env:
         STRUCTURED: ${{ steps.claude.outputs.structured_output }}
         ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
         PROMPT: ${{ inputs.prompt }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
           await require(`${process.env.GITHUB_ACTION_PATH}/publish-reply.js`)({ github, context, core });
+
+    # a failed or cancelled run never leaves the spinner up
+    - name: Report failure
+      if: failure() && steps.ack.outputs.comment_id != ''
+      uses: actions/github-script@v9
+      env:
+        COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
+        PROMPT: ${{ inputs.prompt }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          await require(`${process.env.GITHUB_ACTION_PATH}/report-failure.js`)({ github, context, core });

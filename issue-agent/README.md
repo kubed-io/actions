@@ -7,7 +7,9 @@ issue needs:
 - the thread as files the agent reads (`<scratch_dir>/context.md`, and `latest.md`
   for the message that triggered the run)
 - a short contract appended to the agent's prompt: answer, and return `{ reply }`
-- the reply posted as a comment
+- the reply comment, posted before Claude starts as "Working on it…" with a spinner and
+  a link to the run, then edited into the answer (or into a failure note if the run
+  doesn't finish)
 - one Claude session per `session_key`, resumed where sessions persist, so a resumed
   run reads only the new message
 
@@ -64,5 +66,6 @@ The caller's job `if` is the gate: which labels, which comment authors. Gitignor
 |---|---|
 | `reply` | The agent's reply |
 | `issue_number` | The issue it worked in, empty for a one-off |
+| `comment_id` | The comment the reply is in |
 | `session_id` | The Claude session ID |
 | `conclusion` | `success` or `failure` |
