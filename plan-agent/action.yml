@@ -32,6 +32,10 @@ inputs:
       Token the action comments with — typically a GitHub App installation token
       so comments come from your app.
     required: true
+  issue_number:
+    description: The issue to work in; defaults to the event's issue (set it from a dispatch).
+    required: false
+    default: ""
   prompt:
     description: >
       Optional task for Claude. When set it replaces the issue prompt, so the action
@@ -175,10 +179,11 @@ runs:
     # Hand the agent the issue + full comment thread as a file it can Read — so it
     # never needs (blocked) GitHub access for context.
     - name: Gather issue context
-      if: github.event.issue.number
+      if: inputs.issue_number || github.event.issue.number
       uses: actions/github-script@v9
       env:
         SCRATCH_DIR: ${{ inputs.scratch_dir }}
+        ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
       with:
         github-token: ${{ inputs.github_token }}
         script: |
@@ -220,9 +225,10 @@ runs:
     # (the human's request stays above it, untouched) and post `reply` as a short
     # new comment. The agent never touched GitHub — this step does.
     - name: Publish plan + reply
-      if: github.event.issue.number && steps.claude.outputs.structured_output != ''
+      if: (inputs.issue_number || github.event.issue.number) && steps.claude.outputs.structured_output != ''
       uses: actions/github-script@v9
       env:
+        ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
         MARKER: ${{ inputs.marker }}
         STRUCTURED: ${{ steps.claude.outputs.structured_output }}
       with:

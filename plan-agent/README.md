@@ -53,6 +53,7 @@ Caller responsibilities: check out the repo, run `kluster-konnect` (its GCP auth
 | `anthropic_api_key` | no | `""` | Anthropic API key. Without it (or `claude_code_oauth_token`), claude-code-action reads `ANTHROPIC_API_KEY` / `CLAUDE_CODE_OAUTH_TOKEN` from the job's env |
 | `claude_code_oauth_token` | no | `""` | Claude subscription token (`claude setup-token`) |
 | `github_token` | yes | — | Token used for all comment I/O — typically a GitHub App installation token |
+| `issue_number` | no | the event's issue | The issue to work in — set it from a dispatch |
 | `prompt` | no | `""` | A task that replaces the issue prompt; works without an issue (e.g. `workflow_dispatch`), with the answer in the `reply` output |
 | `mode` | no | `plan` | `plan`: `{reply, plan}`, plan synced into the body. `reply`: `{reply}` only, posted as a comment |
 | `agent` | no | `""` | Repo agent (`.claude/agents/<name>.md`) the session runs as; the mode's role is appended to it |

@@ -25,7 +25,7 @@ module.exports = async function publish({ github, context, core }) {
   const { reply, plan } = parsed;
   const marker = process.env.MARKER;
   const { owner, repo } = context.repo;
-  const issue_number = context.issue.number;
+  const issue_number = Number(process.env.ISSUE_NUMBER) || context.issue.number;
 
   // Sync the plan into the issue body. The marker is the split point: keep
   // everything before it (the human's text) verbatim, regenerate everything after.

@@ -1,0 +1,189 @@
+name: Issue Agent (Claude)
+description: >
+  Runs a repo's Claude agent in a GitHub issue. You choose the agent
+  (.claude/agents/<name>.md); this action only adds the issue plumbing: the thread
+  as a file, a short reply contract, the reply posted as a comment, and one
+  resumable session per key. It also takes a one-off prompt, with or without an
+  issue, so a dispatch can join an issue's conversation or stand alone.
+
+inputs:
+  agent:
+    description: The repo agent (.claude/agents/<name>.md) the session runs as.
+    required: true
+  github_token:
+    description: Token for the issue I/O (reading the thread, posting the reply).
+    required: true
+  issue_number:
+    description: The issue to work in; defaults to the event's issue. Empty with no issue event = a one-off (needs prompt).
+    required: false
+    default: ""
+  prompt:
+    description: >
+      A one-off message instead of the thread's newest one (e.g. from a dispatch).
+      With an issue, it is answered in that issue's conversation and quoted above the
+      posted reply; without one, the answer only comes back as the reply output.
+    required: false
+    default: ""
+  session_key:
+    description: >
+      Makes the conversation resumable: uuid5(repo + key) is the session ID, resumed
+      where Claude's sessions persist (the kubed-io claude runner's /claude). The same
+      key from an issue event and a dispatch is the same conversation.
+    required: false
+    default: ""
+  session_title:
+    description: The session's name when it starts (shown in /resume and Grafana); defaults to session_key.
+    required: false
+    default: ""
+  model:
+    description: Claude model (alias like `sonnet`/`opus`, or a full id).
+    required: false
+    default: sonnet
+  max_turns:
+    description: Max Claude Code turns.
+    required: false
+    default: "40"
+  mcp_config:
+    description: >
+      MCP servers, as inline JSON or a path (absolute, or repo-relative) to a JSON
+      file. Rendered through envsubst, so ${VAR} placeholders come from env. Every
+      server in it is allowed.
+    required: false
+    default: ""
+  allowed_tools:
+    description: Comma-separated tools to allow, e.g. `Bash(kubectl build:*)`.
+    required: false
+    default: ""
+  disallowed_tools:
+    description: Comma-separated tools to deny (on top of whatever the agent itself restricts).
+    required: false
+    default: ""
+  context_file:
+    description: Optional repo-relative file of guidance appended to the issue contract.
+    required: false
+    default: ""
+  claude_args:
+    description: Extra flags appended to Claude's command line (e.g. `--permission-mode acceptEdits`).
+    required: false
+    default: ""
+  allowed_bots:
+    description: Bots allowed to trigger the run (claude-code-action refuses bot actors otherwise).
+    required: false
+    default: ""
+  scratch_dir:
+    description: Dir for the thread files the agent reads; gitignore it.
+    required: false
+    default: .issue
+  anthropic_api_key:
+    description: Optional; without it or claude_code_oauth_token, the job's env provides the credential (as on the claude runner).
+    required: false
+    default: ""
+  claude_code_oauth_token:
+    description: Claude subscription token (`claude setup-token`).
+    required: false
+    default: ""
+  path_to_claude_code_executable:
+    description: A preinstalled Claude Code; defaults to the runner's PATH_TO_CLAUDE_CODE_EXECUTABLE.
+    required: false
+    default: ""
+  path_to_bun_executable:
+    description: A preinstalled Bun; defaults to the runner's PATH_TO_BUN_EXECUTABLE.
+    required: false
+    default: ""
+
+outputs:
+  reply:
+    description: The agent's reply (also posted to the issue, when there is one).
+    value: ${{ steps.claude.outputs.structured_output != '' && fromJson(steps.claude.outputs.structured_output).reply || '' }}
+  issue_number:
+    description: The issue the run worked in, empty for a one-off.
+    value: ${{ steps.issue.outputs.number }}
+  session_id:
+    description: The Claude session ID.
+    value: ${{ steps.claude.outputs.session_id }}
+  conclusion:
+    description: success or failure of the Claude run.
+    value: ${{ steps.claude.outputs.conclusion }}
+
+runs:
+  using: composite
+  steps:
+
+    - name: Issue
+      id: issue
+      shell: bash
+      env:
+        NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
+        PROMPT: ${{ inputs.prompt }}
+      run: |
+        if [ -z "$NUMBER" ] && [ -z "$PROMPT" ]; then
+          echo "::error::no issue and no prompt: nothing to answer"
+          exit 1
+        fi
+        echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+
+    - name: Setup
+      id: setup
+      shell: bash
+      env:
+        AGENT: ${{ inputs.agent }}
+        CONTEXT_FILE: ${{ inputs.context_file }}
+        MCP_CONFIG: ${{ inputs.mcp_config }}
+        ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
+        DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
+        SESSION_KEY: ${{ inputs.session_key }}
+        SESSION_TITLE: ${{ inputs.session_title }}
+      run: bash "$GITHUB_ACTION_PATH/setup.sh"
+
+    - name: Gather the thread
+      if: steps.issue.outputs.number != ''
+      uses: actions/github-script@v9
+      env:
+        SCRATCH_DIR: ${{ inputs.scratch_dir }}
+        ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          await require(`${process.env.GITHUB_ACTION_PATH}/gather-context.js`)({ github, context, core });
+
+    # What Claude is asked: a one-off prompt as-is (with the thread file named when
+    # there is an issue); a resumed session only the newest message; a new one the
+    # whole thread.
+    - name: Run Claude
+      id: claude
+      uses: anthropics/claude-code-action@v1
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        github_token: ${{ inputs.github_token }}
+        allowed_bots: ${{ inputs.allowed_bots }}
+        path_to_claude_code_executable: ${{ inputs.path_to_claude_code_executable || env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
+        path_to_bun_executable: ${{ inputs.path_to_bun_executable || env.PATH_TO_BUN_EXECUTABLE }}
+        show_full_output: true
+        prompt: >-
+          ${{ inputs.prompt != '' && steps.issue.outputs.number != ''
+            && format('{0}{1}(This belongs to issue #{2}; its whole thread is in the file {3}/context.md at the repo root if you need it. Return the structured reply object.)', inputs.prompt, fromJson('"\n\n"'), steps.issue.outputs.number, inputs.scratch_dir)
+            || inputs.prompt != ''
+            && format('{0}{1}(Return the structured reply object.)', inputs.prompt, fromJson('"\n\n"'))
+            || steps.setup.outputs.resumed == 'true'
+            && format('There is a new message in this issue, in the file {0}/latest.md at the repo root; your earlier turns are in this session. Answer it. If you need to catch up on comments you have not seen, the whole thread is in {0}/context.md. Return the structured reply object.', inputs.scratch_dir)
+            || format('Answer the latest message in this issue. The issue body and the full comment thread are in the file {0}/context.md at the repo root; read it first. Return the structured reply object.', inputs.scratch_dir) }}
+        claude_args: |
+          --model ${{ inputs.model }}
+          --max-turns ${{ inputs.max_turns }}
+          --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
+          --json-schema '${{ steps.setup.outputs.schema }}'
+          ${{ steps.setup.outputs.args }}
+          ${{ inputs.claude_args }}
+
+    - name: Post the reply
+      if: steps.issue.outputs.number != '' && steps.claude.outputs.structured_output != ''
+      uses: actions/github-script@v9
+      env:
+        STRUCTURED: ${{ steps.claude.outputs.structured_output }}
+        ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+        PROMPT: ${{ inputs.prompt }}
+      with:
+        github-token: ${{ inputs.github_token }}
+        script: |
+          await require(`${process.env.GITHUB_ACTION_PATH}/publish-reply.js`)({ github, context, core });
