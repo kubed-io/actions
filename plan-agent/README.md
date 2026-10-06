@@ -14,7 +14,7 @@ real conversation in an issue.
 ## How it works
 
 1. **Trigger** (in the *caller's* `if`) — an issue gets the `claude` label (first plan), or a human posts a comment containing `@claude` (iteration).
-2. **Gather** — `gather-context.js` writes the issue body + full comment thread to `<scratch_dir>/context.md` (gitignored).
+2. **Gather** — `gather-context.js` writes the issue body + full comment thread to `<scratch_dir>/context.md` (gitignored), and the message that triggered the run to `latest.md`; a resumed reply session reads only that.
 3. **Plan** — Claude (automation mode, `--json-schema`) reads that file + repo with read-only tools and returns `{ reply, plan }`. No file writes, no commands, no GitHub.
 4. **Publish** — `publish-plan.js` syncs `plan` into the issue body (below the `marker` divider, preserving the human's text above it) and posts `reply` as a short new comment.
 

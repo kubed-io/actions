@@ -12,7 +12,7 @@
 #         and CLAUDE_CONFIG_DIR / CLAUDE_CODE_PROJECT_DIR_NAME on a runner that keeps
 #         Claude's sessions)
 # Writes (to $GITHUB_OUTPUT): system_prompt_file, schema, mcp_config_file,
-#         disallowed_tools, args
+#         disallowed_tools, resumed, args
 set -euo pipefail
 
 # shell-quote one value for claude_args, which claude-code-action splits like a shell
@@ -86,15 +86,18 @@ fi
 # ID, so where Claude's sessions persist (CLAUDE_CONFIG_DIR, as on the kubed-io
 # claude runner) an existing transcript is resumed and a new one starts under
 # SESSION_TITLE. Elsewhere every run simply starts that session fresh.
+resumed=false
 if [ -n "${SESSION_KEY:-}" ]; then
   id="$(python3 -c 'import sys, uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))' \
     "https://github.com/$GITHUB_REPOSITORY#$SESSION_KEY")"
   transcript="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects/${CLAUDE_CODE_PROJECT_DIR_NAME:-none}/$id.jsonl"
   if [ -f "$transcript" ]; then
     args="$args --resume $id"
+    resumed=true
   else
     args="$args --session-id $id --name $(q "${SESSION_TITLE:-$SESSION_KEY}")"
   fi
 fi
 
+echo "resumed=$resumed" >> "$GITHUB_OUTPUT"
 echo "args=$args" | tee -a "$GITHUB_OUTPUT"

@@ -1,5 +1,7 @@
 // Pre-step: write the issue body + full comment thread to <scratch_dir>/context.md
-// in the workspace so the read-only agent can ingest it without any GitHub access.
+// in the workspace so the read-only agent can ingest it without any GitHub access,
+// and the message that triggered this run (the new comment, else the issue) to
+// <scratch_dir>/latest.md — all a resumed session needs to read.
 //
 // Env (set by the action step):
 //   SCRATCH_DIR — gitignored dir to write context.md into (default: .plan)
@@ -31,5 +33,11 @@ module.exports = async function gather({ github, context, core }) {
   const dir = path.join(process.env.GITHUB_WORKSPACE, process.env.SCRATCH_DIR);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'context.md'), out);
+
+  const comment = context.payload.comment;
+  const latest = comment
+    ? `### @${comment.user.login} — ${comment.created_at}\n\n${comment.body || ''}\n`
+    : `# Issue #${issue_number}: ${issue.data.title}\n\n${issue.data.body || '(empty)'}\n`;
+  fs.writeFileSync(path.join(dir, 'latest.md'), latest);
   core.info(`wrote ${process.env.SCRATCH_DIR}/context.md (${comments.length} comments)`);
 };

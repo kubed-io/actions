@@ -179,8 +179,12 @@ runs:
         path_to_claude_code_executable: ${{ inputs.path_to_claude_code_executable || env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
         path_to_bun_executable: ${{ inputs.path_to_bun_executable || env.PATH_TO_BUN_EXECUTABLE }}
         show_full_output: true
+        # A resumed reply session already holds the conversation, so it reads only the
+        # new message; context.md stays there to catch up on anything it missed.
         prompt: >-
-          ${{ inputs.mode == 'reply'
+          ${{ inputs.mode == 'reply' && steps.setup.outputs.resumed == 'true'
+            && format('There is a new message in this issue, in the file {0}/latest.md at the repo root; your earlier turns are in this session. Answer it. If you need to catch up on comments you have not seen, the whole thread is in {0}/context.md. Return the structured reply object per your role.', inputs.scratch_dir)
+            || inputs.mode == 'reply'
             && format('Answer the latest message in this issue. The issue body and the full comment thread are in the file {0}/context.md at the repo root; read it first. Return the structured reply object per your role.', inputs.scratch_dir)
             || format('Produce or refine the plan for this issue. The issue body and the full comment thread are in the file {0}/context.md at the repo root; read it first, then do repo homework with your read-only tools. Return the structured reply and plan object per your role.', inputs.scratch_dir) }}
         claude_args: |
