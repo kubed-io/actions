@@ -1,7 +1,8 @@
 name: Plan Agent (Claude)
 description: >
-  The "plan" half of an issue → plan → build loop. Claude reads the issue thread
-  and repo and returns a structured {reply, plan}. It is given NO write, edit,
+  The "plan" half of an issue → plan → build loop, or (mode: reply) a Claude that
+  answers in an issue thread. Claude reads the issue thread and repo and returns a
+  structured {reply, plan} (or {reply}). It is given NO write, edit,
   bash, or GitHub tools — so it physically cannot implement, commit, branch, open
   a PR, or post to GitHub. All GitHub I/O is done by deterministic github-script
   steps: a pre-step hands Claude the conversation as a file, and a post-step posts
@@ -15,13 +16,34 @@ description: >
 
 inputs:
   anthropic_api_key:
-    description: Anthropic API key for claude-code-action.
-    required: true
+    description: >
+      Anthropic API key for claude-code-action. Optional: with neither this nor
+      claude_code_oauth_token, claude-code-action takes ANTHROPIC_API_KEY or
+      CLAUDE_CODE_OAUTH_TOKEN from the job's env (the kubed-io claude runner puts
+      its subscription token there).
+    required: false
+    default: ""
+  claude_code_oauth_token:
+    description: Claude subscription token (`claude setup-token`); an alternative to anthropic_api_key.
+    required: false
+    default: ""
   github_token:
     description: >
       Token the action comments with — typically a GitHub App installation token
       so comments come from your app.
     required: true
+  mode:
+    description: >
+      `plan` (default): return {reply, plan}; the plan is synced into the issue body.
+      `reply`: return {reply} only, posted as a comment; the issue body is untouched.
+    required: false
+    default: plan
+  agent:
+    description: >
+      Optional repo agent (.claude/agents/<name>.md) to run the session as, via
+      --agent. Its prompt replaces Claude Code's own; the mode's role is appended.
+    required: false
+    default: ""
   model:
     description: Claude model (alias like `sonnet`/`opus`, or a full id).
     required: false
@@ -60,6 +82,45 @@ inputs:
       extra MCP servers (default behavior).
     required: false
     default: ""
+  allowed_tools:
+    description: >
+      Optional comma-separated tools to allow (e.g. `Bash(kubectl build:*)`). Every
+      server in mcp_config is allowed on top.
+    required: false
+    default: ""
+  disallowed_tools:
+    description: >
+      Tools the agent never gets. Defaults to the read-only guardrail; pass "" to
+      lift it (e.g. for an agent that may write scratch files).
+    required: false
+    default: Bash,Edit,Write,MultiEdit,NotebookEdit
+  session_key:
+    description: >
+      Optional key that makes the conversation resumable (e.g. `issue-12`): the
+      same key resumes the same Claude session where sessions persist (the kubed-io
+      claude runner's /claude); elsewhere each run starts it fresh.
+    required: false
+    default: ""
+  session_title:
+    description: The session's name when it starts (shown in /resume and Grafana); defaults to session_key.
+    required: false
+    default: ""
+  claude_args:
+    description: Extra flags appended to Claude's command line (e.g. `--permission-mode acceptEdits`).
+    required: false
+    default: ""
+  allowed_bots:
+    description: Bots allowed to trigger the run (claude-code-action refuses bot actors otherwise).
+    required: false
+    default: ""
+  path_to_claude_code_executable:
+    description: A preinstalled Claude Code; defaults to the runner's PATH_TO_CLAUDE_CODE_EXECUTABLE, else the action installs it.
+    required: false
+    default: ""
+  path_to_bun_executable:
+    description: A preinstalled Bun; defaults to the runner's PATH_TO_BUN_EXECUTABLE, else the action installs it.
+    required: false
+    default: ""
   extra_disallowed_tools:
     description: >
       Optional comma-separated tool names appended to the built-in --disallowedTools
@@ -81,9 +142,15 @@ runs:
       id: setup
       shell: bash
       env:
+        MODE: ${{ inputs.mode }}
+        AGENT: ${{ inputs.agent }}
         CONTEXT_FILE: ${{ inputs.context_file }}
         MCP_CONFIG: ${{ inputs.mcp_config }}
+        ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
+        DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
         EXTRA_DISALLOWED_TOOLS: ${{ inputs.extra_disallowed_tools }}
+        SESSION_KEY: ${{ inputs.session_key }}
+        SESSION_TITLE: ${{ inputs.session_title }}
       run: bash "$GITHUB_ACTION_PATH/setup.sh"
 
     # Hand the agent the issue + full comment thread as a file it can Read — so it
@@ -101,25 +168,28 @@ runs:
     # returns {reply, plan} as structured output. Write/Edit/Bash/etc. are all
     # disallowed, so it has only read-only tools — it cannot modify the repo, run
     # commands, commit, or open a PR. It does no GitHub I/O at all.
-    - name: Plan with Claude
+    - name: Run Claude
       id: claude
       uses: anthropics/claude-code-action@v1
       with:
         anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
         github_token: ${{ inputs.github_token }}
+        allowed_bots: ${{ inputs.allowed_bots }}
+        path_to_claude_code_executable: ${{ inputs.path_to_claude_code_executable || env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
+        path_to_bun_executable: ${{ inputs.path_to_bun_executable || env.PATH_TO_BUN_EXECUTABLE }}
         show_full_output: true
-        prompt: |
-          Produce or refine the plan for this issue. The issue body and the full
-          comment thread are in the file ${{ inputs.scratch_dir }}/context.md at
-          the repo root — read it first, then do repo homework with your read-only
-          tools. Return the structured { reply, plan } object per your role.
+        prompt: >-
+          ${{ inputs.mode == 'reply'
+            && format('Answer the latest message in this issue. The issue body and the full comment thread are in the file {0}/context.md at the repo root; read it first. Return the structured reply object per your role.', inputs.scratch_dir)
+            || format('Produce or refine the plan for this issue. The issue body and the full comment thread are in the file {0}/context.md at the repo root; read it first, then do repo homework with your read-only tools. Return the structured reply and plan object per your role.', inputs.scratch_dir) }}
         claude_args: |
           --model ${{ inputs.model }}
           --max-turns ${{ inputs.max_turns }}
-          --disallowedTools ${{ steps.setup.outputs.disallowed_tools }}
           --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
           --json-schema '${{ steps.setup.outputs.schema }}'
-          ${{ steps.setup.outputs.mcp_config_file != '' && format('--mcp-config {0}', steps.setup.outputs.mcp_config_file) || '' }}
+          ${{ steps.setup.outputs.args }}
+          ${{ inputs.claude_args }}
 
     # Deterministic publish: sync `plan` into the issue body below a hard divider
     # (the human's request stays above it, untouched) and post `reply` as a short
