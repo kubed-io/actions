@@ -66,3 +66,32 @@ test('approving a plan commits to the PR head, opens nothing', async () => {
   assert.ok(!github.calls.some((c) => c.name === 'pulls.create'));
   assert.equal(github.calls.find((c) => c.params?.input).params.input.branch.branchName, 'issue-12-recordings');
 });
+
+test('a state path outside docs/ is refused before any write', async () => {
+  setup();
+  const body = { value: state.writeSection('', 'spec', { ...SPEC, path: '.github/workflows/x.yml' }, []) };
+  const github = fake.github(routes(body, { 'heads/main': 'base' }));
+  await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core() }), /refusing to commit/);
+  assert.ok(!github.calls.some((c) => c.name === 'graphql:createLinkedBranch'));
+});
+
+test('a commit that fails once is retried on the new head, with a warning', async () => {
+  setup();
+  const body = { value: state.writeSection('Record it.', 'spec', SPEC, []) };
+  const heads = { 'heads/main': 'base' };
+  const r = routes(body, heads);
+  let failed = false;
+  r['graphql:createCommitOnBranch'] = () => {
+    if (!failed) { failed = true; return new Error('ref moved'); }
+    return { createCommitOnBranch: { commit: { oid: 'c0ffee', url: 'https://github.com/c' } } };
+  };
+  const github = fake.github(r);
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core });
+  assert.equal(core.outputs.commit_url, 'https://github.com/c');
+  assert.ok(core.notices.some((m) => /retrying on the new head/.test(m)));
+  // one read to check the branch is new, then one per commit attempt
+  const reads = github.calls.filter((c) => c.name === 'git.getRef' && c.params.ref === 'heads/issue-12-recordings');
+  assert.equal(reads.length, 3);
+  assert.equal(github.calls.filter((c) => c.name === 'graphql:createCommitOnBranch').length, 2);
+});

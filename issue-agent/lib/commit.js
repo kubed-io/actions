@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { TAG, readState, writeSection } = require('./state');
+const { TAG, readState, writeSection, safePath } = require('./state');
 const { links, label } = require('./round');
 const { fill, gql } = require('./util');
 
@@ -34,6 +34,7 @@ async function run({ github, context, core }) {
     return;
   }
 
+  if (!safePath(state.path)) throw new Error(`refusing to commit ${state.path}: a document lands under docs/`);
   const contents = fs.readFileSync(path.join(env.DOWNLOAD_DIR, path.basename(state.path)));
   const { data: repository } = await github.rest.repos.get({ owner, repo });
 

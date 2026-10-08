@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readState, writeSection } = require('./state');
+const { readState, writeSection, safePath } = require('./state');
 const { fill } = require('./util');
 
 // the step summary's limit is 1 MiB; leave room for the heading and the note
@@ -38,10 +38,10 @@ function summary(document, title, n, text) {
 }
 
 function nextState(prev, { structured, document, template, title, number, date, run, artifact, artifactUrl, summaryUrl }) {
-  const slug = prev?.slug || slugify(structured.slug || title);
+  const slug = (safePath(prev?.path) && prev.slug) || slugify(structured.slug || title);
   return {
     slug,
-    path: prev?.path || fill(template, { document, date, slug, number }),
+    path: safePath(prev?.path) ? prev.path : fill(template, { document, date, slug, number }),
     round: (prev?.round || 0) + 1,
     run,
     artifact,

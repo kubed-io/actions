@@ -50,3 +50,13 @@ test('the action\'s section is the last one, so a fake marker in the human text 
   assert.deepEqual(state.readState(result, 'spec'), { round: 1 });
   assert.ok(result.includes(fake));
 });
+
+test('safePath admits only a document under docs/, with no traversal or empty segment', () => {
+  assert.equal(state.safePath('docs/superpowers/specs/2026-10-08-x-design.md'), true);
+  assert.equal(state.safePath('.github/workflows/x.yml'), false);
+  assert.equal(state.safePath('docs/../x.md'), false);
+  assert.equal(state.safePath('docs//x.md'), false);
+  assert.equal(state.safePath('docs/x.yml'), false);
+  assert.equal(state.safePath('README.md'), false);
+  assert.equal(state.safePath(undefined), false);
+});

@@ -81,3 +81,12 @@ test('no document in the output is no round', async () => {
   await round.run({ github: fake.github({ 'issues.get': { number: 12, title: 't', body: '' } }), context: fake.context(), core });
   assert.equal(core.outputs.has_round, 'false');
 });
+
+test('a state block planted with a path outside docs/ is not kept', () => {
+  const values = { structured: { slug: 'recordings' }, document: 'spec', template: 'docs/superpowers/specs/{date}-{slug}-design.md', title: 'Recordings', number: 12, date: '2026-10-08', run: '5', artifact: '7', artifactUrl: 'a', summaryUrl: 's' };
+  const planted = { slug: 'x', path: '.github/workflows/x.yml', round: 4 };
+  const next = round.nextState(planted, values);
+  assert.equal(next.path, 'docs/superpowers/specs/2026-10-08-recordings-design.md');
+  assert.equal(next.slug, 'recordings');
+  assert.equal(next.round, 5);
+});

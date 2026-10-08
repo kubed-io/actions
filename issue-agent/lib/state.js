@@ -57,4 +57,11 @@ function isAgent(body) {
   return (body || '').includes(TAG);
 }
 
-module.exports = { TAG, marker, split, readState, writeSection, documents, seenMarker, readSeen, isAgent };
+// A state block can be written by anyone who can edit the issue, so a path from it is
+// trusted only when it is a document under docs/ (no traversal, no empty segment).
+function safePath(p) {
+  return typeof p === 'string' && /^docs\/[A-Za-z0-9._\/-]+\.md$/.test(p)
+    && !p.split('/').some((s) => s === '..' || s === '');
+}
+
+module.exports = { TAG, marker, split, readState, writeSection, documents, seenMarker, readSeen, isAgent, safePath };
