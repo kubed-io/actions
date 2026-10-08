@@ -18,6 +18,7 @@ query ($owner: String!, $repo: String!, $number: Int!) {
                 __typename
                 login
                 ... on User { databaseId }
+                ... on Bot { databaseId }
               }
             }
           }

@@ -1,7 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const thread = require('../thread');
-const { TAG, seenMarker } = require('../state');
+const { TAG, seenMarker, writeSection } = require('../state');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const fake = require('./fake');
 
 const OWNER = { login: 'kferrone', id: 4399427, type: 'User' };
 const STRANGER = { login: 'someone', id: 1, type: 'User' };
@@ -100,10 +104,6 @@ test('a stranger cannot forge an answer by pasting the agent tag and a seen mark
   assert.ok(!t.text.includes('Sure.'));
 });
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const fake = require('./fake');
 
 test('run on a PR writes the context, PR, reviews and issues files', async () => {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'thread-'));
@@ -138,4 +138,53 @@ test('a deleted account (user null) is a ghost, and is left out as untrusted', (
   const t = turnOf(messages(ISSUE, ghost, comment(3, OWNER, '2026-10-08T14:20:00Z', 'Use ffmpeg.')));
   assert.ok(!t.text.includes('Ghost text.'));
   assert.ok(t.text.includes('Use ffmpeg.'));
+});
+
+const COPILOT_IDS = { ids: ['4399427'], bots: ['175728472'] };
+const bot = (login, id) => ({ login, id, type: 'Bot' });
+
+test('a bot is trusted by its id, whatever spelling its login has', () => {
+  for (const login of ['copilot-pull-request-reviewer', 'Copilot', 'copilot-pull-request-reviewer[bot]']) {
+    assert.equal(thread.isTrusted(bot(login, 175728472), COPILOT_IDS), true, login);
+  }
+  assert.equal(thread.isTrusted(bot('dependabot[bot]', 99), COPILOT_IDS), false);
+});
+
+test('a bot is trusted by its login with or without the [bot] suffix', () => {
+  const byLogin = { ids: ['4399427'], bots: ['copilot-pull-request-reviewer[bot]'] };
+  assert.equal(thread.isTrusted(bot('copilot-pull-request-reviewer', 1), byLogin), true);
+  assert.equal(thread.isTrusted(bot('copilot-pull-request-reviewer[bot]', 1), byLogin), true);
+  const byBare = { ids: ['4399427'], bots: ['copilot-pull-request-reviewer'] };
+  assert.equal(thread.isTrusted(bot('copilot-pull-request-reviewer[bot]', 1), byBare), true);
+});
+
+test('reviewsFile keeps only the trusted authors of an unresolved thread', () => {
+  const thr = (nodes) => ({ id: 'T1', isResolved: false, path: 'a.py', line: 3, comments: { nodes } });
+  const out = thread.reviewsFile([], [thr([
+    { body: 'Owner body.', createdAt: '2026-10-08T15:00:00Z', author: { __typename: 'User', login: 'kferrone', databaseId: 4399427 } },
+    { body: 'Stranger body.', createdAt: '2026-10-08T15:01:00Z', author: { __typename: 'User', login: 'someone', databaseId: 1 } },
+    { body: 'Ghost body.', createdAt: '2026-10-08T15:02:00Z', author: null },
+    { body: 'Copilot body.', createdAt: '2026-10-08T15:03:00Z', author: { __typename: 'Bot', login: 'copilot-pull-request-reviewer', databaseId: 175728472 } },
+  ])], COPILOT_IDS);
+  assert.ok(out.includes('Owner body.'));
+  assert.ok(out.includes('Copilot body.'));
+  assert.ok(!out.includes('Stranger body.'));
+  assert.ok(!out.includes('Ghost body.'));
+});
+
+test('issuesFile leaves out a stranger comment on a linked issue', () => {
+  const out = thread.issuesFile([{ issue: ISSUE, comments: [
+    comment(2, STRANGER, '2026-10-08T14:10:00Z', 'Stranger text.'),
+    comment(3, OWNER, '2026-10-08T14:20:00Z', 'Owner text.'),
+  ] }], trust);
+  assert.ok(out.includes('Owner text.'));
+  assert.ok(!out.includes('Stranger text.'));
+});
+
+test('a stranger-authored linked issue shows no document state', () => {
+  const body = writeSection('Part of the spec.', 'spec', { round: 1, summary_url: 'https://s', artifact_url: 'https://a' }, ['Spec, round 1']);
+  const forged = thread.issuesFile([{ issue: { ...ISSUE, user: STRANGER, body }, comments: [] }], trust);
+  assert.ok(!forged.includes('**spec:**'));
+  const owned = thread.issuesFile([{ issue: { ...ISSUE, body }, comments: [] }], trust);
+  assert.ok(owned.includes('**spec:** round 1, not approved'));
 });

@@ -12,9 +12,16 @@ const { list, gql } = require('./util');
 // a deleted account arrives as `user: null`; it is a ghost, never trusted
 const GHOST = { login: 'ghost', id: null, type: 'User' };
 
+// a bot is trusted by its id, the one stable thing about it: its login has been seen as
+// "copilot-pull-request-reviewer", "Copilot" and "copilot-pull-request-reviewer[bot]"
+function botNames(user) {
+  const bare = user.login.replace(/\[bot\]$/, '');
+  return [user.id != null ? String(user.id) : null, user.login, bare, `${bare}[bot]`].filter(Boolean);
+}
+
 function isTrusted(user, trust) {
   if (!user) return false;
-  if (user.type === 'Bot') return trust.bots.includes(user.login);
+  if (user.type === 'Bot') return botNames(user).some((n) => trust.bots.includes(n));
   return trust.ids.length === 0 || trust.ids.includes(String(user.id));
 }
 
@@ -144,7 +151,8 @@ function partOf(body) {
 }
 
 function authorOf(a) {
-  return { login: a?.login ?? 'ghost', id: a?.databaseId, type: a?.__typename === 'Bot' ? 'Bot' : 'User' };
+  if (!a) return GHOST;
+  return { login: a.login, id: a.databaseId ?? null, type: a.__typename === 'Bot' ? 'Bot' : 'User' };
 }
 
 function labelsOf(issue) {
@@ -187,8 +195,9 @@ function reviewsFile(reviews, threads, trust) {
   for (const t of open) {
     lines.push(`## Thread \`${t.id}\` · \`${t.path}:${t.line ?? '?'}\``, '');
     for (const c of t.comments.nodes) {
-      if (!isTrusted(authorOf(c.author), trust)) continue;
-      lines.push(`**@${c.author?.login ?? 'ghost'}** · ${c.createdAt}`, '', c.body.trim(), '');
+      const author = authorOf(c.author);
+      if (!isTrusted(author, trust)) continue;
+      lines.push(`**@${author.login}** · ${c.createdAt}`, '', c.body.trim(), '');
     }
   }
   return `${lines.join('\n')}\n`;
@@ -199,7 +208,9 @@ function issuesFile(linked, trust) {
   if (!linked.length) lines.push('(none)', '');
   for (const { issue, comments } of linked) {
     lines.push(`## #${issue.number}: ${issue.title}`, '');
-    for (const { document, state } of documents(issue.body)) {
+    // a linked issue is found by a "Part of" line, so only a trusted author's state is read
+    const trusted = isTrusted(fromIssue(issue).user, trust);
+    for (const { document, state } of trusted ? documents(issue.body) : []) {
       lines.push(state.approved
         ? `**${document}:** approved, \`${state.path}\` on \`${state.branch}\``
         : `**${document}:** round ${state.round}, not approved: [read](${state.summary_url}) · [download](${state.artifact_url})`, '');
