@@ -99,3 +99,43 @@ test('a stranger cannot forge an answer by pasting the agent tag and a seen mark
   assert.ok(t.text.includes('Record the browser.'));
   assert.ok(!t.text.includes('Sure.'));
 });
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const fake = require('./fake');
+
+test('run on a PR writes the context, PR, reviews and issues files', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'thread-'));
+  const pr = { number: 40, title: 'Recordings', body: 'Spec: [docs/superpowers/specs/2026-10-08-rec-design.md](https://x)\n\nCloses #12', user: { login: 'kubed-io[bot]', id: 9, type: 'Bot' }, created_at: '2026-10-08T15:00:00Z', labels: [], pull_request: {} };
+  const github = fake.github({
+    'issues.get': ({ issue_number }) => (issue_number === 40 ? pr : ISSUE),
+    'issues.listComments': ({ issue_number }) => (issue_number === 40 ? [comment(7, STRANGER, '2026-10-08T15:01:00Z', 'Spam.'), comment(8, OWNER, '2026-10-08T15:02:00Z', 'Plan it.')] : []),
+    'pulls.get': { number: 40, title: 'Recordings', body: pr.body, draft: true, labels: [], head: { ref: 'issue-12-rec' }, base: { ref: 'main' } },
+    'pulls.listFiles': [{ filename: 'docs/superpowers/specs/2026-10-08-rec-design.md', status: 'added', additions: 90, deletions: 0 }],
+    'pulls.listReviews': [],
+    'pulls.listReviewComments': [],
+    'graphql:closingIssuesReferences': { repository: { pullRequest: { closingIssuesReferences: { nodes: [{ number: 12 }] }, reviewThreads: { nodes: [] } } } },
+  });
+  const core = fake.core();
+  Object.assign(process.env, { GITHUB_WORKSPACE: ws, NUMBER: '40', PROMPT: '', TRUSTED_IDS: '4399427', TRUSTED_BOTS: 'kubed-io[bot]', SESSION_KEY: 'pr-40', SCRATCH_DIR: '.issue', RESUMED: 'false' });
+  await thread.run({ github, context: fake.context(), core });
+  assert.ok(core.outputs.prompt.startsWith('**15:00 UTC**\n\n@kubed-io[bot] opened this pull request:'));
+  assert.ok(core.outputs.prompt.includes('Plan it.'));
+  assert.ok(!core.outputs.prompt.includes('Spam.'));
+  assert.equal(core.outputs.head, 'issue-12-rec');
+  assert.equal(core.outputs.is_pr, 'true');
+  const read = (f) => fs.readFileSync(path.join(ws, '.issue', f), 'utf8');
+  assert.ok(read('pr.md').includes('- `docs/superpowers/specs/2026-10-08-rec-design.md`'));
+  assert.ok(read('issues.md').includes('## #12: Recordings'));
+  assert.ok(read('reviews.md').includes('# Unresolved threads (0)'));
+  assert.ok(read('context.md').includes('_1 messages from others omitted._'));
+});
+
+test('a deleted account (user null) is a ghost, and is left out as untrusted', () => {
+  const ghost = comment(2, null, '2026-10-08T14:10:00Z', 'Ghost text.');
+  assert.deepEqual(thread.fromComment(ghost).user, { login: 'ghost', id: null, type: 'User' });
+  const t = turnOf(messages(ISSUE, ghost, comment(3, OWNER, '2026-10-08T14:20:00Z', 'Use ffmpeg.')));
+  assert.ok(!t.text.includes('Ghost text.'));
+  assert.ok(t.text.includes('Use ffmpeg.'));
+});

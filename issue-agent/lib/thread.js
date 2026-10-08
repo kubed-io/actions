@@ -7,7 +7,10 @@
 const fs = require('fs');
 const path = require('path');
 const { isAgent, readSeen, documents } = require('./state');
-const { list } = require('./util');
+const { list, gql } = require('./util');
+
+// a deleted account arrives as `user: null`; it is a ghost, never trusted
+const GHOST = { login: 'ghost', id: null, type: 'User' };
 
 function isTrusted(user, trust) {
   if (!user) return false;
@@ -31,18 +34,18 @@ function hhmm(iso) {
 }
 
 function fromIssue(issue) {
-  return { id: `#${issue.number}`, kind: issue.pull_request ? 'pull' : 'issue', user: issue.user, at: issue.created_at, updated: null, title: issue.title, body: issue.body || '' };
+  return { id: `#${issue.number}`, kind: issue.pull_request ? 'pull' : 'issue', user: issue.user || GHOST, at: issue.created_at, updated: null, title: issue.title, body: issue.body || '' };
 }
 
 // only the bot's own comments can be answers: the tag and the seen marker are public text
 // anyone can paste into a comment, so a human's copy is an ordinary comment
 function fromComment(c) {
   const agent = isAgent(c.body) && c.user?.type === 'Bot';
-  return { id: c.id, kind: agent ? 'agent' : 'comment', user: c.user, at: c.created_at, updated: c.updated_at, body: c.body || '' };
+  return { id: c.id, kind: agent ? 'agent' : 'comment', user: c.user || GHOST, at: c.created_at, updated: c.updated_at, body: c.body || '' };
 }
 
 function fromReview(r, comments) {
-  return { id: r.id, kind: 'review', user: r.user, at: r.submitted_at, updated: null, state: r.state, body: r.body || '', comments };
+  return { id: r.id, kind: 'review', user: r.user || GHOST, at: r.submitted_at, updated: null, state: r.state, body: r.body || '', comments };
 }
 
 function sortByTime(messages) {
@@ -140,7 +143,143 @@ function partOf(body) {
   return [...(body || '').matchAll(/\bPart of #(\d+)/gi)].map((m) => Number(m[1]));
 }
 
+function authorOf(a) {
+  return { login: a?.login ?? 'ghost', id: a?.databaseId, type: a?.__typename === 'Bot' ? 'Bot' : 'User' };
+}
+
+function labelsOf(issue) {
+  return (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name)).join(', ') || '(none)';
+}
+
+function contextFile({ issue, before, omitted }) {
+  const lines = [`# #${issue.number}: ${issue.title}`, '', `**Labels:** ${labelsOf(issue)}`, ''];
+  if (omitted) lines.push(`_${omitted} messages from others omitted._`, '');
+  for (const m of before) {
+    lines.push(`## @${m.user.login} · ${m.at} · ${m.kind}`, '', m.kind === 'agent' ? strip(m.body) : content(m), '');
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function prFile(pr, files) {
+  const specs = specLines(pr.body);
+  return [
+    `# Pull request #${pr.number}: ${pr.title}`,
+    '',
+    `**Head:** \`${pr.head.ref}\` → **base:** \`${pr.base.ref}\`${pr.draft ? ' (draft)' : ''}`,
+    `**Labels:** ${labelsOf(pr)}`,
+    '',
+    '## Specs',
+    '',
+    ...(specs.length ? specs.map((s) => `- \`${s}\``) : ['(no `Spec:` line in the body)']),
+    '',
+    `## Changed files (${files.length})`,
+    '',
+    ...files.map((f) => `- \`${f.filename}\` ${f.status} +${f.additions} −${f.deletions}`),
+    '',
+  ].join('\n');
+}
+
+function reviewsFile(reviews, threads, trust) {
+  const lines = ['# Reviews', ''];
+  for (const r of reviews) lines.push(`## @${r.user.login} · ${r.at} · ${(r.state || '').toLowerCase()}`, '', content(r) || '(no text)', '');
+  const open = threads.filter((t) => !t.isResolved);
+  lines.push(`# Unresolved threads (${open.length})`, '');
+  for (const t of open) {
+    lines.push(`## Thread \`${t.id}\` · \`${t.path}:${t.line ?? '?'}\``, '');
+    for (const c of t.comments.nodes) {
+      if (!isTrusted(authorOf(c.author), trust)) continue;
+      lines.push(`**@${c.author?.login ?? 'ghost'}** · ${c.createdAt}`, '', c.body.trim(), '');
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+function issuesFile(linked, trust) {
+  const lines = ['# Linked issues', ''];
+  if (!linked.length) lines.push('(none)', '');
+  for (const { issue, comments } of linked) {
+    lines.push(`## #${issue.number}: ${issue.title}`, '');
+    for (const { document, state } of documents(issue.body)) {
+      lines.push(state.approved
+        ? `**${document}:** approved, \`${state.path}\` on \`${state.branch}\``
+        : `**${document}:** round ${state.round}, not approved: [read](${state.summary_url}) · [download](${state.artifact_url})`, '');
+    }
+    lines.push(content(fromIssue(issue)), '');
+    for (const c of comments.map(fromComment)) {
+      if (c.kind === 'agent' || !isTrusted(c.user, trust)) continue;
+      lines.push(`### @${c.user.login} · ${c.at}`, '', c.body.trim(), '');
+    }
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+async function pullFiles(github, { owner, repo, number, trust, dir }) {
+  const at = { owner, repo, pull_number: number, per_page: 100 };
+  const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number });
+  const files = await github.paginate(github.rest.pulls.listFiles, at);
+  const rawReviews = await github.paginate(github.rest.pulls.listReviews, at);
+  const reviewComments = await github.paginate(github.rest.pulls.listReviewComments, at);
+  const node = (await github.graphql(gql('pull-request'), { owner, repo, number })).repository.pullRequest;
+
+  const reviews = rawReviews
+    .filter((r) => r.submitted_at && isTrusted(r.user, trust))
+    .map((r) => fromReview(r, reviewComments.filter((c) => c.pull_request_review_id === r.id)));
+  const numbers = [...new Set([...node.closingIssuesReferences.nodes.map((n) => n.number), ...partOf(pr.body)])];
+  const linked = [];
+  for (const n of numbers) {
+    const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: n });
+    const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: n, per_page: 100 });
+    linked.push({ issue, comments });
+  }
+  fs.writeFileSync(path.join(dir, 'pr.md'), prFile(pr, files));
+  fs.writeFileSync(path.join(dir, 'reviews.md'), reviewsFile(reviews, node.reviewThreads.nodes, trust));
+  fs.writeFileSync(path.join(dir, 'issues.md'), issuesFile(linked, trust));
+  return { reviews, head: pr.head.ref };
+}
+
+async function run({ github, context, core }) {
+  const env = process.env;
+  const { owner, repo } = context.repo;
+  const trust = { ids: list(env.TRUSTED_IDS), bots: list(env.TRUSTED_BOTS) };
+  const scratch = env.SCRATCH_DIR || '.issue';
+  const dir = path.join(env.GITHUB_WORKSPACE, scratch);
+  fs.mkdirSync(dir, { recursive: true });
+  const number = Number(env.NUMBER) || 0;
+  core.setOutput('number', number ? String(number) : '');
+
+  if (!number) {
+    const t = turn({ messages: [], trust, seen: null, number: 0, scratch, fresh: false, prompt: env.PROMPT });
+    core.setOutput('prompt', t ? t.text : '');
+    return;
+  }
+
+  const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: number });
+  const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+  let messages = [fromIssue(issue), ...comments.map(fromComment)];
+  let head = '';
+  if (issue.pull_request) {
+    const pr = await pullFiles(github, { owner, repo, number, trust, dir });
+    messages.push(...pr.reviews);
+    head = pr.head;
+  }
+  messages = sortByTime(messages);
+
+  const seen = lastSeen(messages, env.SESSION_KEY);
+  const t = turn({ messages, trust, seen, number, scratch, fresh: env.RESUMED !== 'true' && !!seen, prompt: env.PROMPT });
+  const shown = (t ? t.before : messages).filter((m) => m.kind === 'agent' || isOpening(m) || isTrusted(m.user, trust));
+  const omitted = messages.filter((m) => m.kind !== 'agent' && !isOpening(m) && !isTrusted(m.user, trust)).length;
+  fs.writeFileSync(path.join(dir, 'context.md'), contextFile({ issue, before: shown, omitted }));
+
+  core.setOutput('prompt', t ? t.text : '');
+  core.setOutput('through', t ? t.through : '');
+  core.setOutput('through_id', t ? t.id : '');
+  core.setOutput('title', issue.title);
+  core.setOutput('head', head);
+  core.setOutput('is_pr', String(!!issue.pull_request));
+  if (!t) core.notice('nothing new from a trusted author, so no turn this run');
+}
+
 module.exports = {
   isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, turn,
-  content, strip, specLines, partOf,
+  content, strip, specLines, partOf, contextFile, prFile, reviewsFile, issuesFile, run,
 };
