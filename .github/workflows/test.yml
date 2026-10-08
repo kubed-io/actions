@@ -25,4 +25,4 @@ jobs:
         node-version: 24
 
     - name: Test
-      run: node --test issue-agent/lib/test/*.test.js
+      run: node --test 'issue-agent/lib/test/*.test.js'
