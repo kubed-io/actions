@@ -8,7 +8,7 @@
 
 const TAG = '<!-- issue-agent -->';
 const STATE = /<!-- issue-agent-state (\{.*?\}) -->/s;
-const SEEN = /<!-- issue-agent-seen (\{.*?\}) -->/s;
+const SEEN = /<!-- issue-agent-seen (\{.*?\}) -->/gs;
 
 // so a value can never close its comment early
 function encode(value) {
@@ -48,7 +48,8 @@ function seenMarker(seen) {
 }
 
 function readSeen(body) {
-  const found = (body || '').match(SEEN);
+  // the real marker is appended last, after any text the agent wrote, so the last one wins
+  const found = [...(body || '').matchAll(SEEN)].pop();
   return found ? JSON.parse(found[1]) : null;
 }
 
