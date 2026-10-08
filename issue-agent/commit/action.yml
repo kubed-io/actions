@@ -1,0 +1,87 @@
+name: Issue Agent · Commit
+description: >
+  Commits the latest round of an issue-agent document once it is approved. On an issue
+  it creates the branch, linked to the issue, commits the document (signed by GitHub) and
+  can open a draft PR naming it; on a PR it commits to the PR's head. Runs no Claude.
+
+inputs:
+  github_token:
+    description: A token that may write contents, pull requests and issues; the App's, so the commit and PR fire workflows.
+    required: true
+  artifact_token:
+    description: A token with actions read, for the round's artifact.
+    required: false
+    default: ${{ github.token }}
+  number:
+    description: The issue or PR whose body holds the round's state.
+    required: false
+    default: ${{ github.event.issue.number || github.event.pull_request.number }}
+  document:
+    description: The document to commit (spec, plan).
+    required: true
+  branch:
+    description: The new branch, on an issue; {number}, {slug} and {document} are filled.
+    required: false
+    default: issue-{number}-{slug}
+  message:
+    description: The commit headline; {document}, {title} and {number} are filled.
+    required: false
+    default: "{document}: {title} (#{number})"
+  pull_request:
+    description: "`draft` opens a draft PR from the new branch; `none` does not."
+    required: false
+    default: none
+
+outputs:
+  branch:
+    description: The branch committed to.
+    value: ${{ steps.commit.outputs.branch }}
+  path:
+    description: The committed file.
+    value: ${{ steps.commit.outputs.path }}
+  commit_url:
+    description: The commit.
+    value: ${{ steps.commit.outputs.commit_url }}
+  pull_request:
+    description: The draft PR it opened, if any.
+    value: ${{ steps.commit.outputs.pull_request }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Find the Round
+    id: round
+    uses: actions/github-script@v9
+    env:
+      MODE: read
+      NUMBER: ${{ inputs.number }}
+      DOCUMENT: ${{ inputs.document }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/commit.js`).run({ github, context, core });
+
+  - name: Download the Round
+    uses: actions/download-artifact@v8
+    with:
+      artifact-ids: ${{ steps.round.outputs.artifact }}
+      run-id: ${{ steps.round.outputs.run }}
+      github-token: ${{ inputs.artifact_token }}
+      path: ${{ runner.temp }}/issue-agent-commit
+
+  - name: Commit
+    id: commit
+    uses: actions/github-script@v9
+    env:
+      MODE: commit
+      NUMBER: ${{ inputs.number }}
+      DOCUMENT: ${{ inputs.document }}
+      BRANCH: ${{ inputs.branch }}
+      MESSAGE: ${{ inputs.message }}
+      PULL_REQUEST: ${{ inputs.pull_request }}
+      DOWNLOAD_DIR: ${{ runner.temp }}/issue-agent-commit
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/commit.js`).run({ github, context, core });
