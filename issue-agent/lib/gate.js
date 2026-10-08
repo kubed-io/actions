@@ -16,8 +16,10 @@ function lastLabeledBy(events, label) {
 }
 
 // only the agent's own comments count: a stranger in a public repo can paste markers
+const isOwnRun = (c, key) => isAgent(c.body) && c.user?.type === 'Bot' && readSeen(c.body)?.key === key;
+
 function runsSoFar(comments, key) {
-  return comments.filter((c) => isAgent(c.body) && c.user?.type === 'Bot' && readSeen(c.body)?.key === key).length;
+  return comments.filter((c) => isOwnRun(c, key)).length;
 }
 
 async function run({ github, context, core }) {
@@ -35,7 +37,7 @@ async function run({ github, context, core }) {
   if (env.OPT_IN_LABEL) {
     const events = await github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number, per_page: 100 });
     const actor = lastLabeledBy(events, env.OPT_IN_LABEL);
-    if (!actor || (ids.length && !ids.includes(String(actor.id)))) {
+    if (!actor || !ids.includes(String(actor.id))) {
       return allow(false, `${env.OPT_IN_LABEL} was last added by ${actor ? `@${actor.login}` : 'nobody'}, not a trusted user`);
     }
   }
@@ -45,7 +47,10 @@ async function run({ github, context, core }) {
     const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
     const runs = runsSoFar(comments, env.SESSION_KEY);
     if (runs >= max) {
-      if (!comments[comments.length - 1]?.body?.includes(CAP)) {
+      let lastOwn = -1;
+      comments.forEach((c, i) => { if (isOwnRun(c, env.SESSION_KEY)) lastOwn = i; });
+      const noted = comments.slice(lastOwn + 1).some((c) => c.body?.includes(CAP));
+      if (!noted) {
         await github.rest.issues.createComment({ owner, repo, issue_number, body: `${TAG}\n${CAP}\nPaused: this conversation has had ${runs} agent runs, its cap. Raise \`max_runs\` in the workflow to go on.` });
       }
       return allow(false, `${runs} runs reached max_runs ${max}`);

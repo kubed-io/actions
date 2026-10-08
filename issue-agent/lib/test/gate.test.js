@@ -49,3 +49,23 @@ test('a one-off with no thread is always allowed', async () => {
   await gate.run({ github: fake.github(), context: fake.context(), core });
   assert.equal(core.outputs.allowed, 'true');
 });
+
+test('an empty trusted list refuses everyone, the owner included', async () => {
+  env({ TRUSTED_IDS: '' });
+  const core = fake.core();
+  await gate.run({ github: fake.github({ 'issues.listEventsForTimeline': [labeled(4399427, 'kferrone')] }), context: fake.context(), core });
+  assert.equal(core.outputs.allowed, 'false');
+});
+
+test('the cap note is posted once, and not again after later comments', async () => {
+  env({ OPT_IN_LABEL: '', MAX_RUNS: '2' });
+  const agent = { user: { login: 'github-actions[bot]', type: 'Bot' } };
+  const done = { ...agent, body: `${TAG}\n${seenMarker({ key: 'issue-12', through: 't' })}` };
+  const capNote = { user: agent.user, body: `${TAG}\n<!-- issue-agent-cap -->\nPaused.` };
+  const ownerComment = { user: { login: 'kferrone', type: 'User' }, body: 'more' };
+  const github = fake.github({ 'issues.listComments': [done, done, capNote, ownerComment], 'issues.createComment': {} });
+  const core = fake.core();
+  await gate.run({ github, context: fake.context(), core });
+  assert.equal(core.outputs.allowed, 'false');
+  assert.equal(github.calls.filter((c) => c.name === 'issues.createComment').length, 0);
+});
