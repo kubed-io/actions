@@ -50,12 +50,29 @@ test('write then publish: artifact file, summary, body state, header', async () 
   assert.equal(core.outputs.has_round, 'true');
   assert.match(core.outputs.file, /\d{4}-\d\d-\d\d-recordings-design\.md$/);
   assert.equal(fs.readFileSync(core.outputs.file, 'utf8'), '# Recordings\n');
+  assert.match(core.outputs.date, /^\d{4}-\d\d-\d\d$/);
   process.env.MODE = 'publish';
   await round.run({ github, context: fake.context(), core });
   assert.ok(core.summaryText().startsWith('# Spec · [feature]: Recordings · round 1'));
   assert.equal(state.readState(body, 'spec').summary_url, 'https://github.com/kubed-io/selenium-flow/actions/runs/5#summary-9');
   assert.ok(body.startsWith('Record the browser.\n\n<!-- issue-agent:spec -->'));
   assert.ok(core.outputs.header.includes('round 1 (updated in this reply)'));
+});
+
+test('publish reuses the date write named, even across midnight', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'round-'));
+  let body = 'Another reply.';
+  const github = fake.github({ 'issues.get': () => ({ number: 12, title: '[feature]: Recordings', body }), 'issues.update': (p) => { body = p.body; return {}; } });
+  Object.assign(process.env, { RUNNER_TEMP: tmp, DATE: '1999-12-31', MODE: 'write' });
+  const core = fake.core();
+  await round.run({ github, context: fake.context(), core });
+  assert.equal(core.outputs.date, '1999-12-31');
+  assert.ok(path.basename(core.outputs.file).includes('1999-12-31'));
+  process.env.MODE = 'publish';
+  await round.run({ github, context: fake.context(), core });
+  assert.equal(state.readState(body, 'spec').path, `docs/superpowers/specs/1999-12-31-recordings-design.md`);
+  assert.equal(path.basename(core.outputs.file), path.basename(state.readState(body, 'spec').path));
+  delete process.env.DATE;
 });
 
 test('no document in the output is no round', async () => {

@@ -76,7 +76,9 @@ async function run({ github, context, core }) {
 
   const structured = JSON.parse(env.STRUCTURED || '{}');
   const text = typeof structured[document] === 'string' ? structured[document].trim() : '';
-  const values = { structured, document, template: env.DOCUMENT_PATH, title: issue.title, number: issue_number, date: new Date().toISOString().slice(0, 10) };
+  // one date per round: write names the artifact with it and publish reuses it (DATE)
+  const date = env.DATE || new Date().toISOString().slice(0, 10);
+  const values = { structured, document, template: env.DOCUMENT_PATH, title: issue.title, number: issue_number, date };
 
   if (env.MODE === 'write') {
     if (!text) {
@@ -89,6 +91,7 @@ async function run({ github, context, core }) {
     fs.writeFileSync(file, `${text}\n`);
     core.setOutput('has_round', 'true');
     core.setOutput('file', file);
+    core.setOutput('date', date);
     return;
   }
 
