@@ -21,7 +21,7 @@ function marker(document) {
 
 function split(body, document) {
   const text = body || '';
-  const at = text.indexOf(marker(document));
+  const at = text.lastIndexOf(marker(document));
   if (at === -1) return { human: text.trimEnd(), section: '' };
   return { human: text.slice(0, at).trimEnd(), section: text.slice(at) };
 }
