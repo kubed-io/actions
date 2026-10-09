@@ -4,9 +4,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const { TAG, readState, writeSection, safePath } = require('./state');
+const { TAG, writeSection, safePath } = require('./state');
+const { bodyState } = require('./trusted');
 const { links, label } = require('./round');
-const { fill, gql } = require('./util');
+const { fill, gql, list } = require('./util');
 
 async function headOid(github, owner, repo, branch) {
   try {
@@ -18,14 +19,22 @@ async function headOid(github, owner, repo, branch) {
   }
 }
 
+function failure({ document, runUrl }) {
+  return `${TAG}\n⚠️ I couldn't commit the approved ${document}. [See the run](${runUrl}) for why; a fresh round and a new approval label will retry.`;
+}
+
 async function run({ github, context, core }) {
   const env = process.env;
   const { owner, repo } = context.repo;
   const number = Number(env.NUMBER);
   const document = env.DOCUMENT;
+  if (env.MODE === 'failure') {
+    await github.rest.issues.createComment({ owner, repo, issue_number: number, body: failure({ document, runUrl: env.RUN_URL }) });
+    return;
+  }
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: number });
-  const state = readState(issue.body, document);
-  if (!state) throw new Error(`#${number} has no ${document} round to commit`);
+  const state = await bodyState(github, { owner, repo, number, document, body: issue.body, ids: list(env.TRUSTED_IDS), server: env.GITHUB_SERVER_URL });
+  if (!state) throw new Error(`the ${document} round on #${number} was not written by the agent; ask for a fresh round`);
 
   if (env.MODE === 'read') {
     core.setOutput('run', String(state.run));
@@ -83,4 +92,4 @@ async function run({ github, context, core }) {
   core.setOutput('pull_request', pull);
 }
 
-module.exports = { run };
+module.exports = { failure, run };

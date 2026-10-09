@@ -5,8 +5,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { readState, writeSection, safePath } = require('./state');
-const { fill } = require('./util');
+const { writeSection, safePath } = require('./state');
+const { bodyState } = require('./trusted');
+const { fill, list } = require('./util');
 
 // the step summary's limit is 1 MiB; leave room for the heading and the note
 const SUMMARY_LIMIT = 1024 * 1024 - 4096;
@@ -57,7 +58,9 @@ async function run({ github, context, core }) {
   const issue_number = Number(env.NUMBER);
   const document = env.DOCUMENT;
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number });
-  const prev = readState(issue.body, document);
+  const server = env.GITHUB_SERVER_URL;
+  const prev = await bodyState(github, { owner, repo, number: issue_number, document, body: issue.body, ids: list(env.TRUSTED_IDS), server });
+  if (!prev && /<!-- issue-agent-state /.test(issue.body || '')) core.warning(`the ${document} state on #${issue_number} was not written by the agent, so it is ignored`);
 
   if (env.MODE === 'read') {
     if (!prev) return;
@@ -70,11 +73,19 @@ async function run({ github, context, core }) {
   if (env.MODE === 'place') {
     const dir = path.join(env.GITHUB_WORKSPACE, env.SCRATCH_DIR);
     const from = path.join(dir, env.FILE);
-    if (fs.existsSync(from)) fs.renameSync(from, path.join(dir, `${document}.md`));
+    const to = path.join(dir, `${document}.md`);
+    // an artifact expires after 90 days; the session still has the rounds it made
+    if (env.DOWNLOADED !== 'success') {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(to, `Round ${prev?.round} of this ${document} is no longer downloadable (artifacts expire after 90 days). Work from this session, and return the whole ${document} again.\n`);
+    } else if (fs.existsSync(from)) {
+      fs.renameSync(from, to);
+    }
     return;
   }
 
-  const structured = JSON.parse(env.STRUCTURED || '{}');
+  // a document can outgrow an env var (Linux caps one string at 128 KiB), so it travels in a file
+  const structured = env.STRUCTURED_FILE ? JSON.parse(fs.readFileSync(env.STRUCTURED_FILE, 'utf8')) : {};
   const text = typeof structured[document] === 'string' ? structured[document].trim() : '';
   // one date per round: write names the artifact with it and publish reuses it (DATE)
   const date = env.DATE || new Date().toISOString().slice(0, 10);

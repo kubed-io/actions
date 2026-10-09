@@ -7,6 +7,12 @@ const round = require('../round');
 const state = require('../state');
 const fake = require('./fake');
 
+function structuredFile(value) {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'structured-')), 'issue-agent-structured.json');
+  fs.writeFileSync(file, JSON.stringify(value));
+  return file;
+}
+
 test('slugify drops the template prefix and keeps six words', () => {
   assert.equal(round.slugify('[feature]: Selenium screen recordings for every browser session ever'), 'selenium-screen-recordings-for-every-browser');
   assert.equal(round.slugify(''), 'untitled');
@@ -41,7 +47,7 @@ test('write then publish: artifact file, summary, body state, header', async () 
   const github = fake.github({ 'issues.get': () => ({ number: 12, title: '[feature]: Recordings', body }), 'issues.update': (p) => { body = p.body; return {}; } });
   Object.assign(process.env, {
     NUMBER: '12', DOCUMENT: 'spec', DOCUMENT_PATH: 'docs/superpowers/specs/{date}-{slug}-design.md',
-    STRUCTURED: JSON.stringify({ phase: 'spec', slug: 'recordings', spec: '# Recordings\n' }), RUNNER_TEMP: tmp,
+    STRUCTURED_FILE: structuredFile({ phase: 'spec', slug: 'recordings', spec: '# Recordings\n' }), RUNNER_TEMP: tmp,
     GITHUB_SERVER_URL: 'https://github.com', GITHUB_RUN_ID: '5', CHECK_RUN_ID: '9', ARTIFACT_ID: '7', ARTIFACT_URL: 'https://a',
   });
   const core = fake.core();
@@ -76,7 +82,7 @@ test('publish reuses the date write named, even across midnight', async () => {
 });
 
 test('no document in the output is no round', async () => {
-  Object.assign(process.env, { MODE: 'write', STRUCTURED: JSON.stringify({ phase: 'questions' }) });
+  Object.assign(process.env, { MODE: 'write', STRUCTURED_FILE: structuredFile({ phase: 'questions' }) });
   const core = fake.core();
   await round.run({ github: fake.github({ 'issues.get': { number: 12, title: 't', body: '' } }), context: fake.context(), core });
   assert.equal(core.outputs.has_round, 'false');
@@ -89,4 +95,50 @@ test('a state block planted with a path outside docs/ is not kept', () => {
   assert.equal(next.path, 'docs/superpowers/specs/2026-10-08-recordings-design.md');
   assert.equal(next.slug, 'recordings');
   assert.equal(next.round, 5);
+});
+
+const OK = {
+  slug: 'recordings', path: 'docs/superpowers/specs/2026-10-08-recordings-design.md', round: 2, run: '5', artifact: '7',
+  artifact_url: 'https://github.com/kubed-io/selenium-flow/actions/runs/5/artifacts/7',
+  summary_url: 'https://github.com/kubed-io/selenium-flow/actions/runs/5#summary-9', approved: false,
+};
+const user = (login, id) => ({ __typename: 'User', login, databaseId: id });
+const editedBy = (editor) => ({ 'graphql:issueOrPullRequest': { repository: { issueOrPullRequest: { author: user('stranger', 2), editor } } } });
+
+function readWith(editor, env = {}) {
+  Object.assign(process.env, { MODE: 'read', NUMBER: '12', DOCUMENT: 'spec', GITHUB_SERVER_URL: 'https://github.com', TRUSTED_IDS: '1', ...env });
+  const github = fake.github({ 'issues.get': { number: 12, title: 't', body: state.writeSection('x', 'spec', OK, []) }, ...editedBy(editor) });
+  const core = fake.core();
+  return round.run({ github, context: fake.context(), core }).then(() => core);
+}
+
+test('read ignores a state the untrusted author edited last', async () => {
+  const core = await readWith(user('stranger', 2));
+  assert.equal(core.outputs.artifact, undefined);
+  assert.ok(core.notices.some((m) => /not written by the agent/.test(m)));
+});
+
+test('read uses a state a Bot or a trusted id edited last', async () => {
+  assert.equal((await readWith({ __typename: 'Bot', login: 'app', databaseId: 9 })).outputs.artifact, '7');
+  assert.equal((await readWith(user('kelly', 1))).outputs.artifact, '7');
+});
+
+test('place says so when the last round can no longer be downloaded', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
+  Object.assign(process.env, { GITHUB_WORKSPACE: ws, SCRATCH_DIR: '.issue', FILE: 'x.md', DOWNLOADED: 'failure' });
+  const github = fake.github({ 'issues.get': { number: 12, title: 't', body: state.writeSection('x', 'spec', OK, []) }, ...editedBy({ __typename: 'Bot', login: 'app', databaseId: 9 }) });
+  process.env.MODE = 'place';
+  await round.run({ github, context: fake.context(), core: fake.core() });
+  assert.equal(fs.readFileSync(path.join(ws, '.issue', 'spec.md'), 'utf8'),
+    'Round 2 of this spec is no longer downloadable (artifacts expire after 90 days). Work from this session, and return the whole spec again.\n');
+});
+
+test('place moves the downloaded round into place', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
+  fs.mkdirSync(path.join(ws, '.issue'));
+  fs.writeFileSync(path.join(ws, '.issue', 'x.md'), '# Spec\n');
+  Object.assign(process.env, { GITHUB_WORKSPACE: ws, SCRATCH_DIR: '.issue', FILE: 'x.md', DOWNLOADED: 'success', MODE: 'place' });
+  const github = fake.github({ 'issues.get': { number: 12, title: 't', body: state.writeSection('x', 'spec', OK, []) }, ...editedBy({ __typename: 'Bot', login: 'app', databaseId: 9 }) });
+  await round.run({ github, context: fake.context(), core: fake.core() });
+  assert.equal(fs.readFileSync(path.join(ws, '.issue', 'spec.md'), 'utf8'), '# Spec\n');
 });
