@@ -4,6 +4,7 @@
 
 const fs = require('fs');
 const { gql } = require('./util');
+const { askCopilot } = require('./copilot');
 
 async function run({ github, context, core }) {
   const env = process.env;
@@ -18,6 +19,9 @@ async function run({ github, context, core }) {
     const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(env.NUMBER) });
     if (pr.draft) await github.graphql(gql('ready-for-review'), { id: pr.node_id });
   }
+  // a run that pushed asked already; this covers a PR just marked ready, by the agent or
+  // by hand, whose head Copilot has not seen
+  if (env.REQUEST_REVIEW === 'copilot' && env.PUSHED !== 'true') await askCopilot({ github, context, core, number: Number(env.NUMBER) });
 }
 
 module.exports = { run };

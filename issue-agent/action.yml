@@ -42,7 +42,7 @@ inputs:
     required: false
     default: ""
   request_review:
-    description: "`copilot`: request Copilot's review after a push."
+    description: "`copilot`: once the PR is out of draft, ask Copilot to review each new head."
     required: false
     default: ""
   opt_in_label:
@@ -354,6 +354,7 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       PUSHED: ${{ steps.push.outputs.pushed }}
+      REQUEST_REVIEW: ${{ inputs.request_review }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |

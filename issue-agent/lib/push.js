@@ -1,7 +1,7 @@
 // Pushes what the agent committed. The checkout keeps no credentials, so the agent never
 // held one; the token arrives here, after Claude has finished.
 
-const COPILOT = 'copilot-pull-request-reviewer[bot]';
+const { askCopilot } = require('./copilot');
 
 async function run({ github, context, core, exec }) {
   const env = process.env;
@@ -23,14 +23,9 @@ async function run({ github, context, core, exec }) {
   core.setOutput('pushed', 'true');
   core.info(`pushed ${ahead} commit(s) to ${env.HEAD}`);
 
-  // where a ruleset cannot have Copilot review every push (a private repo on the Free plan)
-  if (env.REQUEST_REVIEW === 'copilot') {
-    try {
-      await github.rest.pulls.requestReviewers({ owner, repo, pull_number: Number(env.NUMBER), reviewers: [COPILOT] });
-    } catch (e) {
-      core.warning(`could not request Copilot's review: ${e.message}`);
-    }
-  }
+  // where no ruleset has Copilot review a push (a private repo on the Free plan); a draft
+  // waits, since Copilot starts at ready for review
+  if (env.REQUEST_REVIEW === 'copilot') await askCopilot({ github, context, core, number: Number(env.NUMBER) });
 }
 
 module.exports = { run };

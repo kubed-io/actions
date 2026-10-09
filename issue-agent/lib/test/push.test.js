@@ -24,11 +24,14 @@ test('nothing ahead is no push', async () => {
   assert.equal(core.outputs.pushed, 'false');
 });
 
-test('request_review copilot asks for Copilot after a push, and a refusal only warns', async () => {
+test('request_review copilot asks Copilot after a push out of draft, never on a draft, and a refusal only warns', async () => {
   env({ REQUEST_REVIEW: 'copilot' });
-  const github = fake.github({ 'pulls.requestReviewers': new Error('not allowed') });
+  const draft = fake.github({ 'pulls.get': { draft: true, head: { sha: 'n' }, requested_reviewers: [] } });
+  await push.run({ github: draft, context: fake.context(), core: fake.core(), exec: fake.exec('1') });
+  assert.ok(!draft.calls.some((c) => c.name === 'pulls.requestReviewers'));
+  const github = fake.github({ 'pulls.get': { draft: false, head: { sha: 'n' }, requested_reviewers: [] }, 'pulls.listReviews': [], 'pulls.requestReviewers': new Error('not allowed') });
   const core = fake.core();
   await push.run({ github, context: fake.context(), core, exec: fake.exec('1') });
-  assert.deepEqual(github.calls[0].params.reviewers, ['copilot-pull-request-reviewer[bot]']);
-  assert.ok(core.notices[0].includes('not allowed'));
+  assert.deepEqual(github.calls.find((c) => c.name === 'pulls.requestReviewers').params.reviewers, ['copilot-pull-request-reviewer[bot]']);
+  assert.ok(core.notices.some((n) => n.includes('not allowed')));
 });
