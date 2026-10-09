@@ -35,6 +35,10 @@ inputs:
     description: "`draft` opens a draft PR from the new branch; `none` does not."
     required: false
     default: none
+  pull_request_labels:
+    description: Labels for the PR it opens, comma-separated (the hand-off's opt-in, e.g. enhancement,agent).
+    required: false
+    default: ""
 
 outputs:
   branch:
@@ -85,6 +89,7 @@ runs:
       BRANCH: ${{ inputs.branch }}
       MESSAGE: ${{ inputs.message }}
       PULL_REQUEST: ${{ inputs.pull_request }}
+      PULL_REQUEST_LABELS: ${{ inputs.pull_request_labels }}
       TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       DOWNLOAD_DIR: ${{ runner.temp }}/issue-agent-commit
     with:

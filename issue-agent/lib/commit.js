@@ -80,6 +80,9 @@ async function run({ github, context, core }) {
     const body = `${label(document)}: [${state.path}](${blob})\n\nCloses #${number}\n`;
     const { data: pr } = await github.rest.pulls.create({ owner, repo, title: issue.title, head: branch, base: repository.default_branch, body, draft: true });
     pull = String(pr.number);
+    // the hand-off carries the issue's opt-in to the PR, where it gates plan and code
+    const labels = list(env.PULL_REQUEST_LABELS);
+    if (labels.length) await github.rest.issues.addLabels({ owner, repo, issue_number: pr.number, labels });
   }
 
   const approved = { ...state, approved: true, branch, commit: commit.oid };

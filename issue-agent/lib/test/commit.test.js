@@ -142,3 +142,15 @@ test('an issue with no round says so', async () => {
   const body = { value: 'Record it.' };
   await assert.rejects(commit.run({ github: fake.github(routes(body, { 'heads/main': 'base' })), context: fake.context(), core: fake.core() }), /#12 has no spec round to commit/);
 });
+
+test('the draft PR gets the hand-off labels', async () => {
+  setup({ PULL_REQUEST_LABELS: 'enhancement, agent' });
+  const body = { value: state.writeSection('Record it.', 'spec', SPEC, []) };
+  const r = routes(body, { 'heads/main': 'base' });
+  r['issues.addLabels'] = {};
+  const github = fake.github(r);
+  await commit.run({ github, context: fake.context(), core: fake.core() });
+  const add = github.calls.find((c) => c.name === 'issues.addLabels');
+  assert.equal(add.params.issue_number, 40);
+  assert.deepEqual(add.params.labels, ['enhancement', 'agent']);
+});
