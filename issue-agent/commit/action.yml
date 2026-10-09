@@ -27,6 +27,10 @@ inputs:
     description: The commit headline; {document}, {title} and {number} are filled.
     required: false
     default: "{document}: {title} (#{number})"
+  trusted_ids:
+    description: Comma-separated user ids whose edits to a round's state count; the App's own edits always do.
+    required: false
+    default: ""
   pull_request:
     description: "`draft` opens a draft PR from the new branch; `none` does not."
     required: false
@@ -57,6 +61,7 @@ runs:
       MODE: read
       NUMBER: ${{ inputs.number }}
       DOCUMENT: ${{ inputs.document }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -80,7 +85,21 @@ runs:
       BRANCH: ${{ inputs.branch }}
       MESSAGE: ${{ inputs.message }}
       PULL_REQUEST: ${{ inputs.pull_request }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids }}
       DOWNLOAD_DIR: ${{ runner.temp }}/issue-agent-commit
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/commit.js`).run({ github, context, core });
+
+  - name: Report Failure
+    if: failure()
+    uses: actions/github-script@v9
+    env:
+      MODE: failure
+      NUMBER: ${{ inputs.number }}
+      DOCUMENT: ${{ inputs.document }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |

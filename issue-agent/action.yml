@@ -209,12 +209,15 @@ runs:
       MODE: read
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
 
   - name: Download the Last Round
+    id: download
+    continue-on-error: true
     if: steps.last.outputs.artifact != ''
     uses: actions/download-artifact@v8
     with:
@@ -230,6 +233,8 @@ runs:
       MODE: place
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      DOWNLOADED: ${{ steps.download.outcome }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       FILE: ${{ steps.last.outputs.file }}
     with:
@@ -272,16 +277,6 @@ runs:
         ${{ steps.setup.outputs.args }}
         ${{ inputs.claude_args }}
 
-  - name: Read the Reply
-    id: read
-    if: steps.gather.outputs.prompt != ''
-    uses: actions/github-script@v9
-    env:
-      EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-    with:
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/reply.js`).run({ core });
-
   - name: Push
     id: push
     if: steps.gather.outputs.prompt != '' && inputs.push_token != '' && steps.gather.outputs.head != ''
@@ -296,6 +291,16 @@ runs:
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/push.js`).run({ github, context, core, exec });
 
+  - name: Read the Reply
+    id: read
+    if: steps.gather.outputs.prompt != ''
+    uses: actions/github-script@v9
+    env:
+      EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+    with:
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/reply.js`).run({ core });
+
   - name: Write the Round
     id: write
     if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && inputs.document != ''
@@ -305,7 +310,8 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
       DOCUMENT_PATH: ${{ inputs.document_path }}
-      STRUCTURED: ${{ steps.claude.outputs.structured_output }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -318,6 +324,7 @@ runs:
     with:
       path: ${{ steps.write.outputs.file }}
       archive: false
+      overwrite: true
       retention-days: 90
 
   - name: Publish the Round
@@ -329,7 +336,8 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
       DOCUMENT_PATH: ${{ inputs.document_path }}
-      STRUCTURED: ${{ steps.claude.outputs.structured_output }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       DATE: ${{ steps.write.outputs.date }}
       ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
       ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
@@ -344,7 +352,7 @@ runs:
     uses: actions/github-script@v9
     env:
       NUMBER: ${{ steps.gather.outputs.number }}
-      STRUCTURED: ${{ steps.claude.outputs.structured_output }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       PUSHED: ${{ steps.push.outputs.pushed }}
     with:
       github-token: ${{ inputs.github_token }}
@@ -352,6 +360,7 @@ runs:
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 
   - name: Reply
+    id: reply
     if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != ''
     uses: actions/github-script@v9
     env:
@@ -372,7 +381,7 @@ runs:
 
   # a failed or cancelled run never leaves the spinner up, and never advances the seen marker
   - name: Report Failure
-    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != ''
+    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != '' && steps.reply.outputs.posted != 'true'
     uses: actions/github-script@v9
     env:
       MODE: failure
