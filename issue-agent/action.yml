@@ -101,6 +101,14 @@ inputs:
     description: Bots claude-code-action accepts as the actor; defaults to the runner's CLAUDE_ALLOWED_BOTS.
     required: false
     default: ""
+  bot_name:
+    description: The git author of the agent's commits, as `<slug>[bot]`; defaults to claude-code-action's claude[bot].
+    required: false
+    default: claude[bot]
+  bot_id:
+    description: The user id behind bot_name, for its noreply email.
+    required: false
+    default: "41898282"
   show_full_output:
     description: Print every Claude message to the log. Keep false in public repos.
     required: false
@@ -272,6 +280,8 @@ runs:
       anthropic_api_key: ${{ inputs.anthropic_api_key }}
       claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
       allowed_bots: ${{ inputs.allowed_bots || env.CLAUDE_ALLOWED_BOTS }}
+      bot_name: ${{ inputs.bot_name }}
+      bot_id: ${{ inputs.bot_id }}
       show_full_output: ${{ inputs.show_full_output }}
       path_to_claude_code_executable: ${{ inputs.path_to_claude_code_executable || env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
       path_to_bun_executable: ${{ inputs.path_to_bun_executable || env.PATH_TO_BUN_EXECUTABLE }}
