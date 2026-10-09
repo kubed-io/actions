@@ -364,7 +364,8 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
-      github-token: ${{ inputs.github_token }}
+      # resolving a thread needs contents write, which the agent's own token never has
+      github-token: ${{ inputs.push_token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 
