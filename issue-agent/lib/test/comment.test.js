@@ -39,6 +39,7 @@ test('ack posts the placeholder and outputs its id; reply edits it', async () =>
   const edit = github.calls.find((c) => c.name === 'issues.updateComment');
   assert.equal(edit.params.comment_id, 55);
   assert.ok(edit.params.body.includes('Hello.'));
+  assert.equal(core.outputs.posted, 'true');
 });
 
 test('an empty reply fails the step', async () => {
@@ -46,4 +47,5 @@ test('an empty reply fails the step', async () => {
   Object.assign(process.env, { MODE: 'reply', REPLY: '  ' });
   await comment.run({ github: fake.github(), context: fake.context(), core });
   assert.deepEqual(core.failures, ['the agent wrote no reply']);
+  assert.equal(core.outputs.posted, undefined);
 });

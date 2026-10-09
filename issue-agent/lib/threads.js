@@ -2,11 +2,12 @@
 // resolve when it fixed or settled one), and marks a draft ready when the agent says the
 // work is done. A reply and its resolve happen together, never one without the other.
 
+const fs = require('fs');
 const { gql } = require('./util');
 
 async function run({ github, context, core }) {
   const env = process.env;
-  const out = JSON.parse(env.STRUCTURED || '{}');
+  const out = env.STRUCTURED_FILE ? JSON.parse(fs.readFileSync(env.STRUCTURED_FILE, 'utf8')) : {};
   for (const t of out.threads || []) {
     await github.graphql(gql('reply-thread'), { thread: t.id, body: t.reply });
     if (t.resolve) await github.graphql(gql('resolve-thread'), { thread: t.id });

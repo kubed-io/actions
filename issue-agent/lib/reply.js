@@ -6,6 +6,7 @@
 // any other tool call is narration, and anything after StructuredOutput is filler.
 
 const fs = require('fs');
+const path = require('path');
 
 function extractReply(messages) {
   let texts = [];
@@ -35,16 +36,31 @@ function stats(messages) {
   };
 }
 
+// the result message's structured output, as a file: a document outgrows an env var
+function structuredOf(messages) {
+  const result = [...messages].reverse().find((m) => m.type === 'result');
+  return result?.structured_output ?? null;
+}
+
 async function run({ core }) {
   const file = process.env.EXECUTION_FILE;
   const messages = file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
   const text = extractReply(messages);
   const { turns, cost, denials } = stats(messages);
+  const structured = structuredOf(messages);
+  let structuredFile = '';
+  if (structured !== null) {
+    structuredFile = path.join(process.env.RUNNER_TEMP, 'issue-agent-structured.json');
+    fs.writeFileSync(structuredFile, JSON.stringify(structured));
+  }
+  core.setOutput('structured_file', structuredFile);
   core.setOutput('reply', text);
   core.setOutput('turns', String(turns));
   core.setOutput('cost', String(cost));
   core.setOutput('denials', String(denials));
+  // nothing was said, so nothing may be written, published or posted on its behalf
+  if (!text.trim()) core.setFailed('the agent wrote no reply');
   core.info(`reply ${text.length} chars · ${turns} turns · $${cost} · ${denials} denials`);
 }
 
-module.exports = { extractReply, stats, run };
+module.exports = { extractReply, stats, structuredOf, run };

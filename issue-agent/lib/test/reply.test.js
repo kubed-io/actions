@@ -54,3 +54,34 @@ test('run reads the execution file into outputs', async () => {
   assert.equal(core.outputs.reply, 'Hello.');
   assert.equal(core.outputs.turns, '3');
 });
+
+test('the structured output goes to a file, and the path to an output', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reply-'));
+  const file = path.join(tmp, 'claude-execution-output.json');
+  fs.writeFileSync(file, JSON.stringify([user('Hi'), text('Hello.'), { ...result, structured_output: { spec: '# S\n' } }]));
+  Object.assign(process.env, { EXECUTION_FILE: file, RUNNER_TEMP: tmp });
+  const core = fake.core();
+  await reply.run({ core });
+  assert.equal(core.outputs.structured_file, path.join(tmp, 'issue-agent-structured.json'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(core.outputs.structured_file, 'utf8')), { spec: '# S\n' });
+});
+
+test('without structured output the file output is empty', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reply-'));
+  const file = path.join(tmp, 'e.json');
+  fs.writeFileSync(file, JSON.stringify([user('Hi'), text('Hello.'), result]));
+  Object.assign(process.env, { EXECUTION_FILE: file, RUNNER_TEMP: tmp });
+  const core = fake.core();
+  await reply.run({ core });
+  assert.equal(core.outputs.structured_file, '');
+});
+
+test('no reply fails the step, so nothing after it runs', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'reply-'));
+  const file = path.join(tmp, 'e.json');
+  fs.writeFileSync(file, JSON.stringify([user('Hi'), tool('StructuredOutput'), result]));
+  Object.assign(process.env, { EXECUTION_FILE: file, RUNNER_TEMP: tmp });
+  const core = fake.core();
+  await reply.run({ core });
+  assert.deepEqual(core.failures, ['the agent wrote no reply']);
+});

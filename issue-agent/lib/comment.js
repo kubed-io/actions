@@ -50,6 +50,8 @@ async function run({ github, context, core }) {
   }
   const seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
   await post(github, { ...where, body: reply({ prompt: env.PROMPT, header: env.HEADER, text: env.REPLY, runUrl: env.RUN_URL, seen }) });
+  // a cancel that lands after this must not overwrite the posted reply
+  core.setOutput('posted', 'true');
 }
 
 module.exports = { placeholder, reply, failure, run };
