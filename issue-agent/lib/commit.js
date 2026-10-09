@@ -44,6 +44,17 @@ async function run({ github, context, core }) {
     return;
   }
 
+  // a second approval (the label taken off and put back) commits nothing again; the
+  // jobs after it still run
+  if (state.approved && state.branch && state.commit) {
+    core.notice(`the ${document} round on #${number} is already approved and committed`);
+    core.setOutput('branch', state.branch);
+    core.setOutput('path', state.path);
+    core.setOutput('commit_url', `${env.GITHUB_SERVER_URL}/${owner}/${repo}/commit/${state.commit}`);
+    core.setOutput('pull_request', '');
+    return;
+  }
+
   if (!safePath(state.path)) throw new Error(`refusing to commit ${state.path}: a document lands under docs/`);
   const contents = fs.readFileSync(path.join(env.DOWNLOAD_DIR, path.basename(state.path)));
   const { data: repository } = await github.rest.repos.get({ owner, repo });

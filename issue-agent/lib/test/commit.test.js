@@ -154,3 +154,17 @@ test('the draft PR gets the hand-off labels', async () => {
   assert.equal(add.params.issue_number, 40);
   assert.deepEqual(add.params.labels, ['enhancement', 'agent']);
 });
+
+test('approving what is already approved commits nothing and reports the commit', async () => {
+  setup({ NUMBER: '40', DOCUMENT: 'plan', PULL_REQUEST: 'none' });
+  const done = { ...SPEC, path: 'docs/superpowers/plans/plan.md', approved: true, branch: 'issue-12-recordings', commit: 'c0ffee1' };
+  const body = { value: state.writeSection('Spec: x', 'plan', done, []) };
+  const r = routes(body, {});
+  r['issues.get'] = () => ({ number: 40, title: 'Recordings', body: body.value, pull_request: {} });
+  const github = fake.github(r);
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core });
+  assert.ok(!github.calls.some((c) => c.params?.input || c.name === 'pulls.create' || c.name === 'issues.createComment'));
+  assert.equal(core.outputs.commit_url, 'https://github.com/kubed-io/selenium-flow/commit/c0ffee1');
+  assert.equal(core.outputs.branch, 'issue-12-recordings');
+});
