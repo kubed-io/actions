@@ -7,8 +7,18 @@
 //   <!-- issue-agent-seen {...} -->    on a reply: the last message it answered
 
 const TAG = '<!-- issue-agent -->';
-const STATE = /<!-- issue-agent-state (\{.*?\}) -->/s;
-const SEEN = /<!-- issue-agent-seen (\{.*?\}) -->/gs;
+// a marker's JSON never holds `-->` (encode) and never opens another comment, so a stray
+// unclosed marker cannot swallow the real one after it
+const STATE = /<!-- issue-agent-state (\{(?:(?!-->|<!--)[\s\S])*?\}) -->/;
+const SEEN = /<!-- issue-agent-seen (\{(?:(?!-->|<!--)[\s\S])*?\}) -->/g;
+
+function parse(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 // so a value can never close its comment early
 function encode(value) {
@@ -28,7 +38,7 @@ function split(body, document) {
 
 function readState(body, document) {
   const found = split(body, document).section.match(STATE);
-  return found ? JSON.parse(found[1]) : null;
+  return found ? parse(found[1]) : null;
 }
 
 function writeSection(body, document, state, lines) {
@@ -50,7 +60,7 @@ function seenMarker(seen) {
 function readSeen(body) {
   // the real marker is appended last, after any text the agent wrote, so the last one wins
   const found = [...(body || '').matchAll(SEEN)].pop();
-  return found ? JSON.parse(found[1]) : null;
+  return found ? parse(found[1]) : null;
 }
 
 function isAgent(body) {
@@ -64,4 +74,18 @@ function safePath(p) {
     && !p.split('/').some((s) => s === '..' || s === '');
 }
 
-module.exports = { TAG, marker, split, readState, writeSection, documents, seenMarker, readSeen, isAgent, safePath };
+// What the agent wrote, or null: a state is trusted for what it can only be if the agent
+// wrote it, so every value that steers a write or a link is checked against its shape.
+function validState(state, { server, owner, repo }) {
+  if (!state || typeof state !== 'object') return null;
+  const digits = (v) => (typeof v === 'string' || typeof v === 'number') && /^\d+$/.test(String(v));
+  const runs = `${server}/${owner}/${repo}/actions/runs/${state.run}`;
+  const ok = digits(state.run) && digits(state.artifact)
+    && typeof state.slug === 'string' && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(state.slug)
+    && safePath(state.path)
+    && typeof state.summary_url === 'string' && state.summary_url.startsWith(runs)
+    && typeof state.artifact_url === 'string' && state.artifact_url.startsWith(`${runs}/artifacts/`);
+  return ok ? state : null;
+}
+
+module.exports = { TAG, marker, split, readState, writeSection, documents, seenMarker, readSeen, isAgent, safePath, validState };

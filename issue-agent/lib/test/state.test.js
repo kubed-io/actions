@@ -60,3 +60,40 @@ test('safePath admits only a document under docs/, with no traversal or empty se
   assert.equal(state.safePath('README.md'), false);
   assert.equal(state.safePath(undefined), false);
 });
+
+test('an unclosed seen marker before a real one does not swallow it', () => {
+  const real = state.seenMarker({ key: 'k', through: 't', id: '1' });
+  assert.deepEqual(state.readSeen(`<!-- issue-agent-seen {\nsome text\n${real}`), { key: 'k', through: 't', id: '1' });
+});
+
+test('an unclosed state marker before a real one does not swallow it', () => {
+  const body = `<!-- issue-agent:spec -->\n<!-- issue-agent-state {\n\n<!-- issue-agent-state {"round":2} -->`;
+  assert.deepEqual(state.readState(body, 'spec'), { round: 2 });
+});
+
+test('a marker whose JSON is invalid reads as null, never throws', () => {
+  assert.equal(state.readState('<!-- issue-agent:spec -->\n<!-- issue-agent-state {nope} -->', 'spec'), null);
+  assert.equal(state.readSeen('<!-- issue-agent-seen {nope} -->'), null);
+});
+
+const OK = {
+  slug: 'recordings', path: 'docs/superpowers/specs/2026-10-08-recordings-design.md', round: 2, run: '5', artifact: '7',
+  artifact_url: 'https://github.com/o/r/actions/runs/5/artifacts/7', summary_url: 'https://github.com/o/r/actions/runs/5#summary-9', approved: false,
+};
+const WHERE = { server: 'https://github.com', owner: 'o', repo: 'r' };
+
+test('validState accepts a state the agent wrote, optional fields passing through', () => {
+  const full = { ...OK, approved: true, branch: 'b', commit: 'c' };
+  assert.deepEqual(state.validState(full, WHERE), full);
+  assert.deepEqual(state.validState({ ...OK, run: 5, artifact: 7 }, WHERE), { ...OK, run: 5, artifact: 7 });
+});
+
+test('validState rejects what the agent could not have written', () => {
+  const bad = [
+    { run: '5; rm' }, { artifact: 'abc' }, { slug: 'Bad Slug' }, { slug: 'a--b' }, { path: '.github/workflows/x.yml' },
+    { summary_url: 'https://evil.example/o/r/actions/runs/5' }, { artifact_url: 'https://github.com/o/r/actions/runs/5/other' },
+    { artifact_url: 'https://github.com/x/y/actions/runs/5/artifacts/7' },
+  ];
+  for (const over of bad) assert.equal(state.validState({ ...OK, ...over }, WHERE), null, JSON.stringify(over));
+  assert.equal(state.validState(null, WHERE), null);
+});
