@@ -85,3 +85,20 @@ test('no reply fails the step, so nothing after it runs', async () => {
   await reply.run({ core });
   assert.deepEqual(core.failures, ['the agent wrote no reply']);
 });
+
+test('the message text wins; the structured reply covers a turn that wrote none', () => {
+  assert.equal(reply.pick('Hello.', { reply: 'Also hello.' }), 'Hello.');
+  assert.equal(reply.pick('', { reply: 'From the field.' }), 'From the field.');
+  assert.equal(reply.pick('', {}), '');
+});
+
+test('run falls back to the structured reply, from the result message', async () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'reply-')), 'claude-execution-output.json');
+  fs.writeFileSync(file, JSON.stringify([user('Hi'), tool('StructuredOutput', { reply: 'Spec round 2 is up.' }), { ...result, structured_output: { reply: 'Spec round 2 is up.', spec: '# S' } }]));
+  process.env.EXECUTION_FILE = file;
+  process.env.RUNNER_TEMP = path.dirname(file);
+  const core = fake.core();
+  await reply.run({ core });
+  assert.equal(core.outputs.reply, 'Spec round 2 is up.');
+  assert.deepEqual(core.failures, []);
+});

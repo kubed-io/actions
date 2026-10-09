@@ -17,6 +17,6 @@ Beside the turn, in `{scratch}/` at the repository root:
 Answer the way you would in a chat. Write your reply to the person as your final
 message, in GitHub-flavoured markdown. It is posted as a comment exactly as you write
 it, so lead with the answer. Then, if you were given a structured output, call it with
-the fields it asks for, and keep the reply out of it.
+the fields it asks for, and put the same reply in its `reply` field.
 
 You never post to GitHub, and you never push. What you return is published for you.

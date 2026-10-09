@@ -42,12 +42,19 @@ function structuredOf(messages) {
   return result?.structured_output ?? null;
 }
 
+// The message text is the reply, so the transcript reads as a chat. A turn that went
+// straight to its structured call still has the schema's required `reply`.
+function pick(text, structured) {
+  if (text.trim()) return text;
+  return typeof structured?.reply === 'string' ? structured.reply : '';
+}
+
 async function run({ core }) {
   const file = process.env.EXECUTION_FILE;
   const messages = file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
-  const text = extractReply(messages);
   const { turns, cost, denials } = stats(messages);
   const structured = structuredOf(messages);
+  const text = pick(extractReply(messages), structured);
   let structuredFile = '';
   if (structured !== null) {
     structuredFile = path.join(process.env.RUNNER_TEMP, 'issue-agent-structured.json');
@@ -63,4 +70,4 @@ async function run({ core }) {
   core.info(`reply ${text.length} chars · ${turns} turns · $${cost} · ${denials} denials`);
 }
 
-module.exports = { extractReply, stats, structuredOf, run };
+module.exports = { extractReply, stats, structuredOf, pick, run };

@@ -51,6 +51,14 @@ function agentsFallback(read) {
   return `## This repository's rules (AGENTS.md)\n\n${agents.trim()}`;
 }
 
+// every schema carries the reply too: a turn that skips its message text still has one
+function withReply(text) {
+  const schema = JSON.parse(text);
+  schema.properties = { ...schema.properties, reply: { type: 'string', description: 'Your reply to the person, the same text as your final message.' } };
+  schema.required = [...new Set([...(schema.required || []), 'reply'])];
+  return JSON.stringify(schema);
+}
+
 function flags({ agent, schema, mcpFile, mcpServers = [], allowed = [], disallowed = [], session }) {
   const args = [];
   if (agent) args.push('--agent', q(agent));
@@ -90,7 +98,7 @@ async function run({ core }) {
   fs.writeFileSync(promptFile, `${[contract.trim(), instructions, guide(exists), agentsFallback(read)].filter(Boolean).join('\n\n')}\n`);
 
   const schemaText = inline(env.SCHEMA);
-  const schema = schemaText ? JSON.stringify(JSON.parse(schemaText)) : '';
+  const schema = schemaText ? withReply(schemaText) : '';
 
   let mcpFile = '';
   let mcpServers = [];
@@ -122,4 +130,4 @@ async function run({ core }) {
   core.info(args);
 }
 
-module.exports = { uuid5, q, guide, agentsFallback, flags, run };
+module.exports = { uuid5, q, guide, agentsFallback, flags, run, withReply };

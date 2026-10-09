@@ -65,7 +65,7 @@ test('run writes the system prompt and resumes an existing transcript', async ()
   assert.ok(prompt.includes('House rules.'));
   assert.equal(core.outputs.resumed, 'true');
   assert.ok(core.outputs.args.includes(`--resume ${id}`));
-  assert.ok(core.outputs.args.includes(`--json-schema '{"type":"object"}'`));
+  assert.ok(core.outputs.args.includes(`--json-schema '{"type":"object","properties":{"reply":{"type":"string","description":"Your reply to the person, the same text as your final message."}},"required":["reply"]}'`));
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8')).mcpServers.kb.url, 'https://kb');
 });
 
@@ -81,4 +81,12 @@ test('a session key without a project dir name warns that resume is off', async 
   await setup.run({ core });
   assert.ok(core.notices.some((m) => /cannot resume here/.test(m)));
   assert.equal(core.outputs.resumed, 'false');
+});
+
+test('a schema always carries a required reply', () => {
+  const out = JSON.parse(setup.withReply('{"type":"object","additionalProperties":false,"properties":{"phase":{"type":"string"}},"required":["phase"]}'));
+  assert.equal(out.properties.reply.type, 'string');
+  assert.deepEqual(out.required, ['phase', 'reply']);
+  assert.equal(out.properties.phase.type, 'string');
+  assert.deepEqual(JSON.parse(setup.withReply('{"type":"object","properties":{}}')).required, ['reply']);
 });
