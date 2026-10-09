@@ -45,10 +45,6 @@ inputs:
     description: A token that may push the PR head. Turns on the push after Claude.
     required: false
     default: ""
-  request_review:
-    description: "`copilot`: once the PR is out of draft, ask Copilot to review each new head."
-    required: false
-    default: ""
   opt_in_label:
     description: The run happens only if this label was last added by a trusted id.
     required: false
@@ -300,7 +296,6 @@ runs:
       PUSH_TOKEN: ${{ inputs.push_token }}
       HEAD: ${{ steps.gather.outputs.head }}
       NUMBER: ${{ steps.gather.outputs.number }}
-      REQUEST_REVIEW: ${{ inputs.request_review }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -368,10 +363,21 @@ runs:
     env:
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
-      PUSHED: ${{ steps.push.outputs.pushed }}
-      REQUEST_REVIEW: ${{ inputs.request_review }}
     with:
       github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
+
+  - name: Mark Ready
+    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.is_pr == 'true' && steps.setup.outputs.has_schema == 'true'
+    uses: actions/github-script@v9
+    env:
+      MODE: ready
+      NUMBER: ${{ steps.gather.outputs.number }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
+      PUSHED: ${{ steps.push.outputs.pushed }}
+    with:
+      github-token: ${{ inputs.push_token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 

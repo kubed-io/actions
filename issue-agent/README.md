@@ -12,11 +12,15 @@ The workflow job gives it a purpose:
 - **document rounds** (`document`): a spec or plan returned whole each round, kept as
   an artifact, shown in the job summary, linked from a header on every reply
 - **PR work**: `threads[]` in the output are answered and resolved, `ready: true` marks a
-  draft ready, `push_token` pushes what the agent committed, `request_review: copilot`
-  asks Copilot to review it
+  draft ready, `push_token` pushes what the agent committed
 
 `issue-agent/commit` commits an approved round: a branch linked to the issue, a signed
 commit, and a draft PR naming the document.
+
+`issue-agent/review` asks Copilot to review a PR out of draft and waits for the review;
+`respond` says whether Copilot left comments for the code agent. It needs the App's token:
+GITHUB_TOKEN's request succeeds and does nothing. Every run Copilot's review triggers is
+held for approval, so nothing can wake on the review itself.
 
 ## Usage
 
@@ -55,8 +59,7 @@ real gate. Gitignore `scratch_dir` (`.issue`).
 | `schema` | `""` | JSON Schema, inline or a path |
 | `document` | `""` | Schema field holding a whole document |
 | `document_path` | `docs/{document}s/{date}-{slug}.md` | Where an approved round lands |
-| `push_token` | `""` | Pushes the agent's commits after the run |
-| `request_review` | `""` | `copilot` after each push |
+| `push_token` | `""` | Pushes the agent's commits after the run, and marks a draft ready (an event that wakes workflows) |
 | `opt_in_label` | `""` | Run only if a trusted id last added this label |
 | `max_runs` | `0` | Cap on replies per session key per thread |
 | `trusted_ids`, `trusted_bots` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Whose messages count, and whose edits to a body's round state are believed (a Bot's always are) |

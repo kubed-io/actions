@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const push = require('../push');
 const fake = require('./fake');
 
-const env = (over) => Object.assign(process.env, { PUSH_TOKEN: 'tok', HEAD: 'issue-12-rec', NUMBER: '40', REQUEST_REVIEW: '', GITHUB_SERVER_URL: 'https://github.com', ...over });
+const env = (over) => Object.assign(process.env, { PUSH_TOKEN: 'tok', HEAD: 'issue-12-rec', NUMBER: '40', GITHUB_SERVER_URL: 'https://github.com', ...over });
 
 test('a checkout ahead of the head is pushed, with the token masked', async () => {
   env({});
@@ -24,14 +24,9 @@ test('nothing ahead is no push', async () => {
   assert.equal(core.outputs.pushed, 'false');
 });
 
-test('request_review copilot asks Copilot after a push out of draft, never on a draft, and a refusal only warns', async () => {
-  env({ REQUEST_REVIEW: 'copilot' });
-  const draft = fake.github({ 'pulls.get': { draft: true, head: { sha: 'n' }, requested_reviewers: [] } });
-  await push.run({ github: draft, context: fake.context(), core: fake.core(), exec: fake.exec('1') });
-  assert.ok(!draft.calls.some((c) => c.name === 'pulls.requestReviewers'));
-  const github = fake.github({ 'pulls.get': { draft: false, head: { sha: 'n' }, requested_reviewers: [] }, 'pulls.listReviews': [], 'pulls.requestReviewers': new Error('not allowed') });
-  const core = fake.core();
-  await push.run({ github, context: fake.context(), core, exec: fake.exec('1') });
-  assert.deepEqual(github.calls.find((c) => c.name === 'pulls.requestReviewers').params.reviewers, ['copilot-pull-request-reviewer[bot]']);
-  assert.ok(core.notices.some((n) => n.includes('not allowed')));
+test('a push never asks Copilot: the review stage does, on the App token', async () => {
+  env({});
+  const github = fake.github();
+  await push.run({ github, context: fake.context(), core: fake.core(), exec: fake.exec('1') });
+  assert.ok(!github.calls.some((c) => c.name === 'pulls.requestReviewers'));
 });

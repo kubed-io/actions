@@ -1,0 +1,46 @@
+name: Issue Agent · Review
+description: >
+  Asks Copilot to review a pull request's head once it is out of draft, waits for the
+  review, and says whether it left comments for the code agent. Every run Copilot's review
+  triggers is held for approval, so this waits in-band instead. Runs no Claude.
+
+inputs:
+  github_token:
+    description: >
+      A token that may ask Copilot: the App's. GITHUB_TOKEN's request succeeds and does
+      nothing. Clearing Copilot's held runs also needs actions write.
+    required: true
+  number:
+    description: The pull request.
+    required: false
+    default: ${{ github.event.pull_request.number }}
+  timeout_minutes:
+    description: How long to wait for Copilot's review.
+    required: false
+    default: "15"
+
+outputs:
+  respond:
+    description: "`true` when Copilot left comments to answer."
+    value: ${{ steps.review.outputs.respond }}
+  comments:
+    description: How many comments Copilot left.
+    value: ${{ steps.review.outputs.comments }}
+  review_url:
+    description: Copilot's review.
+    value: ${{ steps.review.outputs.review_url }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Ask Copilot
+    id: review
+    uses: actions/github-script@v9
+    env:
+      NUMBER: ${{ inputs.number }}
+      TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/copilot.js`).run({ github, context, core });
