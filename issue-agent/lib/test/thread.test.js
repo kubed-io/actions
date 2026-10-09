@@ -213,3 +213,12 @@ test('a fork PR has no head to push', async () => {
   await thread.run({ github, context: fake.context(), core });
   assert.equal(core.outputs.head, '');
 });
+
+test('a nudge is the turn only when the thread has nothing new', () => {
+  const m = messages(ISSUE, answer(1, '2026-10-08T13:05:00Z', '2026-10-08T13:00:00Z'));
+  const t = turnOf(m, { nudge: 'The plan is approved. Start the first task.' });
+  assert.ok(t.text.startsWith('The plan is approved. Start the first task.\n\n—\n#12'));
+  assert.equal(t.through, '2026-10-08T13:00:00Z');
+  const withNew = messages(ISSUE, answer(1, '2026-10-08T13:05:00Z', '2026-10-08T13:00:00Z'), comment(2, OWNER, '2026-10-08T14:10:00Z', 'Use ffmpeg.'));
+  assert.ok(turnOf(withNew, { nudge: 'ignored' }).text.startsWith('Use ffmpeg.'));
+});

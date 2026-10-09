@@ -49,6 +49,7 @@ real gate. Gitignore `scratch_dir` (`.issue`).
 | `github_token` | required | Thread I/O |
 | `number` | the event's | Issue or PR; empty with `prompt` is a one-off |
 | `prompt` | `""` | A one-off turn (dispatch) |
+| `nudge` | `""` | A turn only when the thread has nothing new: an event with no words (a label, a push) |
 | `instructions` | `""` | Markdown files, one per line, appended in order: base role, then the repo's overlay |
 | `agent` | `""` | A native repo agent |
 | `schema` | `""` | JSON Schema, inline or a path |

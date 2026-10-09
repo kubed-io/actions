@@ -17,6 +17,10 @@ inputs:
     description: A one-off turn (a dispatch), quoted above the reply.
     required: false
     default: ""
+  nudge:
+    description: A turn to take only when the thread has nothing new, for an event with no words (a label, a push), e.g. "The plan is approved. Start the first task."
+    required: false
+    default: ""
   instructions:
     description: Markdown files, one per line, appended to the system prompt in order; the job's role, base first.
     required: false
@@ -191,6 +195,7 @@ runs:
     env:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       PROMPT: ${{ inputs.prompt }}
+      NUDGE: ${{ inputs.nudge }}
       TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       TRUSTED_BOTS: ${{ inputs.trusted_bots || env.CLAUDE_TRUSTED_BOTS }}
       SESSION_KEY: ${{ inputs.session_key }}

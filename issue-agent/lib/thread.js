@@ -119,7 +119,7 @@ function note({ number, login, at, scratch, edited, fresh, dispatch }) {
   return `—\n${parts.join(' · ')}`;
 }
 
-function turn({ messages, trust, seen, number, scratch, fresh, prompt }) {
+function turn({ messages, trust, seen, number, scratch, fresh, prompt, nudge }) {
   const edited = editedSince(messages, seen, trust);
   if (prompt && prompt.trim()) {
     return {
@@ -130,6 +130,10 @@ function turn({ messages, trust, seen, number, scratch, fresh, prompt }) {
     };
   }
   const todo = unseen(messages, seen, trust);
+  // an event with no words (a label, a push) still needs a turn: the workflow says what it means
+  if (!todo.length && nudge && nudge.trim()) {
+    return { text: `${nudge.trim()}\n\n${note({ number, scratch, edited, fresh })}`, through: seen?.through || '', id: seen?.id || '', before: messages };
+  }
   if (!todo.length) return null;
   const last = todo[todo.length - 1];
   const body = todo.length === 1
@@ -283,7 +287,7 @@ async function run({ github, context, core }) {
   messages = sortByTime(messages);
 
   const seen = lastSeen(messages, env.SESSION_KEY);
-  const t = turn({ messages, trust, seen, number, scratch, fresh: env.RESUMED !== 'true' && !!seen, prompt: env.PROMPT });
+  const t = turn({ messages, trust, seen, number, scratch, fresh: env.RESUMED !== 'true' && !!seen, prompt: env.PROMPT, nudge: env.NUDGE });
   const shown = (t ? t.before : messages).filter((m) => m.kind === 'agent' || isOpening(m) || isTrusted(m.user, trust));
   const omitted = messages.filter((m) => m.kind !== 'agent' && !isOpening(m) && !isTrusted(m.user, trust)).length;
   fs.writeFileSync(path.join(dir, 'context.md'), contextFile({ issue, before: shown, omitted, trust }));
