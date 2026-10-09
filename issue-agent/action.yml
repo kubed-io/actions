@@ -58,7 +58,7 @@ inputs:
     required: false
     default: ""
   trusted_bots:
-    description: Comma-separated bot logins whose messages count.
+    description: Comma-separated bots whose messages count, by id or login (a bot has a different login per API; its id is stable).
     required: false
     default: ""
   session_key:
