@@ -372,7 +372,7 @@ runs:
 
   # a failed or cancelled run never leaves the spinner up, and never advances the seen marker
   - name: Report Failure
-    if: failure() && steps.ack.outputs.comment_id != ''
+    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != ''
     uses: actions/github-script@v9
     env:
       MODE: failure
