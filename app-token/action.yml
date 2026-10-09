@@ -36,6 +36,10 @@ inputs:
     description: read or write; empty leaves it to the App's installation.
     required: false
     default: ""
+  permission-actions:
+    description: read or write; empty leaves it to the App's installation.
+    required: false
+    default: ""
 
 outputs:
   token:
@@ -81,3 +85,4 @@ runs:
       permission-contents: ${{ inputs.permission-contents }}
       permission-issues: ${{ inputs.permission-issues }}
       permission-pull-requests: ${{ inputs.permission-pull-requests }}
+      permission-actions: ${{ inputs.permission-actions }}
