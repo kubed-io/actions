@@ -65,6 +65,8 @@ real gate. Gitignore `scratch_dir` (`.issue`).
 | `allowed_tools`, `disallowed_tools`, `claude_args` | `""` | |
 | `allowed_bots` | `""` | Bot actors claude-code-action accepts |
 | `show_full_output` | `false` | Keep false in public repos |
+| `anthropic_api_key`, `claude_code_oauth_token` | `""` | Credentials, when the job's env has none (off the `claude` runner) |
+| `path_to_claude_code_executable`, `path_to_bun_executable` | the runner's `PATH_TO_*` | Preinstalled binaries; installed when unset |
 | `scratch_dir` | `.issue` | Thread files; gitignore it |
 
 ## Outputs
