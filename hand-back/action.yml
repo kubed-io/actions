@@ -1,0 +1,20 @@
+name: Hand Back
+description: >
+  Sends a repository_dispatch at the very end of the job, from its post step. In Copilot's
+  `copilot-setup-steps` job that is after Copilot's review is posted: the hand-back to
+  whatever answers the review, since every run Copilot triggers directly is held.
+
+inputs:
+  token:
+    description: A token that may send a repository_dispatch (contents write) and read the run (actions read).
+    required: false
+    default: ${{ github.token }}
+  event_type:
+    description: The repository_dispatch event type.
+    required: false
+    default: copilot-review
+
+runs:
+  using: node24
+  main: main.js
+  post: post.js
