@@ -58,12 +58,12 @@ real gate. Gitignore `scratch_dir` (`.issue`).
 | `request_review` | `""` | `copilot` after each push |
 | `opt_in_label` | `""` | Run only if a trusted id last added this label |
 | `max_runs` | `0` | Cap on replies per session key per thread |
-| `trusted_ids`, `trusted_bots` | `""` | Whose messages count, and whose edits to a body's round state are believed (a Bot's always are). Pass the same ids to `issue-agent/commit` |
+| `trusted_ids`, `trusted_bots` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Whose messages count, and whose edits to a body's round state are believed (a Bot's always are) |
 | `session_key`, `session_title` | `""` | Resumable session |
 | `model`, `max_turns` | `sonnet`, `40` | |
 | `mcp_config` | `""` | Inline JSON or a file; `${VAR}` from env |
 | `allowed_tools`, `disallowed_tools`, `claude_args` | `""` | |
-| `allowed_bots` | `""` | Bot actors claude-code-action accepts |
+| `allowed_bots` | the runner's `CLAUDE_ALLOWED_BOTS` | Bot actors claude-code-action accepts |
 | `show_full_output` | `false` | Keep false in public repos |
 | `anthropic_api_key`, `claude_code_oauth_token` | `""` | Credentials, when the job's env has none (off the `claude` runner) |
 | `path_to_claude_code_executable`, `path_to_bun_executable` | the runner's `PATH_TO_*` | Preinstalled binaries; installed when unset |

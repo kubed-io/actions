@@ -28,7 +28,7 @@ inputs:
     required: false
     default: "{document}: {title} (#{number})"
   trusted_ids:
-    description: Comma-separated user ids whose edits to a round's state count; the App's own edits always do.
+    description: Comma-separated user ids whose edits to a round's state count (a Bot's always do); defaults to the runner's CLAUDE_OWNER_ID.
     required: false
     default: ""
   pull_request:
@@ -61,7 +61,7 @@ runs:
       MODE: read
       NUMBER: ${{ inputs.number }}
       DOCUMENT: ${{ inputs.document }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -85,7 +85,7 @@ runs:
       BRANCH: ${{ inputs.branch }}
       MESSAGE: ${{ inputs.message }}
       PULL_REQUEST: ${{ inputs.pull_request }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       DOWNLOAD_DIR: ${{ runner.temp }}/issue-agent-commit
     with:
       github-token: ${{ inputs.github_token }}

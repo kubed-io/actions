@@ -54,11 +54,11 @@ inputs:
     required: false
     default: "0"
   trusted_ids:
-    description: Comma-separated user ids whose messages count. Empty means every human.
+    description: Comma-separated user ids whose messages count; defaults to the runner's CLAUDE_OWNER_ID. Empty with no such env means every human.
     required: false
     default: ""
   trusted_bots:
-    description: Comma-separated bots whose messages count, by id or login (a bot has a different login per API; its id is stable).
+    description: Comma-separated bots whose messages count, by id or login (a bot has a different login per API; its id is stable); defaults to the runner's CLAUDE_TRUSTED_BOTS.
     required: false
     default: ""
   session_key:
@@ -94,7 +94,7 @@ inputs:
     required: false
     default: ""
   allowed_bots:
-    description: Bots claude-code-action accepts as the actor.
+    description: Bots claude-code-action accepts as the actor; defaults to the runner's CLAUDE_ALLOWED_BOTS.
     required: false
     default: ""
   show_full_output:
@@ -159,7 +159,7 @@ runs:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       OPT_IN_LABEL: ${{ inputs.opt_in_label }}
       MAX_RUNS: ${{ inputs.max_runs }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       SESSION_KEY: ${{ inputs.session_key }}
     with:
       github-token: ${{ inputs.github_token }}
@@ -191,8 +191,8 @@ runs:
     env:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       PROMPT: ${{ inputs.prompt }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
-      TRUSTED_BOTS: ${{ inputs.trusted_bots }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
+      TRUSTED_BOTS: ${{ inputs.trusted_bots || env.CLAUDE_TRUSTED_BOTS }}
       SESSION_KEY: ${{ inputs.session_key }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       RESUMED: ${{ steps.setup.outputs.resumed }}
@@ -209,7 +209,7 @@ runs:
       MODE: read
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -233,7 +233,7 @@ runs:
       MODE: place
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       DOWNLOADED: ${{ steps.download.outcome }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       FILE: ${{ steps.last.outputs.file }}
@@ -266,7 +266,7 @@ runs:
       github_token: ${{ inputs.github_token }}
       anthropic_api_key: ${{ inputs.anthropic_api_key }}
       claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
-      allowed_bots: ${{ inputs.allowed_bots }}
+      allowed_bots: ${{ inputs.allowed_bots || env.CLAUDE_ALLOWED_BOTS }}
       show_full_output: ${{ inputs.show_full_output }}
       path_to_claude_code_executable: ${{ inputs.path_to_claude_code_executable || env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
       path_to_bun_executable: ${{ inputs.path_to_bun_executable || env.PATH_TO_BUN_EXECUTABLE }}
@@ -310,7 +310,7 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
       DOCUMENT_PATH: ${{ inputs.document_path }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
       github-token: ${{ inputs.github_token }}
@@ -336,7 +336,7 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       DOCUMENT: ${{ inputs.document }}
       DOCUMENT_PATH: ${{ inputs.document_path }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids }}
+      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       DATE: ${{ steps.write.outputs.date }}
       ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
