@@ -86,8 +86,10 @@ test('no reply fails the step, so nothing after it runs', async () => {
   assert.deepEqual(core.failures, ['the agent wrote no reply']);
 });
 
-test('the message text wins; the structured reply covers a turn that wrote none', () => {
-  assert.equal(reply.pick('Hello.', { reply: 'Also hello.' }), 'Hello.');
+test('the structured reply wins; the message text covers a run without one', () => {
+  assert.equal(reply.pick('Writing the plan now.', { reply: 'Plan round 1 is up.' }), 'Plan round 1 is up.');
+  assert.equal(reply.pick('Hello.', null), 'Hello.');
+  assert.equal(reply.pick('Hello.', { reply: '  ' }), 'Hello.');
   assert.equal(reply.pick('', { reply: 'From the field.' }), 'From the field.');
   assert.equal(reply.pick('', {}), '');
 });

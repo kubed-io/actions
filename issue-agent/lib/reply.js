@@ -42,11 +42,12 @@ function structuredOf(messages) {
   return result?.structured_output ?? null;
 }
 
-// The message text is the reply, so the transcript reads as a chat. A turn that went
-// straight to its structured call still has the schema's required `reply`.
+// The schema's required `reply` is the reply when there is one: the last message text
+// can be narration written before a long structured call ("writing the plan now").
+// Without a schema, the message text is all there is.
 function pick(text, structured) {
-  if (text.trim()) return text;
-  return typeof structured?.reply === 'string' ? structured.reply : '';
+  if (typeof structured?.reply === 'string' && structured.reply.trim()) return structured.reply;
+  return text;
 }
 
 async function run({ core }) {
