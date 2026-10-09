@@ -63,6 +63,10 @@ test('run writes the system prompt and resumes an existing transcript', async ()
   assert.ok(prompt.includes('`.issue/context.md`'));
   assert.ok(prompt.indexOf('You write specs.') < prompt.indexOf('Here, cite the saga.'));
   assert.ok(prompt.includes('House rules.'));
+  // the run is ephemeral, and the keep dir is where uncommitted work survives it
+  assert.ok(prompt.includes('This machine is ephemeral'));
+  assert.ok(prompt.includes('`.issue/keep/`'));
+  assert.ok(fs.statSync(path.join(ws, '.issue/keep')).isDirectory());
   assert.equal(core.outputs.resumed, 'true');
   assert.ok(core.outputs.args.includes(`--resume ${id}`));
   assert.ok(core.outputs.args.includes(`--json-schema '{"type":"object","properties":{"reply":{"type":"string","description":"Your reply to the person, the same text as your final message."}},"required":["reply"]}'`));

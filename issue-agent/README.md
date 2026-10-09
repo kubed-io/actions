@@ -42,6 +42,10 @@ review triggers is held for approval, so the run the user's request wakes does t
     session_key: issue-${{ github.event.issue.number }}
 ```
 
+Each run starts from a clean checkout. `{scratch_dir}/keep/` is the agent's place for
+anything uncommitted it wants next turn: the Actions cache restores it per `session_key`
+before Claude starts and saves it after, even when the run fails.
+
 `.issue/roles` is the org's base roles, checked out from `kubed-io/.github-private` by an earlier
 `actions/checkout` step; `.github/claude/spec.md` is this repo's overlay. The job's `if` is the
 real gate. Gitignore `scratch_dir` (`.issue`).

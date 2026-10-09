@@ -251,6 +251,16 @@ runs:
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
 
+  # what the agent kept in an earlier run of this conversation, newest first
+  - name: Restore the Keep
+    if: steps.gather.outputs.prompt != '' && inputs.session_key != ''
+    continue-on-error: true
+    uses: actions/cache/restore@v4
+    with:
+      path: ${{ inputs.scratch_dir }}/keep
+      key: issue-agent-keep-${{ inputs.session_key }}-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: issue-agent-keep-${{ inputs.session_key }}-
+
   # the reply's comment goes up first, as a spinner and a link to this run
   - name: Acknowledge
     id: ack
@@ -287,6 +297,15 @@ runs:
         --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
         ${{ steps.setup.outputs.args }}
         ${{ inputs.claude_args }}
+
+  # saved even when the run fails: that is when what the agent kept matters most
+  - name: Save the Keep
+    if: always() && steps.claude.outcome != 'skipped' && steps.gather.outputs.prompt != '' && inputs.session_key != ''
+    continue-on-error: true
+    uses: actions/cache/save@v4
+    with:
+      path: ${{ inputs.scratch_dir }}/keep
+      key: issue-agent-keep-${{ inputs.session_key }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   - name: Push
     id: push

@@ -87,7 +87,10 @@ async function run({ core }) {
     return text;
   };
 
-  const contract = fill(fs.readFileSync(path.join(__dirname, 'contract.md'), 'utf8'), { scratch: env.SCRATCH_DIR || '.issue' });
+  const scratch = env.SCRATCH_DIR || '.issue';
+  const contract = fill(fs.readFileSync(path.join(__dirname, 'contract.md'), 'utf8'), { scratch });
+  // what the agent keeps between runs: the cache restores it here before Claude starts
+  fs.mkdirSync(path.join(env.GITHUB_WORKSPACE || '.', scratch, 'keep'), { recursive: true });
   // the role, base first, then the repo's overlay: one file per line
   const instructions = (env.INSTRUCTIONS || '').split('\n').map((l) => l.trim()).filter(Boolean).map((f) => {
     const text = read(f);

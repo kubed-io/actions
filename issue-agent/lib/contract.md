@@ -13,6 +13,13 @@ Beside the turn, in `{scratch}/` at the repository root:
   files), `{scratch}/reviews.md` (reviews, and every unresolved review thread with its
   id) and `{scratch}/issues.md` (the issues it closes or is part of).
 - `{scratch}/<document>.md`, when this conversation keeps a document: its last round.
+- `{scratch}/keep/`: whatever you kept in an earlier run of this conversation.
+
+This machine is ephemeral. When the run ends, the checkout is wiped, and anything not
+committed and pushed is gone. Commit what belongs in the branch. Anything else worth
+having next turn (notes, a half-finished change, a build output, logs) goes in
+`{scratch}/keep/`: it is saved when the run ends and restored at the start of every run
+in this conversation, and it is never committed.
 
 Answer the way you would in a chat. Write your reply to the person as your final
 message, in GitHub-flavoured markdown. It is posted as a comment exactly as you write

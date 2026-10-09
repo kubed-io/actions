@@ -1,4 +1,6 @@
 // The job's last step: tells the repository which pull request and head this run was for.
+// In Copilot's review run it lands a few seconds before the review does, so whatever
+// answers it waits for the review of that head.
 
 const api = process.env.GITHUB_API_URL || 'https://api.github.com';
 const repo = process.env.GITHUB_REPOSITORY;
