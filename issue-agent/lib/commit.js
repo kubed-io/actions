@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { TAG, writeSection, safePath } = require('./state');
+const { TAG, writeSection, safePath, readState } = require('./state');
 const { bodyState } = require('./trusted');
 const { links, label } = require('./round');
 const { fill, gql, list } = require('./util');
@@ -34,6 +34,7 @@ async function run({ github, context, core }) {
   }
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: number });
   const state = await bodyState(github, { owner, repo, number, document, body: issue.body, ids: list(env.TRUSTED_IDS), server: env.GITHUB_SERVER_URL });
+  if (!state && !readState(issue.body, document)) throw new Error(`#${number} has no ${document} round to commit`);
   if (!state) throw new Error(`the ${document} round on #${number} was not written by the agent; ask for a fresh round`);
 
   if (env.MODE === 'read') {

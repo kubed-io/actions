@@ -58,7 +58,7 @@ real gate. Gitignore `scratch_dir` (`.issue`).
 | `request_review` | `""` | `copilot` after each push |
 | `opt_in_label` | `""` | Run only if a trusted id last added this label |
 | `max_runs` | `0` | Cap on replies per session key per thread |
-| `trusted_ids`, `trusted_bots` | `""` | Whose messages count |
+| `trusted_ids`, `trusted_bots` | `""` | Whose messages count, and whose edits to a body's round state are believed (a Bot's always are). Pass the same ids to `issue-agent/commit` |
 | `session_key`, `session_title` | `""` | Resumable session |
 | `model`, `max_turns` | `sonnet`, `40` | |
 | `mcp_config` | `""` | Inline JSON or a file; `${VAR}` from env |

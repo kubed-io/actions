@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { writeSection, safePath } = require('./state');
+const { writeSection, safePath, readState } = require('./state');
 const { bodyState } = require('./trusted');
 const { fill, list } = require('./util');
 
@@ -60,7 +60,7 @@ async function run({ github, context, core }) {
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number });
   const server = env.GITHUB_SERVER_URL;
   const prev = await bodyState(github, { owner, repo, number: issue_number, document, body: issue.body, ids: list(env.TRUSTED_IDS), server });
-  if (!prev && /<!-- issue-agent-state /.test(issue.body || '')) core.warning(`the ${document} state on #${issue_number} was not written by the agent, so it is ignored`);
+  if (!prev && readState(issue.body, document)) core.warning(`the ${document} state on #${issue_number} was not written by the agent, so it is ignored`);
 
   if (env.MODE === 'read') {
     if (!prev) return;

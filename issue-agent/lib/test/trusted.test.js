@@ -39,3 +39,10 @@ test('a trusted state that is invalid is ignored', async () => {
   const forged = state.writeSection('x', 'spec', { ...OK, slug: 'Bad Slug' }, []);
   assert.equal(await ask({ author: bot, editor: bot }, { body: forged }), null);
 });
+
+test('the body comes from the same query as its editor', async () => {
+  const planted = state.writeSection('Hi', 'spec', { stale: true }, []);
+  const real = state.writeSection('Hi', 'spec', OK, []);
+  const github = fake.github({ 'graphql:issueOrPullRequest': { repository: { issueOrPullRequest: { body: real, author: { __typename: 'User', login: 'kelly', databaseId: 1 }, editor: { __typename: 'Bot', login: 'github-actions', databaseId: 41898282 } } } } });
+  assert.deepEqual(await trusted.bodyState(github, { owner: 'kubed-io', repo: 'selenium-flow', number: 12, document: 'spec', body: planted, ids: ['1'], server: 'https://github.com' }), OK);
+});

@@ -2,10 +2,12 @@ query ($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     issueOrPullRequest(number: $number) {
       ... on Issue {
+        body
         author { __typename login ... on User { databaseId } ... on Bot { databaseId } }
         editor { __typename login ... on User { databaseId } ... on Bot { databaseId } }
       }
       ... on PullRequest {
+        body
         author { __typename login ... on User { databaseId } ... on Bot { databaseId } }
         editor { __typename login ... on User { databaseId } ... on Bot { databaseId } }
       }

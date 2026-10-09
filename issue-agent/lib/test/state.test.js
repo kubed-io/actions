@@ -93,6 +93,11 @@ test('validState rejects what the agent could not have written', () => {
     { run: '5; rm' }, { artifact: 'abc' }, { slug: 'Bad Slug' }, { slug: 'a--b' }, { path: '.github/workflows/x.yml' },
     { summary_url: 'https://evil.example/o/r/actions/runs/5' }, { artifact_url: 'https://github.com/o/r/actions/runs/5/other' },
     { artifact_url: 'https://github.com/x/y/actions/runs/5/artifacts/7' },
+    { artifact_url: 'https://github.com/o/r/actions/runs/5/artifacts/8' },
+    { artifact_url: 'https://github.com/o/r/actions/runs/5/artifacts/7) · [x](https://evil.example' },
+    { summary_url: 'https://github.com/o/r/actions/runs/5) · [x](https://evil.example' },
+    { summary_url: 'https://github.com/o/r/actions/runs/51#summary-9' },
+    { round: '1 · [click](https://evil.example)' }, { round: 0 }, { round: 1.5 },
   ];
   for (const over of bad) assert.equal(state.validState({ ...OK, ...over }, WHERE), null, JSON.stringify(over));
   assert.equal(state.validState(null, WHERE), null);

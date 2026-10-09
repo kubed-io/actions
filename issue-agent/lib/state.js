@@ -80,11 +80,15 @@ function validState(state, { server, owner, repo }) {
   if (!state || typeof state !== 'object') return null;
   const digits = (v) => (typeof v === 'string' || typeof v === 'number') && /^\d+$/.test(String(v));
   const runs = `${server}/${owner}/${repo}/actions/runs/${state.run}`;
+  // the links land in the bot's own replies, so they must be exactly the ones it writes
+  const summary = typeof state.summary_url === 'string' && state.summary_url.startsWith(runs)
+    && /^(#summary-\d+)?$/.test(state.summary_url.slice(runs.length));
   const ok = digits(state.run) && digits(state.artifact)
+    && Number.isInteger(state.round) && state.round > 0
     && typeof state.slug === 'string' && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(state.slug)
     && safePath(state.path)
-    && typeof state.summary_url === 'string' && state.summary_url.startsWith(runs)
-    && typeof state.artifact_url === 'string' && state.artifact_url.startsWith(`${runs}/artifacts/`);
+    && summary
+    && state.artifact_url === `${runs}/artifacts/${state.artifact}`;
   return ok ? state : null;
 }
 

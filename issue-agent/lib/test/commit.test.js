@@ -136,3 +136,9 @@ test('failure mode comments on the thread that the approval did not commit', asy
   assert.equal(call.params.issue_number, 12);
   assert.equal(call.params.body, `${state.TAG}\n⚠️ I couldn't commit the approved spec. [See the run](https://github.com/kubed-io/selenium-flow/actions/runs/9) for why; a fresh round and a new approval label will retry.`);
 });
+
+test('an issue with no round says so', async () => {
+  setup();
+  const body = { value: 'Record it.' };
+  await assert.rejects(commit.run({ github: fake.github(routes(body, { 'heads/main': 'base' })), context: fake.context(), core: fake.core() }), /#12 has no spec round to commit/);
+});
