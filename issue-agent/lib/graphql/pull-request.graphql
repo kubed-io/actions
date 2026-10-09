@@ -4,13 +4,13 @@ query ($owner: String!, $repo: String!, $number: Int!) {
       closingIssuesReferences(first: 20) {
         nodes { number }
       }
-      reviewThreads(first: 100) {
+      reviewThreads(last: 100) {
         nodes {
           id
           isResolved
           path
           line
-          comments(first: 50) {
+          comments(last: 50) {
             nodes {
               body
               createdAt

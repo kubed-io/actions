@@ -68,3 +68,17 @@ test('run writes the system prompt and resumes an existing transcript', async ()
   assert.ok(core.outputs.args.includes(`--json-schema '{"type":"object"}'`));
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8')).mcpServers.kb.url, 'https://kb');
 });
+
+test('a session key without a project dir name warns that resume is off', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmp-'));
+  Object.assign(process.env, {
+    GITHUB_WORKSPACE: ws, RUNNER_TEMP: tmp, GITHUB_REPOSITORY: 'kubed-io/selenium-flow', INSTRUCTIONS: '', SCHEMA: '', AGENT: '', MCP_CONFIG: '',
+    ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '', SESSION_KEY: 'issue-12', SESSION_TITLE: '', SCRATCH_DIR: '.issue',
+  });
+  delete process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
+  const core = fake.core();
+  await setup.run({ core });
+  assert.ok(core.notices.some((m) => /cannot resume here/.test(m)));
+  assert.equal(core.outputs.resumed, 'false');
+});

@@ -106,6 +106,7 @@ async function run({ core }) {
   // wherever Claude's sessions persist (the claude runner's /claude)
   let session = null;
   if (env.SESSION_KEY) {
+    if (!env.CLAUDE_CODE_PROJECT_DIR_NAME) core.warning('session_key is set but CLAUDE_CODE_PROJECT_DIR_NAME is not, so sessions cannot resume here');
     const id = uuid5(`https://github.com/${env.GITHUB_REPOSITORY}#${env.SESSION_KEY}`);
     const home = env.CLAUDE_CONFIG_DIR || path.join(env.HOME || '', '.claude');
     const transcript = path.join(home, 'projects', env.CLAUDE_CODE_PROJECT_DIR_NAME || 'none', `${id}.jsonl`);

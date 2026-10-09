@@ -13,6 +13,12 @@ test('the last time the label was added decides', () => {
   assert.equal(gate.lastLabeledBy([labeled(1, 'x', 'enhancement')], 'agent'), null);
 });
 
+test('removing the label revokes it', () => {
+  const unlabeled = { event: 'unlabeled', label: { name: 'agent' }, actor: { id: 4399427, login: 'kferrone' } };
+  assert.equal(gate.lastLabeledBy([labeled(4399427, 'kferrone'), unlabeled], 'agent'), null);
+  assert.equal(gate.lastLabeledBy([labeled(1, 'someone'), unlabeled, labeled(4399427, 'kferrone')], 'agent').login, 'kferrone');
+});
+
 test('a label a template applied for a stranger stops the run, silently', async () => {
   env({});
   const github = fake.github({ 'issues.listEventsForTimeline': [labeled(1, 'someone')] });

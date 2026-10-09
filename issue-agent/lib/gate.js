@@ -11,7 +11,12 @@ const CAP = '<!-- issue-agent-cap -->';
 
 function lastLabeledBy(events, label) {
   let actor = null;
-  for (const e of events) if (e.event === 'labeled' && e.label?.name === label) actor = e.actor;
+  // removing the label revokes it
+  for (const e of events) {
+    if (e.label?.name !== label) continue;
+    if (e.event === 'labeled') actor = e.actor;
+    if (e.event === 'unlabeled') actor = null;
+  }
   return actor;
 }
 
