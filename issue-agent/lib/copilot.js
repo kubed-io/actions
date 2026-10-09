@@ -1,9 +1,8 @@
-// Copilot reviews a pull request once it is out of draft. Its review cannot wake anything
-// by itself: GitHub holds every run Copilot triggers for a maintainer's approval, and no
-// setting lifts that. So the job that asks for the review waits for it, in-band, and the
-// code agent answers it next.
-
-const COPILOT = 'copilot-pull-request-reviewer[bot]';
+// Copilot reviews a pull request once it is out of draft. Only a user can ask it: a
+// request on GITHUB_TOKEN or an App's token succeeds and does nothing. And its review
+// cannot wake anything: GitHub holds every run Copilot triggers (a workflow_run on its own
+// run included) for a maintainer's approval. So Dr K asks, and the run his request wakes
+// waits for the review, in-band; the code agent answers it next.
 
 // one bot, a different login per API
 function isCopilot(user) {
@@ -29,21 +28,6 @@ async function isAsked(github, { owner, repo, number }) {
   return asked;
 }
 
-// The REST call succeeds whether or not the token may ask Copilot (GITHUB_TOKEN may not),
-// so the timeline is the proof.
-async function askCopilot({ github, context, core, number, wait = sleep }) {
-  const { owner, repo } = context.repo;
-  const at = { owner, repo, number };
-  if (await isAsked(github, at)) return true;
-  await github.rest.pulls.requestReviewers({ owner, repo, pull_number: number, reviewers: [COPILOT] });
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
-    if (await isAsked(github, at)) return true;
-    await wait(3000);
-  }
-  core.warning('the request for Copilot did not stick: this token cannot ask Copilot to review');
-  return false;
-}
-
 async function waitForReview(github, { owner, repo, number, sha, timeoutMs, intervalMs, wait }) {
   for (let waited = 0; waited <= timeoutMs; waited += intervalMs) {
     const review = await reviewOf(github, { owner, repo, number, sha });
@@ -65,8 +49,8 @@ async function clearHeldRuns(github, { owner, repo, branch, core }) {
   }
 }
 
-// issue-agent/review: asks Copilot about the head, waits for its review, and says whether
-// it left anything for the code agent to answer
+// issue-agent/review: waits for Copilot's review of the head, once it is asked, and says
+// whether it left anything for the code agent to answer
 async function run({ github, context, core, wait = sleep }) {
   const env = process.env;
   const { owner, repo } = context.repo;
@@ -80,8 +64,11 @@ async function run({ github, context, core, wait = sleep }) {
   const sha = pr.head.sha;
   let review = await reviewOf(github, { owner, repo, number, sha });
   if (!review) {
-    if (!(await askCopilot({ github, context, core, number, wait }))) throw new Error(`Copilot could not be asked to review ${sha.slice(0, 7)}`);
-    core.info(`asked Copilot to review ${sha.slice(0, 7)}; waiting`);
+    if (!(await isAsked(github, { owner, repo, number }))) {
+      core.notice(`Copilot is not asked to review ${sha.slice(0, 7)}: request its review to start a round`);
+      return;
+    }
+    core.info(`Copilot is asked to review ${sha.slice(0, 7)}; waiting`);
     const timeoutMs = Number(env.TIMEOUT_MINUTES || 15) * 60000;
     review = await waitForReview(github, { owner, repo, number, sha, timeoutMs, intervalMs: 20000, wait });
   }
@@ -97,4 +84,4 @@ async function run({ github, context, core, wait = sleep }) {
   core.notice(`Copilot reviewed ${sha.slice(0, 7)}: ${comments.length} comment(s)`);
 }
 
-module.exports = { isCopilot, isAsked, askCopilot, run };
+module.exports = { isCopilot, isAsked, run };

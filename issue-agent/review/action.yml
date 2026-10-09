@@ -1,14 +1,15 @@
 name: Issue Agent · Review
 description: >
-  Asks Copilot to review a pull request's head once it is out of draft, waits for the
-  review, and says whether it left comments for the code agent. Every run Copilot's review
-  triggers is held for approval, so this waits in-band instead. Runs no Claude.
+  Waits for Copilot's review of a pull request's head, once a user has asked for it, and
+  says whether it left comments for the code agent. Only a user can ask Copilot, and every
+  run Copilot's review triggers is held for approval, so the run the user's request wakes
+  waits in-band instead. Runs no Claude.
 
 inputs:
   github_token:
     description: >
-      A token that may ask Copilot: the App's. GITHUB_TOKEN's request succeeds and does
-      nothing. Clearing Copilot's held runs also needs actions write.
+      A token that reads the pull request and its timeline; with actions write, it also
+      clears the runs Copilot's reviews leave held.
     required: true
   number:
     description: The pull request.
@@ -34,7 +35,7 @@ runs:
   using: composite
   steps:
 
-  - name: Ask Copilot
+  - name: Wait for Copilot
     id: review
     uses: actions/github-script@v9
     env:

@@ -17,10 +17,10 @@ The workflow job gives it a purpose:
 `issue-agent/commit` commits an approved round: a branch linked to the issue, a signed
 commit, and a draft PR naming the document.
 
-`issue-agent/review` asks Copilot to review a PR out of draft and waits for the review;
-`respond` says whether Copilot left comments for the code agent. It needs the App's token:
-GITHUB_TOKEN's request succeeds and does nothing. Every run Copilot's review triggers is
-held for approval, so nothing can wake on the review itself.
+`issue-agent/review` waits for Copilot's review of a PR's head once a user has asked for
+it; `respond` says whether Copilot left comments for the code agent. Only a user can ask
+Copilot (a request on GITHUB_TOKEN or an App's token does nothing), and every run Copilot's
+review triggers is held for approval, so the run the user's request wakes does the waiting.
 
 ## Usage
 
