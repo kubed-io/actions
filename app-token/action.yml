@@ -1,0 +1,83 @@
+name: App Token (GCP)
+description: >
+  Mints a kubed-io GitHub App installation token from the App's credentials in GCP
+  Secret Manager, signing in through Workload Identity Federation. No GCP credential is
+  exported to the job, so later steps (an agent included) cannot read the secret. The
+  job needs `permissions: id-token: write`.
+
+inputs:
+  project:
+    description: GCP project holding the secret.
+    required: true
+  workload_identity_provider:
+    description: Full resource name of the WIF provider.
+    required: true
+  service_account:
+    description: Service account name (not the full email) to impersonate.
+    required: false
+    default: github
+  secret:
+    description: Secret Manager secret, JSON with github_app_client_id and github_app_private_key.
+    required: false
+    default: github-app
+  repositories:
+    description: Repositories the token may reach, one per line; empty means the current one.
+    required: false
+    default: ""
+  permission-contents:
+    description: read or write; empty leaves it to the App's installation.
+    required: false
+    default: ""
+  permission-issues:
+    description: read or write; empty leaves it to the App's installation.
+    required: false
+    default: ""
+  permission-pull-requests:
+    description: read or write; empty leaves it to the App's installation.
+    required: false
+    default: ""
+
+outputs:
+  token:
+    description: The installation token.
+    value: ${{ steps.app.outputs.token }}
+  app-slug:
+    description: The App's slug.
+    value: ${{ steps.app.outputs.app-slug }}
+
+runs:
+  using: composite
+  steps:
+
+  # an access token as a step output only: no credentials file, no exported env
+  - name: Authenticate to GCP
+    id: gcp
+    uses: google-github-actions/auth@v3
+    with:
+      workload_identity_provider: ${{ inputs.workload_identity_provider }}
+      service_account: ${{ inputs.service_account }}@${{ inputs.project }}.iam.gserviceaccount.com
+      token_format: access_token
+      create_credentials_file: false
+      export_environment_variables: false
+
+  - name: Read the App
+    id: secret
+    uses: actions/github-script@v9
+    env:
+      PROJECT: ${{ inputs.project }}
+      SECRET: ${{ inputs.secret }}
+      ACCESS_TOKEN: ${{ steps.gcp.outputs.access_token }}
+    with:
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/secret.js`).run({ core });
+
+  - name: Mint the Token
+    id: app
+    uses: actions/create-github-app-token@v3
+    with:
+      client-id: ${{ steps.secret.outputs.client_id }}
+      private-key: ${{ steps.secret.outputs.private_key }}
+      repositories: ${{ inputs.repositories }}
+      permission-contents: ${{ inputs.permission-contents }}
+      permission-issues: ${{ inputs.permission-issues }}
+      permission-pull-requests: ${{ inputs.permission-pull-requests }}
