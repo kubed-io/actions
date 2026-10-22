@@ -9,13 +9,18 @@ The workflow job gives it a purpose:
 - **a role**: `instructions` (any markdown file in the repo) or `agent` (a native
   `.claude/agents/<name>.md`)
 - **a schema**: structured fields beside the reply
+- **notes** (`notes`): the schema field kept in the thread's body every turn, collapsed.
+  On an issue they are the hand-off: the PR's agent reads them in `issues.md`
 - **document rounds** (`document`): a spec or plan returned whole each round, kept as
-  an artifact, shown in the job summary, linked from a header on every reply
+  an artifact, shown in the job summary, linked from a header on every reply. On an
+  issue the latest round is also kept in the body, collapsed, as a draft
 - **PR work**: `threads[]` in the output are answered and resolved, `ready: true` marks a
   draft ready, `push_token` pushes what the agent committed
 
-`issue-agent/commit` commits an approved round: a branch linked to the issue, a signed
-commit, and a draft PR naming the document.
+`issue-agent/commit` hands an approved issue to a PR: a branch linked to the issue and a
+draft PR. With a round, the round is the branch's first commit (signed); without one,
+the issue's notes go on alone and the first commit is empty. On a PR it commits the
+approved round to the head.
 
 `issue-agent/review` waits for Copilot's review of a PR's head once a user has asked for
 it; `respond` says whether Copilot left comments for the code agent. Only a user can ask
@@ -61,6 +66,7 @@ real gate. Gitignore `scratch_dir` (`.issue`).
 | `instructions` | `""` | Markdown files, one per line, appended in order: base role, then the repo's overlay |
 | `agent` | `""` | A native repo agent |
 | `schema` | `""` | JSON Schema, inline or a path |
+| `notes` | `notes` | Schema field kept, collapsed, in the thread's body every turn |
 | `document` | `""` | Schema field holding a whole document |
 | `document_path` | `docs/{document}s/{date}-{slug}.md` | Where an approved round lands |
 | `push_token` | `""` | Pushes the agent's commits after the run, and marks a draft ready (an event that wakes workflows) |

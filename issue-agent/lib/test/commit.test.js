@@ -137,10 +137,55 @@ test('failure mode comments on the thread that the approval did not commit', asy
   assert.equal(call.params.body, `${state.TAG}\n⚠️ I couldn't commit the approved spec. [See the run](https://github.com/kubed-io/selenium-flow/actions/runs/9) for why; a fresh round and a new approval label will retry.`);
 });
 
-test('an issue with no round says so', async () => {
+test('an issue with no draft hands off its notes: linked branch, one empty commit, draft PR', async () => {
+  setup({ PULL_REQUEST_LABELS: 'enhancement,agent' });
+  const body = { value: 'Record it.' };
+  const r = routes(body, { 'heads/main': 'base' });
+  r['issues.addLabels'] = {};
+  const github = fake.github(r);
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core });
+  const linked = github.calls.find((c) => c.params?.name === 'issue-12-recordings');
+  assert.deepEqual(linked.params, { issue: 'I_12', repo: 'R_1', oid: 'base', name: 'issue-12-recordings' });
+  const input = github.calls.find((c) => c.params?.input).params.input;
+  assert.deepEqual(input.fileChanges, { additions: [] });
+  assert.equal(input.message.headline, 'Recordings (#12)');
+  const pr = github.calls.find((c) => c.name === 'pulls.create').params;
+  assert.equal(pr.body, "Closes #12\n\nStarts from #12's notes.\n");
+  assert.equal(pr.draft, true);
+  assert.deepEqual(github.calls.find((c) => c.name === 'issues.addLabels').params.labels, ['enhancement', 'agent']);
+  // no round, so no state to mark: the body is left as it is
+  assert.ok(!github.calls.some((c) => c.name === 'issues.update'));
+  assert.ok(github.calls.find((c) => c.name === 'issues.createComment').params.body.includes('Draft pull request: #40.'));
+  assert.equal(core.outputs.pull_request, '40');
+  assert.equal(core.outputs.branch, 'issue-12-recordings');
+  assert.equal(core.outputs.path, '');
+});
+
+test('an issue already handed off finds its PR, and makes nothing new', async () => {
   setup();
   const body = { value: 'Record it.' };
-  await assert.rejects(commit.run({ github: fake.github(routes(body, { 'heads/main': 'base' })), context: fake.context(), core: fake.core() }), /#12 has no spec round to commit/);
+  const r = routes(body, { 'heads/main': 'base', 'heads/issue-12-recordings': 'c0ffee' });
+  r['pulls.list'] = [{ number: 40 }];
+  const github = fake.github(r);
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core });
+  assert.ok(!github.calls.some((c) => c.params?.input || c.name === 'pulls.create' || c.name === 'issues.createComment'));
+  assert.ok(core.notices.some((m) => /already handed off to #40/.test(m)));
+});
+
+test('read mode on an issue with no draft has no artifact to download', async () => {
+  setup({ MODE: 'read' });
+  const core = fake.core();
+  await commit.run({ github: fake.github(routes({ value: 'Record it.' }, {})), context: fake.context(), core });
+  assert.equal(core.outputs.artifact, '');
+});
+
+test('a PR with no round to commit says so', async () => {
+  setup({ NUMBER: '40', DOCUMENT: 'plan', PULL_REQUEST: 'none' });
+  const r = routes({ value: 'Spec: x' }, {});
+  r['issues.get'] = () => ({ number: 40, title: 'Recordings', body: 'Spec: x', pull_request: {} });
+  await assert.rejects(commit.run({ github: fake.github(r), context: fake.context(), core: fake.core() }), /#40 has no plan round to commit/);
 });
 
 test('the draft PR gets the hand-off labels', async () => {

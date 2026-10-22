@@ -1,8 +1,9 @@
 name: Issue Agent · Commit
 description: >
-  Commits the latest round of an issue-agent document once it is approved. On an issue
-  it creates the branch, linked to the issue, commits the document (signed by GitHub) and
-  can open a draft PR naming it; on a PR it commits to the PR's head. Runs no Claude.
+  Hands an approved issue to a PR, or commits a PR's approved round. On an issue it
+  creates the branch, linked to the issue, commits the latest draft round when there is
+  one (signed by GitHub; an empty commit when there is none, so the issue's notes go on
+  alone) and can open a draft PR; on a PR it commits to the PR's head. Runs no Claude.
 
 inputs:
   github_token:
@@ -71,7 +72,9 @@ runs:
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/../lib/commit.js`).run({ github, context, core });
 
+  # an issue with no draft has no round: its notes go on alone
   - name: Download the Round
+    if: steps.round.outputs.artifact != ''
     uses: actions/download-artifact@v8
     with:
       artifact-ids: ${{ steps.round.outputs.artifact }}

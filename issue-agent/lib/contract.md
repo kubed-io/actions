@@ -11,7 +11,8 @@ Beside the turn, in `{scratch}/` at the repository root:
   turn's last line calls edited says something different there now.
 - On a pull request: `{scratch}/pr.md` (head, base, its `Spec:` lines, the changed
   files), `{scratch}/reviews.md` (reviews, and every unresolved review thread with its
-  id) and `{scratch}/issues.md` (the issues it closes or is part of).
+  id) and `{scratch}/issues.md` (the issues it closes or is part of, each with the notes
+  and any draft its agent left: where this pull request starts).
 - `{scratch}/<document>.md`, when this conversation keeps a document: its last round.
 - `{scratch}/keep/`: whatever you kept in an earlier run of this conversation.
 

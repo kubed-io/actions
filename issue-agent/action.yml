@@ -41,6 +41,10 @@ inputs:
     description: Where an approved round lands; {document}, {date}, {slug} and {number} are filled.
     required: false
     default: docs/{document}s/{date}-{slug}.md
+  notes:
+    description: The schema field whose text is kept, collapsed, in the thread's body every turn (on an issue, beside a draft of the document). What the PR side starts from.
+    required: false
+    default: notes
   push_token:
     description: A token that may push the PR head. Turns on the push after Claude.
     required: false
@@ -375,6 +379,20 @@ runs:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
+
+  # after the round's section is written, so the blocks land above it
+  - name: Keep the Notes
+    if: steps.gather.outputs.number != '' && steps.read.outputs.structured_file != ''
+    uses: actions/github-script@v9
+    env:
+      NUMBER: ${{ steps.gather.outputs.number }}
+      DOCUMENT: ${{ inputs.document }}
+      NOTES_FIELD: ${{ inputs.notes }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/notes.js`).run({ github, context, core });
 
   - name: Answer Review Threads
     if: steps.gather.outputs.prompt != '' && steps.gather.outputs.is_pr == 'true' && steps.setup.outputs.has_schema == 'true'
