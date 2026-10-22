@@ -20,7 +20,8 @@ The workflow job gives it a purpose:
 `issue-agent/commit` hands an approved issue to a PR: a branch linked to the issue and a
 draft PR. With a round, the round is the branch's first commit (signed); without one,
 the issue's notes go on alone and the first commit is empty. On a PR it commits the
-approved round to the head.
+approved round to the head. With `commit: false` it writes the round into the workspace instead
+and lists it in `files`, for the workflow to commit where the API cannot (a submodule).
 
 `issue-agent/review` waits for Copilot's review of a PR's head once a user has asked for
 it; `respond` says whether Copilot left comments for the code agent. Only a user can ask

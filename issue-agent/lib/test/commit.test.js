@@ -15,7 +15,7 @@ const BOT = { __typename: 'Bot', login: 'app', databaseId: 9 };
 function setup(over = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'commit-'));
   fs.writeFileSync(path.join(dir, '2026-10-08-recordings-design.md'), '# Recordings\n');
-  Object.assign(process.env, { NUMBER: '12', DOCUMENT: 'spec', BRANCH: 'issue-{number}-{slug}', MESSAGE: '{document}: {title} (#{number})', PULL_REQUEST: 'draft', DOWNLOAD_DIR: dir, GITHUB_SERVER_URL: 'https://github.com', MODE: 'commit', TRUSTED_IDS: '1', ...over });
+  Object.assign(process.env, { NUMBER: '12', DOCUMENT: 'spec', BRANCH: 'issue-{number}-{slug}', MESSAGE: '{document}: {title} (#{number})', PULL_REQUEST: 'draft', DOWNLOAD_DIR: dir, GITHUB_SERVER_URL: 'https://github.com', MODE: 'commit', TRUSTED_IDS: '1', COMMIT: 'true', ...over });
 }
 
 function routes(body, heads) {
@@ -212,4 +212,38 @@ test('approving what is already approved commits nothing and reports the commit'
   assert.ok(!github.calls.some((c) => c.params?.input || c.name === 'pulls.create' || c.name === 'issues.createComment'));
   assert.equal(core.outputs.commit_url, 'https://github.com/kubed-io/selenium-flow/commit/c0ffee1');
   assert.equal(core.outputs.branch, 'issue-12-recordings');
+});
+
+test('commit: false writes the plan into the workspace for the workflow, and commits nothing', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
+  setup({ NUMBER: '40', DOCUMENT: 'plan', PULL_REQUEST: 'none', COMMIT: 'false', GITHUB_WORKSPACE: ws });
+  fs.writeFileSync(path.join(process.env.DOWNLOAD_DIR, 'plan.md'), '# Plan\n');
+  const body = { value: state.writeSection('Closes #12', 'plan', { ...SPEC, path: 'docs/superpowers/plans/plan.md' }, []) };
+  const r = routes(body, { 'heads/issue-12-recordings': 'head' });
+  r['issues.get'] = () => ({ number: 40, title: 'Recordings', body: body.value, pull_request: {} });
+  r['pulls.get'] = { head: { ref: 'issue-12-recordings', repo: { full_name: 'kubed-io/selenium-flow' } } };
+  const github = fake.github(r);
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core });
+  assert.ok(!github.calls.some((c) => c.name === 'graphql:createCommitOnBranch'));
+  assert.equal(fs.readFileSync(path.join(ws, 'docs/superpowers/plans/plan.md'), 'utf8'), '# Plan\n');
+  assert.equal(core.outputs.files, '["docs/superpowers/plans/plan.md"]');
+  assert.equal(core.outputs.commit_url, '');
+  const approved = state.readState(body.value, 'plan');
+  assert.equal(approved.approved, true);
+  assert.equal(approved.commit, undefined);
+  assert.ok(github.calls.find((c) => c.name === 'issues.createComment').params.body.includes('is written for this workflow to commit'));
+});
+
+test('commit: false on an issue still opens the branch with one empty commit, and the PR', async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
+  setup({ COMMIT: 'false', GITHUB_WORKSPACE: ws });
+  const body = { value: state.writeSection('Record it.', 'spec', SPEC, []) };
+  const github = fake.github(routes(body, { 'heads/main': 'base' }));
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core });
+  assert.deepEqual(github.calls.find((c) => c.params?.input).params.input.fileChanges, { additions: [] });
+  assert.ok(fs.existsSync(path.join(ws, SPEC.path)));
+  assert.equal(github.calls.find((c) => c.name === 'pulls.create').params.body, `Spec: \`${SPEC.path}\`\n\nCloses #12\n`);
+  assert.equal(core.outputs.pull_request, '40');
 });

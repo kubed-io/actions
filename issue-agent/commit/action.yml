@@ -36,6 +36,10 @@ inputs:
     description: "`draft` opens a draft PR from the new branch; `none` does not."
     required: false
     default: none
+  commit:
+    description: "`false` writes the round into the workspace at its path and leaves the commit to the workflow (a path the commit API cannot write, such as a submodule's). `files` lists what was written."
+    required: false
+    default: "true"
   pull_request_labels:
     description: Labels for the PR it opens, comma-separated (the hand-off's opt-in, e.g. enhancement,agent).
     required: false
@@ -48,8 +52,11 @@ outputs:
   path:
     description: The committed file.
     value: ${{ steps.commit.outputs.path }}
+  files:
+    description: "JSON list of the paths written into the workspace with `commit: false`; `[]` otherwise."
+    value: ${{ steps.commit.outputs.files }}
   commit_url:
-    description: The commit.
+    description: "The commit; empty with `commit: false`."
     value: ${{ steps.commit.outputs.commit_url }}
   pull_request:
     description: The draft PR it opened, if any.
@@ -87,6 +94,7 @@ runs:
     uses: actions/github-script@v9
     env:
       MODE: commit
+      COMMIT: ${{ inputs.commit }}
       NUMBER: ${{ inputs.number }}
       DOCUMENT: ${{ inputs.document }}
       BRANCH: ${{ inputs.branch }}

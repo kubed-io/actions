@@ -53,6 +53,7 @@ async function run({ github, context, core }) {
     core.notice(`the ${document} round on #${number} is already approved and committed`);
     core.setOutput('branch', state.branch);
     core.setOutput('path', state.path);
+    core.setOutput('files', '[]');
     core.setOutput('commit_url', `${env.GITHUB_SERVER_URL}/${owner}/${repo}/commit/${state.commit}`);
     core.setOutput('pull_request', '');
     return;
@@ -75,35 +76,61 @@ async function run({ github, context, core }) {
   }
 
   const headline = fill(env.MESSAGE, { document, title: issue.title, number });
-  const additions = [{ path: state.path, contents: contents.toString('base64') }];
-  let commit;
-  for (let attempt = 1; !commit; attempt += 1) {
+  // commit: false writes the round into the workspace and leaves the commit to the
+  // workflow, for a path the commit API cannot write (a submodule's, say). A new branch
+  // still gets its one empty commit, so the PR can open.
+  const written = env.COMMIT === 'false';
+  let commit = null;
+  if (written) {
+    writeFiles(env.GITHUB_WORKSPACE || process.cwd(), [{ path: state.path, contents }]);
+    if (!issue.pull_request) commit = await commitOnBranch({ github, core, owner, repo, branch, headline: `${issue.title} (#${number})`, additions: [] });
+  } else {
+    commit = await commitOnBranch({ github, core, owner, repo, branch, headline, additions: [{ path: state.path, contents: contents.toString('base64') }] });
+  }
+
+  const blob = `${env.GITHUB_SERVER_URL}/${owner}/${repo}/blob/${branch}/${state.path}`;
+  const named = written ? `\`${state.path}\`` : `[${state.path}](${blob})`;
+  let pull = '';
+  if (!issue.pull_request && env.PULL_REQUEST === 'draft') {
+    const body = `${label(document)}: ${named}\n\nCloses #${number}\n`;
+    pull = await openPull({ github, env, owner, repo, issue, branch, base: repository.default_branch, body });
+  }
+
+  // a written round is approved but not committed: a second approval writes it again
+  const approved = { ...state, approved: true, branch, ...(written ? {} : { commit: commit.oid }) };
+  await github.rest.issues.update({ owner, repo, issue_number: number, body: writeSection(issue.body, document, approved, [links(approved, document)]) });
+  const opened = pull ? ` Draft pull request: #${pull}.` : '';
+  const done = written ? `approved: ${named} is written for this workflow to commit.` : `approved and committed: ${named} in ${commit.url}.`;
+  await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `${TAG}\n${label(document)} ${done}${opened}` });
+
+  core.setOutput('branch', branch);
+  core.setOutput('path', state.path);
+  core.setOutput('files', JSON.stringify([state.path]));
+  core.setOutput('commit_url', written ? '' : commit.url);
+  core.setOutput('pull_request', pull);
+}
+
+// one try, then one more on the branch's new head
+async function commitOnBranch({ github, core, owner, repo, branch, headline, additions }) {
+  for (let attempt = 1; ; attempt += 1) {
     const expectedHeadOid = await headOid(github, owner, repo, branch);
     try {
       const out = await github.graphql(gql('commit-on-branch'), { input: { branch: { repositoryNameWithOwner: `${owner}/${repo}`, branchName: branch }, message: { headline }, fileChanges: { additions }, expectedHeadOid } });
-      commit = out.createCommitOnBranch.commit;
+      return out.createCommitOnBranch.commit;
     } catch (e) {
       if (attempt >= 2) throw e;
       core.warning(`the commit failed once (${e.message}); retrying on the new head`);
     }
   }
+}
 
-  const blob = `${env.GITHUB_SERVER_URL}/${owner}/${repo}/blob/${branch}/${state.path}`;
-  let pull = '';
-  if (!issue.pull_request && env.PULL_REQUEST === 'draft') {
-    const body = `${label(document)}: [${state.path}](${blob})\n\nCloses #${number}\n`;
-    pull = await openPull({ github, env, owner, repo, issue, branch, base: repository.default_branch, body });
+// safePath has already kept every path under docs/
+function writeFiles(root, files) {
+  for (const f of files) {
+    const to = path.join(root, f.path);
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.writeFileSync(to, f.contents);
   }
-
-  const approved = { ...state, approved: true, branch, commit: commit.oid };
-  await github.rest.issues.update({ owner, repo, issue_number: number, body: writeSection(issue.body, document, approved, [links(approved, document)]) });
-  const opened = pull ? ` Draft pull request: #${pull}.` : '';
-  await github.rest.issues.createComment({ owner, repo, issue_number: number, body: `${TAG}\n${label(document)} approved and committed: [\`${state.path}\`](${blob}) in ${commit.url}.${opened}` });
-
-  core.setOutput('branch', branch);
-  core.setOutput('path', state.path);
-  core.setOutput('commit_url', commit.url);
-  core.setOutput('pull_request', pull);
 }
 
 async function openPull({ github, env, owner, repo, issue, branch, base, body }) {
@@ -118,6 +145,7 @@ async function openPull({ github, env, owner, repo, issue, branch, base, body })
 // nothing new, so the branch starts with one empty commit (signed, like any other).
 async function handOff({ github, core, env, owner, repo, number, issue, document }) {
   core.setOutput('path', '');
+  core.setOutput('files', '[]');
   if (env.MODE === 'read') {
     core.setOutput('artifact', '');
     return;
@@ -136,9 +164,7 @@ async function handOff({ github, core, env, owner, repo, number, issue, document
   }
   const base = await headOid(github, owner, repo, repository.default_branch);
   await github.graphql(gql('linked-branch'), { issue: issue.node_id, repo: repository.node_id, oid: base, name: branch });
-  const headline = `${issue.title} (#${number})`;
-  const out = await github.graphql(gql('commit-on-branch'), { input: { branch: { repositoryNameWithOwner: `${owner}/${repo}`, branchName: branch }, message: { headline }, fileChanges: { additions: [] }, expectedHeadOid: base } });
-  const commit = out.createCommitOnBranch.commit;
+  const commit = await commitOnBranch({ github, core, owner, repo, branch, headline: `${issue.title} (#${number})`, additions: [] });
   let pull = '';
   if (env.PULL_REQUEST === 'draft') {
     const body = `Closes #${number}\n\nStarts from #${number}'s notes.\n`;
