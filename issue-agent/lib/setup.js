@@ -156,7 +156,8 @@ function envelope({ role, review, threads, ready }) {
 
 function flags({ agentsFile, agent, schema, mcpFile, mcpServers = [], over = {}, session }) {
   const args = [];
-  if (agentsFile) args.push('--agents', q(agentsFile), '--agent', q(agent));
+  if (agentsFile) args.push('--agents', q(agentsFile));
+  if (agent) args.push('--agent', q(agent));
   if (schema) args.push('--json-schema', q(schema));
   if (mcpFile) args.push('--mcp-config', q(mcpFile));
   if (over.model) args.push('--model', q(over.model));
@@ -211,11 +212,17 @@ async function run({ github, context, core }) {
   let agent = '';
   if (env.AGENT) {
     const text = read(env.AGENT);
-    if (text == null) throw new Error(`agent not found: ${env.AGENT}`);
-    const parsed = parseAgent(text, path.basename(env.AGENT).replace(/\.md$/, ''));
-    agent = parsed.name;
-    agentsFile = path.join(env.RUNNER_TEMP, 'issue-agent-agents.json');
-    fs.writeFileSync(agentsFile, JSON.stringify(toAgent(parsed)));
+    if (text != null) {
+      const parsed = parseAgent(text, path.basename(env.AGENT).replace(/\.md$/, ''));
+      agent = parsed.name;
+      agentsFile = path.join(env.RUNNER_TEMP, 'issue-agent-agents.json');
+      fs.writeFileSync(agentsFile, JSON.stringify(toAgent(parsed)));
+    } else if (/[/\\]|\.md$/.test(env.AGENT)) {
+      throw new Error(`agent not found: ${env.AGENT}`);
+    } else {
+      // a name: an agent Claude Code finds itself, in the repo's .claude/agents/
+      agent = env.AGENT;
+    }
   }
 
   const roleText = fileOr(env.SCHEMA);

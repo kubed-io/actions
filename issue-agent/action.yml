@@ -214,7 +214,9 @@ runs:
     uses: anthropics/claude-code-action@v1
     with:
       prompt: ${{ steps.gather.outputs.prompt }}
-      github_token: ${{ inputs.github_token }}
+      # the job's own token, as narrow as the job's permissions: an App token here would be
+      # within reach of an agent with a shell
+      github_token: ${{ github.token }}
       allowed_bots: ${{ env.CLAUDE_ALLOWED_BOTS }},${{ inputs.trusted }}
       show_full_output: ${{ inputs.show_full_output }}
       path_to_claude_code_executable: ${{ env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}

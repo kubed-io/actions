@@ -85,6 +85,18 @@ test('flags: the agent, schema, MCP servers and their resource tools, overrides,
   });
   assert.equal(args, `--agents '/t/agents.json' --agent 'plan' --json-schema '{"type":"object"}' --mcp-config '/t/mcp.json' --model 'sonnet' --max-turns '5' --permission-mode 'acceptEdits' --allowedTools 'Read,mcp__kb,ListMcpResourcesTool,ReadMcpResourceTool' --disallowedTools 'Bash' --session-id u --name 'x'\\''s'`);
   assert.equal(setup.flags({ session: { id: 'u', resumed: true } }), '--resume u');
+  // a name Claude Code finds itself: no --agents file
+  assert.equal(setup.flags({ agent: 'info-agent' }), `--agent 'info-agent'`);
+});
+
+test('an agent that is a name passes through; a missing agent file is an error', async () => {
+  const { github } = scene();
+  process.env.AGENT = 'info-agent';
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(core.outputs.args.startsWith(`--agent 'info-agent'`));
+  process.env.AGENT = '.issue/roles/claude/agents/nope.md';
+  await assert.rejects(setup.run({ github, context: fake.context(), core: fake.core() }), /agent not found/);
 });
 
 // the --json-schema value, back out of its shell quoting
