@@ -208,10 +208,14 @@ runs:
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
 
+  # One turn per run: nothing may outlive it. A subagent left running in the background
+  # comes back on the next resume as a turn of its own, ahead of the real one.
   - name: Run Claude
     id: claude
     if: steps.gather.outputs.prompt != ''
     uses: anthropics/claude-code-action@v1
+    env:
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
     with:
       prompt: ${{ steps.gather.outputs.prompt }}
       # the job's own token, as narrow as the job's permissions: an App token here would be
