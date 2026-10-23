@@ -23,15 +23,15 @@ test('each thread gets its reply, and a resolve when asked', async () => {
   ]);
 });
 
-test('ready marks a draft ready only when this run pushed nothing', async () => {
+test('ready marks a draft ready when the agent says so, and only then', async () => {
   const github = fake.github({ 'pulls.get': { draft: true, node_id: 'PR' }, 'graphql:markPullRequestReadyForReview': {} });
-  Object.assign(process.env, { MODE: 'ready', PUSHED: 'false', STRUCTURED_FILE: structured({ threads: [], ready: true }) });
+  Object.assign(process.env, { MODE: 'ready', STRUCTURED_FILE: structured({ threads: [], ready: true }) });
   await threads.run({ github, context: fake.context(), core: fake.core() });
   assert.ok(github.calls.some((c) => c.params?.id === 'PR'));
-  const again = fake.github({ 'pulls.get': { draft: true, node_id: 'PR' } });
-  process.env.PUSHED = 'true';
-  await threads.run({ github: again, context: fake.context(), core: fake.core() });
-  assert.ok(!again.calls.some((c) => c.name.startsWith('graphql')));
+  const not = fake.github({ 'pulls.get': { draft: true, node_id: 'PR' } });
+  process.env.STRUCTURED_FILE = structured({ threads: [], ready: false });
+  await threads.run({ github: not, context: fake.context(), core: fake.core() });
+  assert.ok(!not.calls.some((c) => c.name.startsWith('graphql')));
 });
 
 test('the thread step never marks ready, and the ready step answers no thread', async () => {

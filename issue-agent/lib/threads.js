@@ -1,6 +1,6 @@
 // On a pull request: answers review threads the way the agent decided (a reply, and a
-// resolve when it fixed or settled one), and marks a draft ready when the agent says the
-// work is done. A reply and its resolve happen together, never one without the other.
+// resolve when it fixed or settled one), and marks a draft ready when the agent says so.
+// A reply and its resolve happen together, never one without the other.
 
 const fs = require('fs');
 const { gql } = require('./util');
@@ -12,11 +12,10 @@ function structured(env) {
 async function run({ github, context, core }) {
   const env = process.env;
   const out = structured(env);
-  // ready runs as its own step, on the App's token: a GITHUB_TOKEN event wakes no
-  // workflow, and ready for review is what has Copilot review the PR
+  // ready is its own step, on the workflow's token: an App's ready_for_review wakes the
+  // workflows that review a PR, a GITHUB_TOKEN's wakes nothing
   if (env.MODE === 'ready') {
-    // a run that pushed has more coming; ready waits for a run that pushed nothing
-    if (out.ready !== true || env.PUSHED === 'true') return;
+    if (out.ready !== true) return;
     const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: Number(env.NUMBER) });
     if (pr.draft) await github.graphql(gql('ready-for-review'), { id: pr.node_id });
     return;

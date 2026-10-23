@@ -6,8 +6,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { isAgent, readSeen, documents } = require('./state');
-const { NOTES, DRAFT, readBlock, stripBlocks } = require('./notes');
+const { isAgent, readSeen } = require('./state');
+const { readBlock, stripBlocks, unwrap } = require('./notes');
+const { wroteLast, lastEdit } = require('./trusted');
 const { list, gql } = require('./util');
 
 // a deleted account arrives as `user: null`; it is a ghost, never trusted
@@ -53,8 +54,10 @@ function fromComment(c) {
   return { id: c.id, kind: agent ? 'agent' : 'comment', user: c.user || GHOST, at: c.created_at, updated: c.updated_at, body: c.body || '' };
 }
 
+// an agent's review is its answer, as its comment would be: a Bot's, with the action's tag
 function fromReview(r, comments) {
-  return { id: r.id, kind: 'review', user: r.user || GHOST, at: r.submitted_at, updated: null, state: r.state, body: r.body || '', comments };
+  const agent = isAgent(r.body) && r.user?.type === 'Bot';
+  return { id: r.id, kind: agent ? 'agent' : 'review', user: r.user || GHOST, at: r.submitted_at, updated: null, state: r.state, body: r.body || '', comments };
 }
 
 function sortByTime(messages) {
@@ -214,19 +217,13 @@ function reviewsFile(reviews, threads, trust) {
   return `${lines.join('\n')}\n`;
 }
 
-// the agent's blocks are believed only when the agent, or a trusted human, last edited the
+// the agent's notes are believed only when the agent, or a trusted human, last edited the
 // body: anyone who can edit an issue could rewrite them otherwise
-function wroteLast(editor, trust) {
-  return !!editor && (editor.__typename === 'Bot' || trust.ids.includes(String(editor.databaseId)));
-}
-
-function blocksOf(issue, editor, trust) {
-  const found = [[NOTES, 'Agent notes'], [DRAFT, 'Agent draft']]
-    .map(([name, title]) => [title, readBlock(issue.body, name)])
-    .filter(([, text]) => text);
-  if (!found.length) return [];
-  if (!wroteLast(editor, trust)) return [`_The agent's notes are left out: @${editor?.login || 'ghost'} edited the body after the agent._`, ''];
-  return found.flatMap(([title, text]) => [`### ${title}`, '', text, '']);
+function notesOf(issue, editor, trust) {
+  const block = readBlock(issue.body);
+  if (!block) return [];
+  if (!wroteLast(editor, trust.ids)) return [`_The agent's notes are left out: @${editor?.login || 'ghost'} edited the body after the agent._`, ''];
+  return ['### Agent notes', '', unwrap(block).trim(), ''];
 }
 
 function issuesFile(linked, trust) {
@@ -234,15 +231,8 @@ function issuesFile(linked, trust) {
   if (!linked.length) lines.push('(none)', '');
   for (const { issue, comments, editor } of linked) {
     lines.push(`## #${issue.number}: ${issue.title}`, '');
-    // a linked issue is found by a "Part of" line, so only a trusted author's state is read
-    const trusted = isTrusted(fromIssue(issue).user, trust);
-    for (const { document, state } of trusted ? documents(issue.body) : []) {
-      lines.push(state.approved
-        ? `**${document}:** approved, \`${state.path}\` on \`${state.branch}\``
-        : `**${document}:** round ${state.round}, not approved: [read](${state.summary_url}) · [download](${state.artifact_url})`, '');
-    }
     // the notes are what this PR starts from: first, and apart from the author's words
-    lines.push(...blocksOf(issue, editor, trust));
+    lines.push(...notesOf(issue, editor, trust));
     lines.push(request(fromIssue(issue), trust), '');
     for (const c of comments.map(fromComment)) {
       if (c.kind === 'agent' || !isTrusted(c.user, trust)) continue;
@@ -250,6 +240,41 @@ function issuesFile(linked, trust) {
     }
   }
   return `${lines.join('\n')}\n`;
+}
+
+// The PR's diff with every new-side line numbered, so a review cites lines it read, and
+// the lines a review comment may sit on (GitHub's RIGHT side, per file).
+function diffFiles(files) {
+  const lines = ['# Diff', '', 'New-side line numbers on the left: a review comment\'s `line` is one of these.', ''];
+  const lineMap = {};
+  for (const f of files) {
+    lines.push(`## \`${f.filename}\` (${f.status})`, '');
+    if (!f.patch) {
+      lines.push('(no textual diff: binary, too large, or renamed only)', '');
+      continue;
+    }
+    const allowed = [];
+    let n = 0;
+    lines.push('```diff');
+    for (const l of f.patch.split('\n')) {
+      const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(l);
+      if (hunk) {
+        n = Number(hunk[1]);
+        lines.push(l);
+      } else if (l.startsWith('-')) {
+        lines.push(`      ${l}`);
+      } else if (l.startsWith('\\')) {
+        lines.push(`      ${l}`);
+      } else {
+        allowed.push(n);
+        lines.push(`${String(n).padStart(5)} ${l}`);
+        n += 1;
+      }
+    }
+    lines.push('```', '');
+    lineMap[f.filename] = allowed;
+  }
+  return { markdown: `${lines.join('\n')}\n`, lineMap };
 }
 
 async function pullFiles(github, { owner, repo, number, trust, dir }) {
@@ -261,8 +286,9 @@ async function pullFiles(github, { owner, repo, number, trust, dir }) {
   const node = (await github.graphql(gql('pull-request'), { owner, repo, number })).repository.pullRequest;
 
   const reviews = rawReviews
-    .filter((r) => r.submitted_at && isTrusted(r.user, trust))
-    .map((r) => fromReview(r, reviewComments.filter((c) => c.pull_request_review_id === r.id)));
+    .filter((r) => r.submitted_at)
+    .map((r) => fromReview(r, reviewComments.filter((c) => c.pull_request_review_id === r.id)))
+    .filter((r) => r.kind === 'agent' || isTrusted(r.user, trust));
   const numbers = [...new Set([...node.closingIssuesReferences.nodes.map((n) => n.number), ...partOf(pr.body)])];
   const linked = [];
   for (const n of numbers) {
@@ -274,9 +300,18 @@ async function pullFiles(github, { owner, repo, number, trust, dir }) {
   fs.writeFileSync(path.join(dir, 'pr.md'), prFile(pr, files));
   fs.writeFileSync(path.join(dir, 'reviews.md'), reviewsFile(reviews, node.reviewThreads.nodes, trust));
   fs.writeFileSync(path.join(dir, 'issues.md'), issuesFile(linked, trust));
-  // only a branch of this repository is ever pushed: a fork's head is not ours to write
+  const diff = diffFiles(files);
+  fs.writeFileSync(path.join(dir, 'diff.md'), diff.markdown);
+  fs.writeFileSync(path.join(dir, 'diff.json'), JSON.stringify(diff.lineMap));
+  // a fork's head is not ours to write
   const head = pr.head.repo?.full_name === `${owner}/${repo}` ? pr.head.ref : '';
-  return { reviews, head };
+  return { reviews, head, sha: pr.head.sha, draft: !!pr.draft };
+}
+
+// prompt_when: always makes the event's prompt the turn; quiet, the default, makes it the
+// turn only when the thread has nothing new (an event with no words: a label, a push)
+function prompts(env) {
+  return env.PROMPT_WHEN === 'always' ? { prompt: env.PROMPT } : { nudge: env.PROMPT };
 }
 
 async function run({ github, context, core }) {
@@ -298,16 +333,21 @@ async function run({ github, context, core }) {
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: number });
   const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
   let messages = [fromIssue(issue), ...comments.map(fromComment)];
-  let head = '';
+  let pr = { head: '', sha: '', draft: false };
   if (issue.pull_request) {
-    const pr = await pullFiles(github, { owner, repo, number, trust, dir });
+    pr = await pullFiles(github, { owner, repo, number, trust, dir });
     messages.push(...pr.reviews);
-    head = pr.head;
+  }
+  // the thread's own notes, for the agent to carry on from: believed as on a linked issue
+  const own = readBlock(issue.body);
+  if (own) {
+    const { editor } = await lastEdit(github, { owner, repo, number });
+    if (wroteLast(editor, trust.ids)) fs.writeFileSync(path.join(dir, 'notes.md'), `${unwrap(own).trim()}\n`);
   }
   messages = sortByTime(messages);
 
   const seen = lastSeen(messages, env.SESSION_KEY);
-  const t = turn({ messages, trust, seen, number, scratch, fresh: env.RESUMED !== 'true' && !!seen, prompt: env.PROMPT, nudge: env.NUDGE });
+  const t = turn({ messages, trust, seen, number, scratch, fresh: env.RESUMED !== 'true' && !!seen, ...prompts(env) });
   const shown = (t ? t.before : messages).filter((m) => m.kind === 'agent' || isOpening(m) || isTrusted(m.user, trust));
   const omitted = messages.filter((m) => m.kind !== 'agent' && !isOpening(m) && !isTrusted(m.user, trust)).length;
   fs.writeFileSync(path.join(dir, 'context.md'), contextFile({ issue, before: shown, omitted, trust }));
@@ -316,12 +356,13 @@ async function run({ github, context, core }) {
   core.setOutput('through', t ? t.through : '');
   core.setOutput('through_id', t ? t.id : '');
   core.setOutput('title', issue.title);
-  core.setOutput('head', head);
+  core.setOutput('head', pr.head);
+  core.setOutput('head_sha', pr.sha);
   core.setOutput('is_pr', String(!!issue.pull_request));
   if (!t) core.notice('nothing new from a trusted author, so no turn this run');
 }
 
 module.exports = {
   isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, turn,
-  content, strip, specLines, partOf, contextFile, prFile, reviewsFile, issuesFile, run,
+  content, strip, specLines, partOf, contextFile, prFile, reviewsFile, issuesFile, diffFiles, prompts, run,
 };

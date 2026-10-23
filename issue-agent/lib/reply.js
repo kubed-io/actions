@@ -1,9 +1,7 @@
 // Reads claude-code-action's execution_file (every Agent SDK message of the run) for the
-// agent's reply and the run's numbers.
-//
-// The reply is what the agent wrote to the person as plain text: the text after its last
-// tool result, up to its StructuredOutput call when it has a schema. Text written before
-// any other tool call is narration, and anything after StructuredOutput is filler.
+// structured output (the envelope: reply, notes, and the rest) and the run's numbers.
+// The reply is the envelope's `reply`; the run's last message text covers a run whose
+// structured output never came, so a failure still says something.
 
 const fs = require('fs');
 const path = require('path');
@@ -42,9 +40,7 @@ function structuredOf(messages) {
   return result?.structured_output ?? null;
 }
 
-// The schema's required `reply` is the reply when there is one: the last message text
-// can be narration written before a long structured call ("writing the plan now").
-// Without a schema, the message text is all there is.
+// the envelope's reply when there is one; the message text otherwise
 function pick(text, structured) {
   if (typeof structured?.reply === 'string' && structured.reply.trim()) return structured.reply;
   return text;
@@ -62,6 +58,8 @@ async function run({ core }) {
     fs.writeFileSync(structuredFile, JSON.stringify(structured));
   }
   core.setOutput('structured_file', structuredFile);
+  core.setOutput('structured', structured === null ? '' : JSON.stringify(structured));
+  core.setOutput('output', structured?.output === undefined ? '' : JSON.stringify(structured.output));
   core.setOutput('reply', text);
   core.setOutput('turns', String(turns));
   core.setOutput('cost', String(cost));

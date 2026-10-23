@@ -1,0 +1,57 @@
+name: Git · Commit
+description: >
+  Commits the checkout's changes to a branch through createCommitOnBranch, so GitHub signs
+  the commit. Afterwards HEAD and the index match the commit and the working tree is left
+  as it was. Submodule pointers cannot be committed this way and fail.
+
+inputs:
+  token:
+    description: A token that may write contents; the App's, so the commit wakes workflows.
+    required: true
+  message:
+    description: The commit message; its first line is the headline.
+    required: true
+  files:
+    description: Paths or globs (`**`, `*`, `?`), one per line; only matching changes are committed. Every change when empty.
+    required: false
+    default: ""
+  branch:
+    description: The branch to commit to, which must exist (git/branch makes it); the checkout's when empty.
+    required: false
+    default: ""
+  allow_empty:
+    description: Commit even with no changes, so a PR can open on a new branch.
+    required: false
+    default: "false"
+
+outputs:
+  sha:
+    description: The commit; empty when nothing was committed.
+    value: ${{ steps.commit.outputs.sha }}
+  url:
+    description: The commit's URL; empty when nothing was committed.
+    value: ${{ steps.commit.outputs.url }}
+  files:
+    description: JSON list of the committed paths, deletions included.
+    value: ${{ steps.commit.outputs.files }}
+  committed:
+    description: "`false` when there was nothing to commit and allow_empty is off."
+    value: ${{ steps.commit.outputs.committed }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Commit
+    id: commit
+    uses: actions/github-script@v9
+    env:
+      MESSAGE: ${{ inputs.message }}
+      FILES: ${{ inputs.files }}
+      BRANCH: ${{ inputs.branch }}
+      ALLOW_EMPTY: ${{ inputs.allow_empty }}
+      TOKEN: ${{ inputs.token }}
+    with:
+      github-token: ${{ inputs.token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/commit.js`).run({ github, context, core, exec });

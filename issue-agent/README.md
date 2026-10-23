@@ -1,32 +1,17 @@
 # Issue Agent (Claude)
 
-Claude in a GitHub issue or pull request, as a real Claude Code session. Your new
-comments are the turn, in your words; the agent's answer is its reply, posted back.
-Open the session from `/claude` in VS Code and it reads as the chat it was.
+A Claude Code agent in a GitHub issue or pull request, as a real Claude Code session.
+Your new comments are the turn, in your words. The agent answers with:
 
-The workflow job gives it a purpose:
+- **a reply**, posted as a comment;
+- **notes**, kept collapsed at the bottom of the description: what the next run, or the
+  pull request after an issue, starts from;
+- on a pull request, **a review**: line comments and suggestions under its reply, the way
+  Copilot reviews (`review: true`).
 
-- **a role**: `instructions` (any markdown file in the repo) or `agent` (a native
-  `.claude/agents/<name>.md`)
-- **a schema**: structured fields beside the reply
-- **notes** (`notes`): the schema field kept in the thread's body every turn, collapsed.
-  On an issue they are the hand-off: the PR's agent reads them in `issues.md`
-- **document rounds** (`document`): a spec or plan returned whole each round, kept as
-  an artifact, shown in the job summary, linked from a header on every reply. On an
-  issue the latest round is also kept in the body, collapsed, as a draft
-- **PR work**: `threads[]` in the output are answered and resolved, `ready: true` marks a
-  draft ready, `push_token` pushes what the agent committed
-
-`issue-agent/commit` hands an approved issue to a PR: a branch linked to the issue and a
-draft PR. With a round, the round is the branch's first commit (signed); without one,
-the issue's notes go on alone and the first commit is empty. On a PR it commits the
-approved round to the head. With `commit: false` it writes the round into the workspace instead
-and lists it in `files`, for the workflow to commit where the API cannot (a submodule).
-
-`issue-agent/review` waits for Copilot's review of a PR's head once a user has asked for
-it; `respond` says whether Copilot left comments for the code agent. Only a user can ask
-Copilot (a request on GITHUB_TOKEN or an App's token does nothing), and every run Copilot's
-review triggers is held for approval, so the run the user's request wakes does the waiting.
+It does nothing else: no git, no workflow. Its structured response is its output, so the
+steps after it decide what to commit (`git/commit`), branch (`git/branch`) or open
+(`git/pr`). Open the session from `/claude` in VS Code and it reads as the chat it was.
 
 ## Usage
 
@@ -34,59 +19,69 @@ review triggers is held for approval, so the run the user's request wakes does t
 - uses: actions/checkout@v7
   with:
     persist-credentials: false
-- uses: kubed-io/actions/issue-agent@main
+- id: agent
+  uses: kubed-io/actions/issue-agent@main
   with:
-    github_token: ${{ github.token }}
-    instructions: |
-      .issue/roles/claude/spec.md
-      .github/claude/spec.md
-    schema: .issue/roles/claude/spec.schema.json
-    document: spec
-    document_path: docs/superpowers/specs/{date}-{slug}-design.md
-    opt_in_label: agent
-    trusted_ids: ${{ vars.CLAUDE_OWNER_ID }}
-    session_key: issue-${{ github.event.issue.number }}
+    github_token: ${{ steps.app.outputs.token }}
+    agent: .issue/roles/claude/agents/plan.md
+    schema: .issue/roles/claude/agents/plan.schema.json
+    append_system_prompt: Plans go under docs/superpowers/plans/.
+    header: "📄 [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
+    session_key: pr-${{ github.event.issue.number }}
+    mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+- uses: kubed-io/actions/git/commit@main
+  with:
+    token: ${{ steps.app.outputs.token }}
+    message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
 ```
 
-Each run starts from a clean checkout. `{scratch_dir}/keep/` is the agent's place for
-anything uncommitted it wants next turn: the Actions cache restores it per `session_key`
-before Claude starts and saves it after, even when the run fails.
+The `agent` is a Claude Code agent file (frontmatter and body). It is loaded with
+`--agents` from wherever the workflow put it, and its body replaces Claude Code's default
+system prompt. Then the action's contract and `append_system_prompt` are appended.
 
-`.issue/roles` is the org's base roles, checked out from `kubed-io/.github-private` by an earlier
-`actions/checkout` step; `.github/claude/spec.md` is this repo's overlay. The job's `if` is the
-real gate. Gitignore `scratch_dir` (`.issue`).
+## What the agent returns
+
+The action wraps the role's `schema` in its own:
+
+| Field | | |
+|-------|-|-|
+| `reply` | always | The answer, posted as written. |
+| `notes` | always | Kept in the description, whole, every turn. |
+| `review` | `review: true`, on a PR | `comments[]`: `path`, `line` (and `start_line`), `body`, `suggestion`. |
+| `threads` | on a PR (`threads: true`) | Answers to unresolved review threads: `id`, `reply`, `resolve`. |
+| `ready` | `ready: true`, on a draft PR | True marks it ready for review. |
+| `output` | `schema` given | The role's own fields. |
+
+Beside the turn, in `{scratch_dir}/`: `context.md`, `notes.md`, and on a PR `pr.md`,
+`reviews.md`, `issues.md` (each linked issue with its agent's notes) and `diff.md` (every
+new-side line numbered).
 
 ## Inputs
 
 | Input | Default | Description |
 |---|---|---|
-| `github_token` | required | Thread I/O |
-| `number` | the event's | Issue or PR; empty with `prompt` is a one-off |
-| `prompt` | `""` | A one-off turn (dispatch) |
-| `nudge` | `""` | A turn only when the thread has nothing new: an event with no words (a label, a push) |
-| `instructions` | `""` | Markdown files, one per line, appended in order: base role, then the repo's overlay |
-| `agent` | `""` | A native repo agent |
-| `schema` | `""` | JSON Schema, inline or a path |
-| `notes` | `notes` | Schema field kept, collapsed, in the thread's body every turn |
-| `document` | `""` | Schema field holding a whole document |
-| `document_path` | `docs/{document}s/{date}-{slug}.md` | Where an approved round lands |
-| `push_token` | `""` | Pushes the agent's commits after the run, and marks a draft ready (an event that wakes workflows) |
-| `opt_in_label` | `""` | Run only if a trusted id last added this label |
-| `max_runs` | `0` | Cap on replies per session key per thread |
-| `trusted_ids`, `trusted_bots` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Whose messages count, and whose edits to a body's round state are believed (a Bot's always are) |
-| `session_key`, `session_title` | `""` | Resumable session |
-| `model`, `max_turns` | `sonnet`, `40` | |
+| `github_token` | required | Thread I/O; the App's, so what it posts wakes workflows |
+| `number` | the event's | For a run started off the thread |
+| `agent` | `""` | A Claude Code agent file, or a name Claude Code knows |
+| `schema` | `""` | The role's output schema, inline or a path; becomes `output` |
+| `append_system_prompt` | `""` | This job's extras, inline or a path |
+| `prompt` | `""` | The event's turn, for an event with no words |
+| `prompt_when` | `quiet` | `quiet`: only when nothing new; `always`: every run, quoted above the reply |
+| `header` | `""` | Template above the reply: `{{ output.<field> }}`, `{{ run_url }}`, `{{ session_id }}`, `{{ number }}`, `{{ blob }}` |
+| `review`, `threads`, `ready` | `false`, `true`, `false` | The PR fields the agent gets |
+| `session_key` | `""` | Resumable session |
+| `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |
+| `opt_in_label`, `max_runs` | `""`, `0` | The gate |
 | `mcp_config` | `""` | Inline JSON or a file; `${VAR}` from env |
-| `allowed_tools`, `disallowed_tools`, `claude_args` | `""` | |
-| `allowed_bots` | the runner's `CLAUDE_ALLOWED_BOTS` | Bot actors claude-code-action accepts |
+| `model`, `max_turns`, `allowed_tools`, `disallowed_tools`, `permission_mode` | the agent's | Per-job overrides |
+| `claude_args` | `""` | Extra Claude Code flags |
 | `show_full_output` | `false` | Keep false in public repos |
-| `anthropic_api_key`, `claude_code_oauth_token` | `""` | Credentials, when the job's env has none (off the `claude` runner) |
-| `path_to_claude_code_executable`, `path_to_bun_executable` | the runner's `PATH_TO_*` | Preinstalled binaries; installed when unset |
 | `scratch_dir` | `.issue` | Thread files; gitignore it |
 
 ## Outputs
 
-`reply`, `structured`, `number`, `comment_id`, `session_id`, `conclusion`, `pushed`, `round`.
+`structured` (the whole response, JSON), `output` (the role's part, JSON), `reply`,
+`number`, `comment_id`, `review_id`, `head_sha`, `session_id`, `conclusion`.
 
 ## Reading a session in VS Code
 

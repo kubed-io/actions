@@ -7,8 +7,19 @@ const fake = require('./fake');
 const RUN = 'https://github.com/kubed-io/selenium-flow/actions/runs/1/job/2';
 
 test('the reply is header, answer, run link and the seen marker', () => {
-  const body = comment.reply({ header: '📄 **Spec** · round 2', text: 'Done.\n', runUrl: RUN, seen: { key: 'issue-12', through: 't', id: '9' } });
-  assert.equal(body, `${state.TAG}\n> 📄 **Spec** · round 2\n\nDone.\n\n<sub>[Run](${RUN})</sub>\n${state.seenMarker({ key: 'issue-12', through: 't', id: '9' })}`);
+  const body = comment.reply({ header: '📄 Plan · [plan.md](https://b/plan.md)', text: 'Done.\n', runUrl: RUN, seen: { key: 'issue-12', through: 't', id: '9' } });
+  assert.equal(body, `${state.TAG}\n📄 Plan · [plan.md](https://b/plan.md)\n\nDone.\n\n<sub>[Run](${RUN})</sub>\n${state.seenMarker({ key: 'issue-12', through: 't', id: '9' })}`);
+});
+
+test('the header template is filled from the run and the role\'s output', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'h-')), 's.json');
+  fs.writeFileSync(file, JSON.stringify({ reply: 'r', notes: 'n', output: { plan_path: 'docs/plan.md' } }));
+  const header = comment.headerOf({ STRUCTURED_FILE: file, HEADER: '📄 [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }}) · #{{ number }}', BLOB: 'https://b', NUMBER: '81', RUN_URL: RUN });
+  assert.equal(header, '📄 [docs/plan.md](https://b/docs/plan.md) · #81');
+  assert.equal(comment.headerOf({ HEADER: '' }), '');
 });
 
 test('a dispatch prompt is quoted above the answer, and no seen marker without a message', () => {

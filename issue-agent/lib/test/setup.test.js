@@ -16,9 +16,9 @@ test('q quotes for a shell split', () => {
 });
 
 test('the guide lists only what exists', () => {
-  const g = setup.guide((p) => ['README.md', 'saga'].includes(p));
+  const g = setup.guide((p) => ['README.md', 'wiki'].includes(p));
   assert.ok(g.includes('- `README.md`: what this repository is'));
-  assert.ok(g.includes('- `saga`:'));
+  assert.ok(g.includes('- `wiki`:'));
   assert.ok(!g.includes('CONTRIBUTING'));
   assert.equal(setup.guide(() => false), '');
 });
@@ -27,70 +27,128 @@ test('AGENTS.md is appended only when CLAUDE.md does not load it', () => {
   const files = (map) => (p) => (p in map ? map[p] : null);
   assert.ok(setup.agentsFallback(files({ 'AGENTS.md': 'Rules.' })).includes('Rules.'));
   assert.equal(setup.agentsFallback(files({ 'AGENTS.md': 'Rules.', 'CLAUDE.md': '@AGENTS.md\n' })), '');
-  assert.ok(setup.agentsFallback(files({ 'AGENTS.md': 'Rules.', 'CLAUDE.md': 'Other.' })).includes('Rules.'));
   assert.equal(setup.agentsFallback(files({})), '');
 });
 
-test('flags: agent, schema, MCP servers and their resource tools, session', () => {
-  const args = setup.flags({ agent: 'info-agent', schema: '{"type":"object"}', mcpFile: '/t/mcp.json', mcpServers: ['kb'], allowed: ['Read'], disallowed: ['Bash'], session: { id: 'u', title: "x's", resumed: false } });
-  assert.equal(args, `--agent 'info-agent' --json-schema '{"type":"object"}' --mcp-config '/t/mcp.json' --allowedTools 'Read,mcp__kb,ListMcpResourcesTool,ReadMcpResourceTool' --disallowedTools 'Bash' --session-id u --name 'x'\\''s'`);
-  assert.equal(setup.flags({ mcpServers: [], allowed: [], disallowed: [], session: { id: 'u', resumed: true } }), '--resume u');
+const AGENT = `---
+name: plan
+description: Writes the plan of record.
+tools: Read, Glob, Grep, Write
+disallowedTools:
+  - Bash
+model: opus
+maxTurns: 80
+---
+You write this pull request's plan.
+`;
+
+test('an agent file becomes one --agents entry: frontmatter fields, the body as its prompt', () => {
+  const parsed = setup.parseAgent(AGENT, 'fallback');
+  assert.equal(parsed.name, 'plan');
+  assert.deepEqual(setup.toAgent(parsed), {
+    plan: {
+      description: 'Writes the plan of record.',
+      tools: ['Read', 'Glob', 'Grep', 'Write'],
+      disallowedTools: ['Bash'],
+      model: 'opus',
+      maxTurns: 80,
+      prompt: "You write this pull request's plan.",
+    },
+  });
+  assert.deepEqual(setup.toAgent(setup.parseAgent('Just a prompt.', 'info')), { info: { prompt: 'Just a prompt.', description: 'info' } });
 });
 
-test('run writes the system prompt and resumes an existing transcript', async () => {
+test('the envelope: reply and notes always; the toggles add theirs; the role is output', () => {
+  const bare = setup.envelope({});
+  assert.deepEqual(bare.required, ['reply', 'notes']);
+  assert.deepEqual(Object.keys(bare.properties), ['reply', 'notes']);
+  assert.equal(bare.additionalProperties, false);
+
+  const role = { type: 'object', properties: { commit_message: { $ref: '#/$defs/msg' } }, required: ['commit_message'], $defs: { msg: { type: 'string' } } };
+  const full = setup.envelope({ role, review: true, threads: true, ready: true });
+  assert.deepEqual(Object.keys(full.properties), ['reply', 'notes', 'review', 'threads', 'ready', 'output']);
+  assert.deepEqual(full.required, ['reply', 'notes', 'output']);
+  // the role's $defs move to the root, where its #/$defs references point
+  assert.deepEqual(full.$defs, { msg: { type: 'string' } });
+  assert.equal(full.properties.output.$defs, undefined);
+  assert.deepEqual(full.properties.review.properties.comments.items.required, ['path', 'line', 'body']);
+
+  const optional = setup.envelope({ role: { type: 'object', properties: { x: { type: 'string' } } } });
+  assert.deepEqual(optional.required, ['reply', 'notes']);
+});
+
+test('flags: the agent, schema, MCP servers and their resource tools, overrides, session', () => {
+  const args = setup.flags({
+    agentsFile: '/t/agents.json', agent: 'plan', schema: '{"type":"object"}', mcpFile: '/t/mcp.json', mcpServers: ['kb'],
+    over: { model: 'sonnet', maxTurns: '5', permissionMode: 'acceptEdits', allowed: ['Read'], disallowed: ['Bash'] },
+    session: { id: 'u', title: "x's", resumed: false },
+  });
+  assert.equal(args, `--agents '/t/agents.json' --agent 'plan' --json-schema '{"type":"object"}' --mcp-config '/t/mcp.json' --model 'sonnet' --max-turns '5' --permission-mode 'acceptEdits' --allowedTools 'Read,mcp__kb,ListMcpResourcesTool,ReadMcpResourceTool' --disallowedTools 'Bash' --session-id u --name 'x'\\''s'`);
+  assert.equal(setup.flags({ session: { id: 'u', resumed: true } }), '--resume u');
+});
+
+// the --json-schema value, back out of its shell quoting
+function schemaOf(args) {
+  const m = /--json-schema '((?:[^']|'\\'')*)'/.exec(args);
+  return JSON.parse(m[1].replace(/'\\''/g, "'"));
+}
+
+function scene({ pr = false, draft = false } = {}) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmp-'));
   const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-'));
-  fs.mkdirSync(path.join(ws, '.issue/roles/claude'), { recursive: true });
-  fs.mkdirSync(path.join(ws, '.github/claude'), { recursive: true });
-  fs.writeFileSync(path.join(ws, '.issue/roles/claude/spec.md'), 'You write specs.');
-  fs.writeFileSync(path.join(ws, '.issue/roles/claude/spec.schema.json'), '{ "type": "object" }');
-  fs.writeFileSync(path.join(ws, '.github/claude/spec.md'), 'Here, cite the saga.');
+  fs.mkdirSync(path.join(ws, '.issue/roles/claude/agents'), { recursive: true });
+  fs.writeFileSync(path.join(ws, '.issue/roles/claude/agents/plan.md'), AGENT);
+  fs.writeFileSync(path.join(ws, '.issue/roles/claude/agents/plan.schema.json'), '{"type":"object","properties":{"commit_message":{"type":"string"}},"required":["commit_message"]}');
   fs.writeFileSync(path.join(ws, 'AGENTS.md'), 'House rules.');
-  const id = setup.uuid5('https://github.com/kubed-io/selenium-flow#issue-12');
+  const id = setup.uuid5('https://github.com/kubed-io/selenium-flow#pr-81');
   fs.mkdirSync(path.join(cfg, 'projects/-projects-kubed-io-selenium-flow'), { recursive: true });
   fs.writeFileSync(path.join(cfg, `projects/-projects-kubed-io-selenium-flow/${id}.jsonl`), '');
   Object.assign(process.env, {
     GITHUB_WORKSPACE: ws, RUNNER_TEMP: tmp, GITHUB_REPOSITORY: 'kubed-io/selenium-flow', CLAUDE_CONFIG_DIR: cfg,
-    CLAUDE_CODE_PROJECT_DIR_NAME: '-projects-kubed-io-selenium-flow', INSTRUCTIONS: '.issue/roles/claude/spec.md\n.github/claude/spec.md\n',
-    SCHEMA: '.issue/roles/claude/spec.schema.json', AGENT: '', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}', KB_URL: 'https://kb',
-    ALLOWED_TOOLS: 'Read', DISALLOWED_TOOLS: '', SESSION_KEY: 'issue-12', SESSION_TITLE: 't', SCRATCH_DIR: '.issue',
+    CLAUDE_CODE_PROJECT_DIR_NAME: '-projects-kubed-io-selenium-flow', NUMBER: '81',
+    AGENT: '.issue/roles/claude/agents/plan.md', SCHEMA: '.issue/roles/claude/agents/plan.schema.json',
+    APPEND_SYSTEM_PROMPT: 'In this job, plans go under docs/.', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}', KB_URL: 'https://kb',
+    REVIEW: 'true', THREADS: '', READY: 'true', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
+    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue',
   });
+  const github = fake.github({
+    'issues.get': { number: 81, title: 'Flows tab', ...(pr ? { pull_request: {} } : {}) },
+    'pulls.get': { draft },
+  });
+  return { ws, tmp, id, github };
+}
+
+test('run: the agent file, the system prompt, the envelope on a draft PR, and a resumed session', async () => {
+  const { tmp, id, github } = scene({ pr: true, draft: true });
   const core = fake.core();
-  await setup.run({ core });
+  await setup.run({ github, context: fake.context(), core });
   const prompt = fs.readFileSync(core.outputs.system_prompt_file, 'utf8');
-  assert.ok(prompt.includes('## Working in a GitHub issue or pull request'));
-  assert.ok(prompt.includes('`.issue/context.md`'));
-  assert.ok(prompt.indexOf('You write specs.') < prompt.indexOf('Here, cite the saga.'));
+  assert.ok(prompt.startsWith('## Working in a GitHub issue or pull request'));
+  assert.ok(prompt.indexOf('never commit') < prompt.indexOf('In this job, plans go under docs/.'));
   assert.ok(prompt.includes('House rules.'));
-  // the run is ephemeral, and the keep dir is where uncommitted work survives it
-  assert.ok(prompt.includes('This machine is ephemeral'));
-  assert.ok(prompt.includes('`.issue/keep/`'));
-  assert.ok(fs.statSync(path.join(ws, '.issue/keep')).isDirectory());
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-agents.json'), 'utf8'))), ['plan']);
+  assert.ok(core.outputs.args.includes(`--agent 'plan'`));
+  const schema = schemaOf(core.outputs.args);
+  assert.deepEqual(Object.keys(schema.properties), ['reply', 'notes', 'review', 'threads', 'ready', 'output']);
   assert.equal(core.outputs.resumed, 'true');
   assert.ok(core.outputs.args.includes(`--resume ${id}`));
-  assert.ok(core.outputs.args.includes(`--json-schema '{"type":"object","properties":{"reply":{"type":"string","description":"Your reply to the person, the same text as your final message."}},"required":["reply"]}'`));
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8')).mcpServers.kb.url, 'https://kb');
 });
 
-test('a session key without a project dir name warns that resume is off', async () => {
-  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmp-'));
-  Object.assign(process.env, {
-    GITHUB_WORKSPACE: ws, RUNNER_TEMP: tmp, GITHUB_REPOSITORY: 'kubed-io/selenium-flow', INSTRUCTIONS: '', SCHEMA: '', AGENT: '', MCP_CONFIG: '',
-    ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '', SESSION_KEY: 'issue-12', SESSION_TITLE: '', SCRATCH_DIR: '.issue',
-  });
-  delete process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
+test('run on an issue gives the agent none of the PR fields', async () => {
+  const { github } = scene();
   const core = fake.core();
-  await setup.run({ core });
-  assert.ok(core.notices.some((m) => /cannot resume here/.test(m)));
-  assert.equal(core.outputs.resumed, 'false');
+  await setup.run({ github, context: fake.context(), core });
+  const schema = schemaOf(core.outputs.args);
+  assert.deepEqual(Object.keys(schema.properties), ['reply', 'notes', 'output']);
 });
 
-test('a schema always carries a required reply', () => {
-  const out = JSON.parse(setup.withReply('{"type":"object","additionalProperties":false,"properties":{"phase":{"type":"string"}},"required":["phase"]}'));
-  assert.equal(out.properties.reply.type, 'string');
-  assert.deepEqual(out.required, ['phase', 'reply']);
-  assert.equal(out.properties.phase.type, 'string');
-  assert.deepEqual(JSON.parse(setup.withReply('{"type":"object","properties":{}}')).required, ['reply']);
+test('a session key without a project dir name warns that resume is off', async () => {
+  const { github } = scene();
+  delete process.env.CLAUDE_CODE_PROJECT_DIR_NAME;
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(core.notices.some((m) => /cannot resume here/.test(m)));
+  assert.equal(core.outputs.resumed, 'false');
 });

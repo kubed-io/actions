@@ -1,52 +1,61 @@
 name: Issue Agent (Claude)
 description: >
-  Claude in a GitHub issue or pull request, as a real Claude Code session: the thread's
-  new messages are the turn, the reply is posted back, and one session per key resumes
-  in /claude. The workflow job gives it a purpose: a role, a schema, and optional
-  document rounds, review threads, pushes and Copilot review requests.
+  A Claude Code agent in a GitHub issue or pull request, as a real Claude Code session.
+  The thread's new messages are the turn; the agent's reply is posted back, its notes are
+  kept in the description, and on a pull request its review comments sit under the reply.
+  Nothing else: no git, no workflow. The structured output it returns is this action's
+  output, for the steps after it.
 
 inputs:
   github_token:
-    description: Token for the thread (issues, pull-requests write; actions read for rounds).
+    description: Token for the thread (issues, pull requests). The App's, so a ready-for-review or review it posts wakes workflows.
     required: true
   number:
-    description: The issue or PR to work in; defaults to the event's. Empty with a prompt is a one-off.
-    required: false
-    default: ""
-  prompt:
-    description: A one-off turn (a dispatch), quoted above the reply.
-    required: false
-    default: ""
-  nudge:
-    description: A turn to take only when the thread has nothing new, for an event with no words (a label, a push), e.g. "The plan is approved. Start the first task."
-    required: false
-    default: ""
-  instructions:
-    description: Markdown files, one per line, appended to the system prompt in order; the job's role, base first.
+    description: The issue or PR; defaults to the event's. Only for a run started off the thread.
     required: false
     default: ""
   agent:
-    description: A native repo agent (.claude/agents/<name>.md) to run as.
+    description: A Claude Code agent file (frontmatter and body), loaded with --agents and run with --agent; or the name of one Claude Code already knows.
     required: false
     default: ""
   schema:
-    description: JSON Schema, inline or a repo path. Without one the run is plain chat.
+    description: The role's output schema, inline JSON or a path. It becomes the `output` field beside the action's own.
     required: false
     default: ""
-  document:
-    description: A schema field holding a whole document (spec, plan). Turns on rounds.
+  append_system_prompt:
+    description: This job's extras, inline text or a path, appended after the agent and the action's contract.
     required: false
     default: ""
-  document_path:
-    description: Where an approved round lands; {document}, {date}, {slug} and {number} are filled.
+  prompt:
+    description: The event's turn, for an event with no words of Dr K's (a label, a push).
     required: false
-    default: docs/{document}s/{date}-{slug}.md
-  notes:
-    description: The schema field whose text is kept, collapsed, in the thread's body every turn (on an issue, beside a draft of the document). What the PR side starts from.
+    default: ""
+  prompt_when:
+    description: "`quiet`: the prompt is the turn only when the thread has nothing new. `always`: every run, quoted above the reply."
     required: false
-    default: notes
-  push_token:
-    description: A token that may push the PR head. Turns on the push after Claude.
+    default: quiet
+  header:
+    description: "A markdown template above the reply: {{ output.<field> }}, {{ run_url }}, {{ session_id }}, {{ number }}, {{ blob }}. Empty, no header."
+    required: false
+    default: ""
+  review:
+    description: On a PR, give the agent `review`, line comments posted as one review under its reply.
+    required: false
+    default: "false"
+  threads:
+    description: On a PR, give the agent `threads`, its answers to the unresolved review threads.
+    required: false
+    default: "true"
+  ready:
+    description: On a draft PR, give the agent `ready`, which marks it ready for review.
+    required: false
+    default: "false"
+  session_key:
+    description: uuid5(repo + key) is the session id, resumed where /claude has its transcript.
+    required: false
+    default: ""
+  trusted:
+    description: Comma-separated user ids and bots (id or login) whose messages count; defaults to the runner's CLAUDE_OWNER_ID and CLAUDE_TRUSTED_BOTS.
     required: false
     default: ""
   opt_in_label:
@@ -57,108 +66,71 @@ inputs:
     description: Cap on agent replies under this session_key in this thread (0 = none).
     required: false
     default: "0"
-  trusted_ids:
-    description: Comma-separated user ids whose messages count; defaults to the runner's CLAUDE_OWNER_ID. Empty with no such env means every human.
-    required: false
-    default: ""
-  trusted_bots:
-    description: Comma-separated bots whose messages count, by id or login (a bot has a different login per API; its id is stable); defaults to the runner's CLAUDE_TRUSTED_BOTS.
-    required: false
-    default: ""
-  session_key:
-    description: uuid5(repo + key) is the session id, resumed where /claude has its transcript.
-    required: false
-    default: ""
-  session_title:
-    description: The session's name when it starts; defaults to session_key.
-    required: false
-    default: ""
-  model:
-    description: Claude model alias or id.
-    required: false
-    default: sonnet
-  max_turns:
-    description: Max Claude Code turns.
-    required: false
-    default: "40"
   mcp_config:
     description: MCP servers, inline JSON or a file; ${VAR} is filled from env. Every server is allowed.
     required: false
     default: ""
+  model:
+    description: Overrides the agent's model.
+    required: false
+    default: ""
+  max_turns:
+    description: Overrides the agent's maxTurns.
+    required: false
+    default: ""
   allowed_tools:
-    description: Comma-separated tools to allow.
+    description: Comma-separated tools to allow on top of the agent's.
     required: false
     default: ""
   disallowed_tools:
     description: Comma-separated tools to deny.
     required: false
     default: ""
+  permission_mode:
+    description: Overrides the agent's permissionMode.
+    required: false
+    default: ""
   claude_args:
     description: Extra Claude Code flags.
     required: false
     default: ""
-  allowed_bots:
-    description: Bots claude-code-action accepts as the actor; defaults to the runner's CLAUDE_ALLOWED_BOTS.
-    required: false
-    default: ""
-  bot_name:
-    description: The git author of the agent's commits, as `<slug>[bot]`; defaults to claude-code-action's claude[bot].
-    required: false
-    default: claude[bot]
-  bot_id:
-    description: The user id behind bot_name, for its noreply email.
-    required: false
-    default: "41898282"
   show_full_output:
     description: Print every Claude message to the log. Keep false in public repos.
     required: false
     default: "false"
-  path_to_claude_code_executable:
-    description: A preinstalled Claude Code; defaults to the runner's PATH_TO_CLAUDE_CODE_EXECUTABLE.
-    required: false
-    default: ""
-  path_to_bun_executable:
-    description: A preinstalled Bun; defaults to the runner's PATH_TO_BUN_EXECUTABLE.
-    required: false
-    default: ""
-  anthropic_api_key:
-    description: Optional; the job's env provides the credential when this and the token are empty.
-    required: false
-    default: ""
-  claude_code_oauth_token:
-    description: Claude subscription token.
-    required: false
-    default: ""
   scratch_dir:
     description: Where the thread files go; gitignore it.
     required: false
     default: .issue
 
 outputs:
+  structured:
+    description: The whole structured output (reply, notes, and the rest), as JSON.
+    value: ${{ steps.read.outputs.structured }}
+  output:
+    description: The role's part of the structured output, as JSON.
+    value: ${{ steps.read.outputs.output }}
   reply:
     description: The agent's reply.
     value: ${{ steps.read.outputs.reply }}
-  structured:
-    description: The structured output, as JSON.
-    value: ${{ steps.claude.outputs.structured_output }}
   number:
     description: The issue or PR, empty for a one-off.
     value: ${{ steps.gather.outputs.number }}
   comment_id:
-    description: The comment the reply is in.
-    value: ${{ steps.ack.outputs.comment_id }}
+    description: The comment the reply is in (empty when it went as a review).
+    value: ${{ steps.review.outputs.posted != 'true' && steps.ack.outputs.comment_id || '' }}
+  review_id:
+    description: The review the reply is the body of, when it had line comments.
+    value: ${{ steps.review.outputs.review_id }}
+  head_sha:
+    description: The PR head the agent read.
+    value: ${{ steps.gather.outputs.head_sha }}
   session_id:
     description: The Claude session id.
     value: ${{ steps.claude.outputs.session_id }}
   conclusion:
     description: success or failure of the Claude run.
     value: ${{ steps.claude.outputs.conclusion }}
-  pushed:
-    description: true when the push step pushed.
-    value: ${{ steps.push.outputs.pushed }}
-  round:
-    description: The document round this run made, if any.
-    value: ${{ steps.publish.outputs.round }}
 
 runs:
   using: composite
@@ -171,7 +143,7 @@ runs:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       OPT_IN_LABEL: ${{ inputs.opt_in_label }}
       MAX_RUNS: ${{ inputs.max_runs }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
+      TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
       SESSION_KEY: ${{ inputs.session_key }}
     with:
       github-token: ${{ inputs.github_token }}
@@ -183,18 +155,25 @@ runs:
     if: steps.gate.outputs.allowed == 'true'
     uses: actions/github-script@v9
     env:
-      INSTRUCTIONS: ${{ inputs.instructions }}
+      NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       AGENT: ${{ inputs.agent }}
       SCHEMA: ${{ inputs.schema }}
+      APPEND_SYSTEM_PROMPT: ${{ inputs.append_system_prompt }}
       MCP_CONFIG: ${{ inputs.mcp_config }}
+      REVIEW: ${{ inputs.review }}
+      THREADS: ${{ inputs.threads }}
+      READY: ${{ inputs.ready }}
+      MODEL: ${{ inputs.model }}
+      MAX_TURNS: ${{ inputs.max_turns }}
+      PERMISSION_MODE: ${{ inputs.permission_mode }}
       ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
       DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
       SESSION_KEY: ${{ inputs.session_key }}
-      SESSION_TITLE: ${{ inputs.session_title }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
     with:
+      github-token: ${{ inputs.github_token }}
       script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/setup.js`).run({ core });
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/setup.js`).run({ github, context, core });
 
   - name: Gather
     id: gather
@@ -203,9 +182,9 @@ runs:
     env:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       PROMPT: ${{ inputs.prompt }}
-      NUDGE: ${{ inputs.nudge }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
-      TRUSTED_BOTS: ${{ inputs.trusted_bots || env.CLAUDE_TRUSTED_BOTS }}
+      PROMPT_WHEN: ${{ inputs.prompt_when }}
+      TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
+      TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
       SESSION_KEY: ${{ inputs.session_key }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       RESUMED: ${{ steps.setup.outputs.resumed }}
@@ -213,57 +192,6 @@ runs:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/thread.js`).run({ github, context, core });
-
-  - name: Find the Last Round
-    id: last
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && inputs.document != ''
-    uses: actions/github-script@v9
-    env:
-      MODE: read
-      NUMBER: ${{ steps.gather.outputs.number }}
-      DOCUMENT: ${{ inputs.document }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
-    with:
-      github-token: ${{ inputs.github_token }}
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
-
-  - name: Download the Last Round
-    id: download
-    continue-on-error: true
-    if: steps.last.outputs.artifact != ''
-    uses: actions/download-artifact@v8
-    with:
-      artifact-ids: ${{ steps.last.outputs.artifact }}
-      run-id: ${{ steps.last.outputs.run }}
-      github-token: ${{ inputs.github_token }}
-      path: ${{ inputs.scratch_dir }}
-
-  - name: Place the Last Round
-    if: steps.last.outputs.artifact != ''
-    uses: actions/github-script@v9
-    env:
-      MODE: place
-      NUMBER: ${{ steps.gather.outputs.number }}
-      DOCUMENT: ${{ inputs.document }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
-      DOWNLOADED: ${{ steps.download.outcome }}
-      SCRATCH_DIR: ${{ inputs.scratch_dir }}
-      FILE: ${{ steps.last.outputs.file }}
-    with:
-      github-token: ${{ inputs.github_token }}
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
-
-  # what the agent kept in an earlier run of this conversation, newest first
-  - name: Restore the Keep
-    if: steps.gather.outputs.prompt != '' && inputs.session_key != ''
-    continue-on-error: true
-    uses: actions/cache/restore@v6
-    with:
-      path: ${{ inputs.scratch_dir }}/keep
-      key: issue-agent-keep-${{ inputs.session_key }}-${{ github.run_id }}-${{ github.run_attempt }}
-      restore-keys: issue-agent-keep-${{ inputs.session_key }}-
 
   # the reply's comment goes up first, as a spinner and a link to this run
   - name: Acknowledge
@@ -273,7 +201,7 @@ runs:
     env:
       MODE: ack
       NUMBER: ${{ steps.gather.outputs.number }}
-      PROMPT: ${{ inputs.prompt }}
+      PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
       github-token: ${{ inputs.github_token }}
@@ -287,42 +215,14 @@ runs:
     with:
       prompt: ${{ steps.gather.outputs.prompt }}
       github_token: ${{ inputs.github_token }}
-      anthropic_api_key: ${{ inputs.anthropic_api_key }}
-      claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
-      allowed_bots: ${{ inputs.allowed_bots || env.CLAUDE_ALLOWED_BOTS }}
-      bot_name: ${{ inputs.bot_name }}
-      bot_id: ${{ inputs.bot_id }}
+      allowed_bots: ${{ env.CLAUDE_ALLOWED_BOTS }},${{ inputs.trusted }}
       show_full_output: ${{ inputs.show_full_output }}
-      path_to_claude_code_executable: ${{ inputs.path_to_claude_code_executable || env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
-      path_to_bun_executable: ${{ inputs.path_to_bun_executable || env.PATH_TO_BUN_EXECUTABLE }}
+      path_to_claude_code_executable: ${{ env.PATH_TO_CLAUDE_CODE_EXECUTABLE }}
+      path_to_bun_executable: ${{ env.PATH_TO_BUN_EXECUTABLE }}
       claude_args: |
-        --model ${{ inputs.model }}
-        --max-turns ${{ inputs.max_turns }}
         --append-system-prompt-file ${{ steps.setup.outputs.system_prompt_file }}
         ${{ steps.setup.outputs.args }}
         ${{ inputs.claude_args }}
-
-  # saved even when the run fails: that is when what the agent kept matters most
-  - name: Save the Keep
-    if: always() && steps.claude.outcome != 'skipped' && steps.gather.outputs.prompt != '' && inputs.session_key != ''
-    continue-on-error: true
-    uses: actions/cache/save@v6
-    with:
-      path: ${{ inputs.scratch_dir }}/keep
-      key: issue-agent-keep-${{ inputs.session_key }}-${{ github.run_id }}-${{ github.run_attempt }}
-
-  - name: Push
-    id: push
-    if: steps.gather.outputs.prompt != '' && inputs.push_token != '' && steps.gather.outputs.head != ''
-    uses: actions/github-script@v9
-    env:
-      PUSH_TOKEN: ${{ inputs.push_token }}
-      HEAD: ${{ steps.gather.outputs.head }}
-      NUMBER: ${{ steps.gather.outputs.number }}
-    with:
-      github-token: ${{ inputs.github_token }}
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/push.js`).run({ github, context, core, exec });
 
   - name: Read the Reply
     id: read
@@ -334,60 +234,11 @@ runs:
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/reply.js`).run({ core });
 
-  - name: Write the Round
-    id: write
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && inputs.document != ''
-    uses: actions/github-script@v9
-    env:
-      MODE: write
-      NUMBER: ${{ steps.gather.outputs.number }}
-      DOCUMENT: ${{ inputs.document }}
-      DOCUMENT_PATH: ${{ inputs.document_path }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
-      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
-    with:
-      github-token: ${{ inputs.github_token }}
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
-
-  - name: Upload the Round
-    id: upload
-    if: steps.write.outputs.has_round == 'true'
-    uses: actions/upload-artifact@v7
-    with:
-      path: ${{ steps.write.outputs.file }}
-      archive: false
-      overwrite: true
-      retention-days: 90
-
-  - name: Publish the Round
-    id: publish
-    if: steps.write.outputs.has_round == 'true'
-    uses: actions/github-script@v9
-    env:
-      MODE: publish
-      NUMBER: ${{ steps.gather.outputs.number }}
-      DOCUMENT: ${{ inputs.document }}
-      DOCUMENT_PATH: ${{ inputs.document_path }}
-      TRUSTED_IDS: ${{ inputs.trusted_ids || env.CLAUDE_OWNER_ID }}
-      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
-      DATE: ${{ steps.write.outputs.date }}
-      ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
-      ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
-      CHECK_RUN_ID: ${{ job.check_run_id }}
-    with:
-      github-token: ${{ inputs.github_token }}
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/round.js`).run({ github, context, core });
-
-  # after the round's section is written, so the blocks land above it
   - name: Keep the Notes
     if: steps.gather.outputs.number != '' && steps.read.outputs.structured_file != ''
     uses: actions/github-script@v9
     env:
       NUMBER: ${{ steps.gather.outputs.number }}
-      DOCUMENT: ${{ inputs.document }}
-      NOTES_FIELD: ${{ inputs.notes }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
       github-token: ${{ inputs.github_token }}
@@ -395,59 +246,84 @@ runs:
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/notes.js`).run({ github, context, core });
 
   - name: Answer Review Threads
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.is_pr == 'true' && steps.setup.outputs.has_schema == 'true'
+    if: steps.gather.outputs.is_pr == 'true' && inputs.threads == 'true' && steps.read.outputs.structured_file != ''
     uses: actions/github-script@v9
     env:
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
-      # resolving a thread needs contents write, which the agent's own token never has
-      github-token: ${{ inputs.push_token || inputs.github_token }}
+      github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 
-  - name: Mark Ready
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.is_pr == 'true' && steps.setup.outputs.has_schema == 'true'
+  - name: Post the Review
+    id: review
+    if: steps.gather.outputs.is_pr == 'true' && inputs.review == 'true' && steps.read.outputs.structured_file != ''
     uses: actions/github-script@v9
     env:
-      MODE: ready
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
-      PUSHED: ${{ steps.push.outputs.pushed }}
+      DIFF_FILE: ${{ github.workspace }}/${{ inputs.scratch_dir }}/diff.json
+      HEAD_SHA: ${{ steps.gather.outputs.head_sha }}
+      COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
+      PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
+      REPLY: ${{ steps.read.outputs.reply }}
+      HEADER: ${{ inputs.header }}
+      SESSION_KEY: ${{ inputs.session_key }}
+      SESSION_ID: ${{ steps.setup.outputs.session_id }}
+      THROUGH: ${{ steps.gather.outputs.through }}
+      THROUGH_ID: ${{ steps.gather.outputs.through_id }}
+      BLOB: ${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.gather.outputs.head }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
-      github-token: ${{ inputs.push_token || inputs.github_token }}
+      github-token: ${{ inputs.github_token }}
       script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/review.js`).run({ github, context, core });
 
   - name: Reply
     id: reply
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != ''
+    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && steps.review.outputs.posted != 'true'
     uses: actions/github-script@v9
     env:
       MODE: reply
       NUMBER: ${{ steps.gather.outputs.number }}
       COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
-      PROMPT: ${{ inputs.prompt }}
-      HEADER: ${{ steps.publish.outputs.header || steps.last.outputs.header }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
+      PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       REPLY: ${{ steps.read.outputs.reply }}
+      HEADER: ${{ inputs.header }}
       SESSION_KEY: ${{ inputs.session_key }}
+      SESSION_ID: ${{ steps.setup.outputs.session_id }}
       THROUGH: ${{ steps.gather.outputs.through }}
       THROUGH_ID: ${{ steps.gather.outputs.through_id }}
+      BLOB: ${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.gather.outputs.head }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
 
+  - name: Mark Ready
+    if: steps.gather.outputs.is_pr == 'true' && inputs.ready == 'true' && steps.read.outputs.structured_file != ''
+    uses: actions/github-script@v9
+    env:
+      MODE: ready
+      NUMBER: ${{ steps.gather.outputs.number }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
+
   # a failed or cancelled run never leaves the spinner up, and never advances the seen marker
   - name: Report Failure
-    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != '' && steps.reply.outputs.posted != 'true'
+    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != '' && steps.reply.outputs.posted != 'true' && steps.review.outputs.posted != 'true'
     uses: actions/github-script@v9
     env:
       MODE: failure
       NUMBER: ${{ steps.gather.outputs.number }}
       COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
-      PROMPT: ${{ inputs.prompt }}
+      PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
       github-token: ${{ inputs.github_token }}

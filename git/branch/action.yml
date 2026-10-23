@@ -1,0 +1,44 @@
+name: Git · Branch
+description: >
+  Makes a branch from a base through the GitHub API, or finds it when it already exists.
+  With an issue the branch is created linked to it, in the issue's Development panel.
+
+inputs:
+  token:
+    description: A token that may write contents (and read the issue); the App's, so what it makes wakes workflows.
+    required: true
+  branch:
+    description: The branch to make or find.
+    required: true
+  base:
+    description: Where a new branch starts; the default branch when empty.
+    required: false
+    default: ""
+  issue:
+    description: An issue number to create the branch linked to.
+    required: false
+    default: ""
+
+outputs:
+  sha:
+    description: The branch's head.
+    value: ${{ steps.branch.outputs.sha }}
+  created:
+    description: "`false` when the branch already existed."
+    value: ${{ steps.branch.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Branch
+    id: branch
+    uses: actions/github-script@v9
+    env:
+      BRANCH: ${{ inputs.branch }}
+      BASE: ${{ inputs.base }}
+      ISSUE: ${{ inputs.issue }}
+    with:
+      github-token: ${{ inputs.token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/branch.js`).run({ github, context, core });

@@ -9,6 +9,9 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [build-image](build-image/) | Sets up Buildx and bakes a Docker Compose file, optionally pushing to Docker Hub |
 | [kluster-konnect](kluster-konnect/) | Authenticates to GCP, configures kubeconfig (in-cluster SA token or GCP Secret Manager), and optionally connects to OpenVPN |
 | [kubectl](kubectl/) | Runs a kubectl command and writes output to the step summary |
-| [issue-agent](issue-agent/) | Claude in an issue or PR as a real Claude Code session; the workflow gives it a role, a schema, document rounds, review threads and pushes. `issue-agent/commit` commits an approved round |
+| [issue-agent](issue-agent/) | A Claude Code agent in an issue or PR as a real Claude Code session: its reply, its notes in the description, and on a PR its review comments. No git; it outputs its structured response for the steps after it |
+| [git/branch](git/) | Makes a branch through the GitHub API, or finds it; optionally linked to an issue's Development panel |
+| [git/commit](git/) | Commits the checkout's changes to a branch through `createCommitOnBranch`, so every commit is GitHub-signed |
+| [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one |
 | [app-token](app-token/) | Mints a kubed-io GitHub App token from GCP Secret Manager through Workload Identity Federation, exporting no GCP credential to the job |
 | [krm-setup](krm-setup/) | Installs the KRM toolchain (kubectl, kustomize, helm, krew, kompose, yq) and `kubed-krm` Python package |

@@ -1,0 +1,61 @@
+name: Git · Pull Request
+description: >
+  Opens a pull request from a branch, or finds the open one (left as it is). A branch with
+  nothing beyond its base fails with GitHub's own message; commit first.
+
+inputs:
+  token:
+    description: A token that may write pull requests and issues; the App's, so the PR wakes workflows.
+    required: true
+  branch:
+    description: The head branch.
+    required: true
+  base:
+    description: The base branch; the default branch when empty.
+    required: false
+    default: ""
+  title:
+    description: The PR's title.
+    required: true
+  body:
+    description: The PR's body.
+    required: false
+    default: ""
+  draft:
+    description: Open it as a draft.
+    required: false
+    default: "true"
+  labels:
+    description: Labels to add to a new PR, comma-separated.
+    required: false
+    default: ""
+
+outputs:
+  number:
+    description: The PR's number.
+    value: ${{ steps.pr.outputs.number }}
+  url:
+    description: The PR's URL.
+    value: ${{ steps.pr.outputs.url }}
+  created:
+    description: "`false` when an open PR was found."
+    value: ${{ steps.pr.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Pull Request
+    id: pr
+    uses: actions/github-script@v9
+    env:
+      BRANCH: ${{ inputs.branch }}
+      BASE: ${{ inputs.base }}
+      TITLE: ${{ inputs.title }}
+      BODY: ${{ inputs.body }}
+      DRAFT: ${{ inputs.draft }}
+      LABELS: ${{ inputs.labels }}
+    with:
+      github-token: ${{ inputs.token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/pr.js`).run({ github, context, core });
