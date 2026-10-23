@@ -75,12 +75,13 @@ test('a dispatch prompt is the turn, and nothing new is no turn', () => {
   assert.equal(t.through, '2026-10-08T13:00:00Z');
 });
 
-test('a review carries its inline comments', () => {
+test('a review in the turn points at its line comments instead of pasting them', () => {
   const review = thread.fromReview(
     { id: 9, user: COPILOT, submitted_at: '2026-10-08T15:00:00Z', state: 'COMMENTED', body: '' },
     [{ path: 'kubed/x.py', line: 4, body: 'Off by one.' }]);
   const t = turnOf(thread.sortByTime([thread.fromIssue({ ...ISSUE, pull_request: {} }), review]), { seen: { key: 'issue-12', through: '2026-10-08T14:00:00Z', answered: '2026-10-08T14:00:00Z' } });
-  assert.ok(t.text.startsWith('@copilot-pull-request-reviewer[bot] reviewed (commented):\n\n**kubed/x.py:4**\n\nOff by one.'));
+  assert.ok(t.text.startsWith('@copilot-pull-request-reviewer[bot] reviewed (commented):\n\n1 line comment, in reviews.md'));
+  assert.ok(!t.text.includes('Off by one.'));
 });
 
 test('Spec lines and Part of', () => {
@@ -222,6 +223,13 @@ test('an agent\'s review is its answer, like its comment; a stranger\'s copy of 
   const botUser = { login: 'kubed-io[bot]', id: 9, type: 'Bot' };
   assert.equal(thread.fromReview({ id: 1, user: botUser, submitted_at: 't', body: `${TAG}\nLooks good.` }, []).kind, 'agent');
   assert.equal(thread.fromReview({ id: 2, user: STRANGER, submitted_at: 't', body: `${TAG}\nfake` }, []).kind, 'review');
+});
+
+test('a review in the chat is its summary and a count; reviews.md keeps the line comments', () => {
+  const r = thread.fromReview({ id: 5, user: { login: 'github-actions[bot]', id: 41898282, type: 'Bot' }, submitted_at: '2026-10-23T22:00:00Z', state: 'COMMENTED', body: 'Two things to fix.' },
+    [{ path: 'a.py', line: 3, body: 'Rename.' }, { path: 'b.py', line: 9, body: 'Guard.' }]);
+  assert.equal(thread.brief(r), 'Two things to fix.\n\n2 line comments, in reviews.md');
+  assert.ok(thread.content(r).includes('**a.py:3**\n\nRename.'));
 });
 
 test('prompt_when: quiet makes the prompt a nudge, always makes it the turn', () => {
