@@ -214,7 +214,9 @@ function prFile(pr, files) {
 function reviewsFile(reviews, threads, trust) {
   const lines = ['# Reviews', ''];
   for (const r of reviews) lines.push(`## @${r.user.login} · ${r.at} · ${(r.state || '').toLowerCase()}`, '', content(r) || '(no text)', '');
-  const open = threads.filter((t) => !t.isResolved);
+  // a thread is listed when someone trusted started it; the code scanner's live in
+  // security.md (pr-checks), a stranger's nowhere
+  const open = threads.filter((t) => !t.isResolved && isTrusted(authorOf(t.comments.nodes[0]?.author), trust));
   lines.push(`# Unresolved threads (${open.length})`, '');
   for (const t of open) {
     lines.push(`## Thread \`${t.id}\` · \`${t.path}:${t.line ?? '?'}\``, '');

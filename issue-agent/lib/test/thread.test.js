@@ -198,6 +198,20 @@ test('reviewsFile keeps only the trusted authors of an unresolved thread', () =>
   assert.ok(!out.includes('Ghost body.'));
 });
 
+test('reviewsFile lists only threads a trusted author started', () => {
+  const thr = (id, author) => ({ id, isResolved: false, path: 'a.py', line: 3, comments: { nodes: [
+    { body: `${id} body.`, createdAt: '2026-10-08T15:00:00Z', author },
+    { body: 'Owner reply.', createdAt: '2026-10-08T15:01:00Z', author: { __typename: 'User', login: 'kferrone', databaseId: 4399427 } },
+  ] } });
+  const out = thread.reviewsFile([], [
+    thr('T1', { __typename: 'Bot', login: 'copilot-pull-request-reviewer', databaseId: 175728472 }),
+    thr('T2', { __typename: 'Bot', login: 'github-advanced-security', databaseId: 62310815 }),
+    thr('T3', { __typename: 'User', login: 'someone', databaseId: 1 }),
+  ], COPILOT_IDS);
+  assert.ok(out.includes('# Unresolved threads (1)'));
+  assert.ok(out.includes('T1') && !out.includes('T2') && !out.includes('T3'));
+});
+
 test('issuesFile leaves out a stranger comment on a linked issue', () => {
   const out = thread.issuesFile([{ issue: ISSUE, comments: [
     comment(2, STRANGER, '2026-10-08T14:10:00Z', 'Stranger text.'),

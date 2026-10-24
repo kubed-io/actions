@@ -1,0 +1,48 @@
+name: PR Checks
+description: |
+  Gathers what a pull request's checks found, for an agent, into its scratch directory:
+  `security.md`, the code scanning alerts open on the PR (new ones first, each with the
+  thread the scanner opened on it), and `checks.md`, the failure and warning annotations of
+  every check on the PR's head. Reads only; resolving is the agent's (`threads`), fixing
+  is its code, dismissing an alert is a human's.
+
+inputs:
+  github_token:
+    description: A token that may read pull requests, checks and code scanning alerts.
+    required: false
+    default: ${{ github.token }}
+  number:
+    description: The pull request.
+    required: true
+  scratch_dir:
+    description: Where the files go, under the workspace; issue-agent's scratch dir.
+    required: false
+    default: .issue
+  scans:
+    description: The names of the scanning jobs, comma-separated, to tell a scan still running.
+    required: false
+    default: CodeQL,Workflow Audit
+
+outputs:
+  new_alerts:
+    description: How many alerts the PR brings that main does not have.
+    value: ${{ steps.gather.outputs.new_alerts }}
+  pending:
+    description: "`true` while a scan of the head is still running."
+    value: ${{ steps.gather.outputs.pending }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Gather
+    id: gather
+    uses: actions/github-script@v9
+    env:
+      NUMBER: ${{ inputs.number }}
+      SCRATCH_DIR: ${{ inputs.scratch_dir }}
+      SCANS: ${{ inputs.scans }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/checks.js`).run({ github, context, core });
