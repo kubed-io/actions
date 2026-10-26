@@ -1,13 +1,14 @@
-// git/commit: commits the checkout's changes to a branch through createCommitOnBranch, so
-// GitHub signs the commit. Afterwards HEAD and the index are the new commit; the working
-// tree is untouched, so changes it did not select stay changed.
+// git/commit: commits the checkout's changes to a branch through the API, so GitHub signs
+// the commit: createCommitOnBranch for files, or the Git Data API when a submodule's pointer
+// moves too, which createCommitOnBranch cannot write. Afterwards HEAD and the index are the
+// new commit; the working tree is untouched, so changes it did not select stay changed.
 
 const fs = require('fs');
 const path = require('path');
 const { lines, gql, headOid, matcher } = require('./util');
 
 const UNMERGED = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
-const SUBMODULE_HINT = 'the commit API cannot move a submodule pointer; commit it with git in its own step';
+const SUBMODULE_HINT = 'a submodule moves only to a commit made inside it: commit inside the submodule first';
 
 async function git(exec, args, options = {}) {
   const { stdout } = await exec.getExecOutput('git', args, { silent: true, ...options });
@@ -50,20 +51,35 @@ function submodulePaths(root) {
   return [...fs.readFileSync(file, 'utf8').matchAll(/^\s*path\s*=\s*(.+?)\s*$/gm)].map((m) => m[1]);
 }
 
-// `<mode> ...\t<path>` records, NUL-terminated: the paths whose mode is a gitlink
+// `ls-files -s` (`<mode> <sha> <stage>\t<path>`) or `ls-tree` (`<mode> commit <sha>\t<path>`)
+// records, NUL-terminated: each gitlink's path and the commit it points at
 function gitlinks(out) {
-  return out.split('\0').filter(Boolean).filter((r) => r.startsWith('160000 ')).map((r) => r.slice(r.indexOf('\t') + 1));
+  const links = new Map();
+  for (const r of out.split('\0').filter(Boolean)) {
+    if (!r.startsWith('160000 ')) continue;
+    const meta = r.slice(0, r.indexOf('\t')).split(' ');
+    links.set(r.slice(r.indexOf('\t') + 1), meta[1] === 'commit' ? meta[2] : meta[1]);
+  }
+  return links;
+}
+
+// the commit a submodule is checked out at, '' when it is not checked out
+async function checkedOut(exec, root, file) {
+  const out = await git(exec, ['-C', path.join(root, file), 'rev-parse', 'HEAD'], { ignoreReturnCode: true });
+  return out.trim();
 }
 
 function refuse(file) {
   throw new Error(`${file} is a submodule or inside one: ${SUBMODULE_HINT}`);
 }
 
-// A submodule's change cannot go through the API. Asked for by `files`, that fails; swept
-// up by "every change", it is left out with a warning, for the step that commits it.
+// A submodule whose checkout is at a new commit moves its pointer: that is a `link`. Any
+// other submodule change (edits inside it, an unmoved pointer, a deleted gitlink) cannot
+// be committed from here: asked for by `files`, that fails; swept up by "every change", it
+// is left out with a warning.
 async function checkSubmodules({ exec, core, root, patterns, paths }) {
   const subs = submodulePaths(root);
-  const inside = (p) => subs.some((s) => p === s || p.startsWith(`${s}/`));
+  const inside = (p) => subs.some((s) => p.startsWith(`${s}/`));
   const explicit = patterns.length > 0;
   const skipped = [];
   const drop = (p) => (explicit ? refuse(p) : skipped.push(p));
@@ -73,20 +89,27 @@ async function checkSubmodules({ exec, core, root, patterns, paths }) {
     if (subs.some((s) => literal.startsWith(`${s}/`))) refuse(p);
   }
   let kept = [];
+  const links = [];
   for (const p of paths) {
     if (inside(p) || p.endsWith('/')) drop(p);
     else kept.push(p);
   }
   if (kept.length) {
     // literal: a path with `*` in its name is not a pathspec glob
-    const index = await git(exec, ['--literal-pathspecs', 'ls-files', '-s', '-z', '--', ...kept]);
-    const head = await git(exec, ['--literal-pathspecs', 'ls-tree', '-z', 'HEAD', '--', ...kept], { ignoreReturnCode: true });
-    const linked = new Set([...gitlinks(index), ...gitlinks(head)]);
-    for (const p of linked) drop(p);
+    const index = gitlinks(await git(exec, ['--literal-pathspecs', 'ls-files', '-s', '-z', '--', ...kept]));
+    const head = gitlinks(await git(exec, ['--literal-pathspecs', 'ls-tree', '-z', 'HEAD', '--', ...kept], { ignoreReturnCode: true }));
+    const linked = new Set([...index.keys(), ...head.keys()]);
+    for (const p of linked) {
+      // where `git add` would point it: the submodule's checkout, or a pointer already staged
+      const sha = index.has(p) ? (await checkedOut(exec, root, p)) || index.get(p) : '';
+      if (sha && sha !== head.get(p)) links.push({ path: p, sha });
+      else if (explicit && index.has(p)) throw new Error(`${p} has no new commit to point at: commit inside the submodule first`);
+      else drop(p);
+    }
     kept = kept.filter((p) => !linked.has(p));
   }
   if (skipped.length) core.warning(`left out, as submodule changes (${SUBMODULE_HINT}): ${skipped.join(', ')}`);
-  return kept;
+  return { kept, links };
 }
 
 // a path the working tree still has is an addition, one it lost a deletion
@@ -104,7 +127,9 @@ function fileChanges(root, changes) {
     } else if (stat.isSymbolicLink()) {
       throw new Error(`${file} is a symlink: the commit API writes only regular files`);
     } else {
-      additions.push({ path: file, contents: fs.readFileSync(full).toString('base64') });
+      // git keeps only the executable bit
+      const mode = stat.mode & 0o111 ? '100755' : '100644';
+      additions.push({ path: file, contents: fs.readFileSync(full).toString('base64'), mode });
     }
   }
   return { additions, deletions };
@@ -147,6 +172,36 @@ async function commitOnBranch({ github, core, owner, repo, branch, message, file
   }
 }
 
+// Files and moved submodules in one commit, through the Git Data API: blobs, a tree on the
+// branch head's, a commit with no author or committer (GitHub signs it as the token's App),
+// and the branch moved only by a fast forward. One try, then one more on the new head.
+async function commitTree({ github, core, owner, repo, branch, message, additions, deletions, links }) {
+  const blobs = [];
+  for (const a of additions) {
+    const { data } = await github.rest.git.createBlob({ owner, repo, content: a.contents, encoding: 'base64' });
+    blobs.push({ path: a.path, mode: a.mode, type: 'blob', sha: data.sha });
+  }
+  const entries = [
+    ...blobs,
+    ...deletions.map((d) => ({ path: d.path, mode: '100644', type: 'blob', sha: null })),
+    ...links.map((l) => ({ path: l.path, mode: '160000', type: 'commit', sha: l.sha })),
+  ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  for (let attempt = 1; ; attempt += 1) {
+    const head = await headOid(github, owner, repo, branch);
+    if (!head) throw new Error(`branch ${branch} does not exist; git/branch makes it`);
+    try {
+      const { data: parent } = await github.rest.git.getCommit({ owner, repo, commit_sha: head });
+      const { data: tree } = await github.rest.git.createTree({ owner, repo, base_tree: parent.tree.sha, tree: entries });
+      const { data: made } = await github.rest.git.createCommit({ owner, repo, message, tree: tree.sha, parents: [head] });
+      await github.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: made.sha, force: false });
+      return { oid: made.sha, url: made.html_url };
+    } catch (e) {
+      if (attempt >= 2) throw e;
+      core.warning(`the commit failed once (${e.message}); retrying on the new head`);
+    }
+  }
+}
+
 // git reads config from GIT_CONFIG_COUNT/KEY_n/VALUE_n: an auth header that never shows
 // in a logged command line, and is masked if anything prints it
 function authEnv(core, token, server = 'https://github.com') {
@@ -167,9 +222,9 @@ async function run({ github, context, core, exec }) {
   const root = (await git(exec, ['rev-parse', '--show-toplevel'])).trim() || env.GITHUB_WORKSPACE || process.cwd();
 
   const changes = parseStatus(await git(exec, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
-  const paths = await checkSubmodules({ exec, core, root, patterns, paths: selected(changes, patterns, root) });
+  const { kept: paths, links } = await checkSubmodules({ exec, core, root, patterns, paths: selected(changes, patterns, root) });
 
-  if (!paths.length && !allowEmpty) {
+  if (!paths.length && !links.length && !allowEmpty) {
     core.notice('nothing to commit');
     core.setOutput('sha', '');
     core.setOutput('url', '');
@@ -179,9 +234,15 @@ async function run({ github, context, core, exec }) {
   }
 
   const { additions, deletions } = fileChanges(root, paths);
-  // an empty commit still sends additions: GitHub refuses a commit with no fileChanges
-  const changesInput = deletions.length ? { additions, deletions } : { additions };
-  const commit = await commitOnBranch({ github, core, owner, repo, branch, message, fileChanges: changesInput });
+  let commit;
+  if (links.length) {
+    commit = await commitTree({ github, core, owner, repo, branch, message, additions, deletions, links });
+  } else {
+    // an empty commit still sends additions: GitHub refuses a commit with no fileChanges
+    const plain = additions.map(({ path: p, contents }) => ({ path: p, contents }));
+    const changesInput = deletions.length ? { additions: plain, deletions } : { additions: plain };
+    commit = await commitOnBranch({ github, core, owner, repo, branch, message, fileChanges: changesInput });
+  }
 
   // HEAD and index to the new commit; the working tree keeps what was not selected. The
   // fetch authenticates with this step's token through git's env config, never on the
@@ -191,7 +252,7 @@ async function run({ github, context, core, exec }) {
 
   core.setOutput('sha', commit.oid);
   core.setOutput('url', commit.url);
-  core.setOutput('files', JSON.stringify(paths));
+  core.setOutput('files', JSON.stringify([...paths, ...links.map((l) => l.path)].sort()));
   core.setOutput('committed', 'true');
 }
 

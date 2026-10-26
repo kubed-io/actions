@@ -1,7 +1,8 @@
 # Git Actions
 
-Branch, commit and open a PR through the GitHub API. Every commit goes through
-`createCommitOnBranch`, so GitHub signs it ("Verified"); nothing is `git push`ed. Pass the
+Branch, commit and open a PR through the GitHub API. Every commit is made by the API with
+no author or committer of its own, so GitHub signs it ("Verified"); nothing is
+`git push`ed. Pass the
 App's token, so what they make wakes workflows. None runs Claude; any runner will do.
 
 ## Usage
@@ -71,9 +72,14 @@ commit and the working tree is left as it was, so changes it did not select stay
 
 - Changes come from `git status`: added, changed, deleted, untracked, and a rename as a
   delete plus an add. Files land as regular files: a symlink fails.
-- The API cannot move a submodule pointer. Committing every change, a gitlink change or
-  a path inside a submodule is left out with a warning naming it; named in `files`, it
-  fails. Commit those with git in their own step.
+- A submodule checked out at a new commit moves its pointer in the same commit, beside
+  the files: push the submodule's commit first (a wiki, say), then commit here. That
+  commit goes through the Git Data API (blobs, a tree, a commit, a fast-forward of the
+  branch), because `createCommitOnBranch` cannot write a gitlink; without one it is used
+  as before.
+- Other submodule changes cannot be committed from here: edits inside a submodule, a
+  pointer with no new commit, a deleted gitlink. Swept up by "every change", they are
+  left out with a warning naming them; named in `files`, they fail.
 - Afterwards it fetches the branch with `token` (never on the command line) and resets
   `HEAD` and the index to the new commit, so `persist-credentials: false` is fine.
 

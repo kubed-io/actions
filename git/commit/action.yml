@@ -1,8 +1,9 @@
 name: Git · Commit
 description: >
-  Commits the checkout's changes to a branch through createCommitOnBranch, so GitHub signs
-  the commit. Afterwards HEAD and the index match the commit and the working tree is left
-  as it was. Submodule pointers cannot be committed this way and fail.
+  Commits the checkout's changes to a branch through the API, so GitHub signs the commit.
+  A submodule checked out at a new commit moves its pointer in the same commit (the Git
+  Data API); afterwards HEAD and the index match the commit and the working tree is left
+  as it was.
 
 inputs:
   token:
