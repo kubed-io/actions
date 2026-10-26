@@ -83,6 +83,42 @@ commit and the working tree is left as it was, so changes it did not select stay
 - Afterwards it fetches the branch with `token` (never on the command line) and resets
   `HEAD` and the index to the new commit, so `persist-credentials: false` is fine.
 
+## git/submodule
+
+Commits what changed inside a submodule and pushes it to the submodule's own branch, with
+git, for a repository that has no commit API (a GitHub wiki). The pointer is left alone:
+run `git/commit` next, and it moves the pointer in the same signed commit as the files.
+
+```yaml
+- uses: kubed-io/actions/git/submodule@main
+  with:
+    path: docs
+    message: ${{ steps.msg.outputs.message }}
+    token: ${{ steps.app.outputs.token }}
+    app_slug: ${{ steps.app.outputs.app-slug }}
+- uses: kubed-io/actions/git/commit@main
+  with:
+    token: ${{ steps.app.outputs.token }}
+    branch: ${{ env.BRANCH }}
+    message: ${{ steps.msg.outputs.message }}
+```
+
+| Input | Required | Default | Description |
+|---|---|---|---|
+| `path` | no | `docs` | The submodule |
+| `branch` | no | `master` | The submodule's branch, rebased onto its remote head first |
+| `message` | yes | — | The commit message |
+| `token` | yes | — | Pushes the submodule's repository |
+| `app_slug` | yes | — | The App whose bot authors the commit |
+
+| Output | Description |
+|---|---|
+| `sha` | The submodule's new commit; empty when nothing changed |
+| `committed` | `false` when nothing changed under `path` (not an error) |
+
+It lives here, not in the repository it serves: a workflow running a local action runs
+whatever the checked-out branch holds, so an agent's branch could change it.
+
 ## git/pr
 
 Opens a PR from a branch, or finds the open one and leaves it as it is.

@@ -1,0 +1,65 @@
+name: Git · Submodule
+description: >
+  Commits what changed inside a submodule and pushes it to the submodule's own branch,
+  with git: for a repository with no commit API, such as a GitHub wiki. The pointer is not
+  touched; git/commit moves it afterwards, in its own signed commit beside the files. Lives
+  here rather than in the repository it serves, so a branch's checkout cannot change what
+  runs with the token.
+
+inputs:
+  path:
+    description: The submodule, from the repository root.
+    required: false
+    default: docs
+  branch:
+    description: The submodule's branch to commit on, rebased onto its remote head first.
+    required: false
+    default: master
+  message:
+    description: The commit message.
+    required: true
+  token:
+    description: A token that may push the submodule's repository (the App's).
+    required: true
+  app_slug:
+    description: The App's slug; its bot is the commit's author and committer.
+    required: true
+
+outputs:
+  sha:
+    description: The submodule's new commit; empty when nothing changed.
+    value: ${{ steps.push.outputs.sha }}
+  committed:
+    description: true when there was something to commit.
+    value: ${{ steps.push.outputs.committed }}
+
+runs:
+  using: composite
+  steps:
+  - name: Commit and Push the Submodule
+    id: push
+    shell: bash
+    env:
+      SUB: ${{ inputs.path }}
+      BRANCH: ${{ inputs.branch }}
+      MESSAGE: ${{ inputs.message }}
+      GH_TOKEN: ${{ inputs.token }}
+      SLUG: ${{ inputs.app_slug }}
+    run: |
+      set -euo pipefail
+      { echo "committed=false"; echo "sha="; } >> "$GITHUB_OUTPUT"
+      [ -n "$(git -C "$SUB" status --porcelain)" ] || { echo "nothing changed under $SUB/"; exit 0; }
+      id=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
+      export GIT_AUTHOR_NAME="${SLUG}[bot]" GIT_COMMITTER_NAME="${SLUG}[bot]"
+      export GIT_AUTHOR_EMAIL="${id}+${SLUG}[bot]@users.noreply.github.com" GIT_COMMITTER_EMAIL="${id}+${SLUG}[bot]@users.noreply.github.com"
+      # the token reaches git through its env config, never a command line or .git/config
+      header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+      echo "::add-mask::${header}"
+      export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="$header"
+      # on top of the remote branch, which a browser edit may have moved past the pin
+      git -C "$SUB" fetch --no-tags origin "$BRANCH"
+      git -C "$SUB" checkout -B "$BRANCH" FETCH_HEAD
+      git -C "$SUB" add -A
+      git -C "$SUB" commit -m "$MESSAGE"
+      git -C "$SUB" push origin "HEAD:refs/heads/${BRANCH}"
+      { echo "committed=true"; echo "sha=$(git -C "$SUB" rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"
