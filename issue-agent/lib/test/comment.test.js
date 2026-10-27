@@ -60,3 +60,10 @@ test('an empty reply fails the step', async () => {
   assert.deepEqual(core.failures, ['the agent wrote no reply']);
   assert.equal(core.outputs.posted, undefined);
 });
+
+test('a prompt that is a slash command is not quoted: it is an instruction, not words in the thread', () => {
+  const body = comment.reply({ prompt: '/mcp__superpowers__superpowers_review', text: 'Looks good.', runUrl: RUN, seen: { key: 'k', through: '' } });
+  assert.ok(!body.includes('mcp__superpowers'));
+  assert.ok(body.startsWith(`${state.TAG}\nLooks good.`));
+  assert.ok(!comment.placeholder({ prompt: '/mcp__x__y', runUrl: RUN }).includes('mcp__x__y'));
+});

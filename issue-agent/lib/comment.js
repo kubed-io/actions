@@ -7,10 +7,12 @@ const { fillHeader } = require('./header');
 
 const SPINNER = '<img src="https://github.com/user-attachments/assets/5ac382c7-e004-429b-8e35-7feb3e8f9c6f" width="14px" height="14px" style="vertical-align: middle; margin-left: 4px;" />';
 
-// A dispatch's prompt is quoted above the answer, so the thread reads as it happened
+// A dispatch's prompt is quoted above the answer, so the thread reads as it happened. A
+// slash command (an MCP prompt) is an instruction to the agent, not words in the thread.
 function quote(prompt) {
   const text = (prompt || '').trim();
-  return text ? `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n` : '';
+  if (!text || text.startsWith('/')) return '';
+  return `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n`;
 }
 
 function placeholder({ prompt, runUrl }) {
