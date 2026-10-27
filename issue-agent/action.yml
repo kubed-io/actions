@@ -70,6 +70,12 @@ inputs:
     description: MCP servers, inline JSON or a file; ${VAR} is filled from env. Every server is allowed.
     required: false
     default: ""
+  compact:
+    description: >
+      Instructions for compacting a resumed session before this turn (`/compact <these>`), at a
+      seam the workflow chooses, such as a plan approved. Empty: no compaction.
+    required: false
+    default: ""
   model:
     description: Overrides the agent's model.
     required: false
@@ -207,6 +213,17 @@ runs:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
+
+  # A long session made smaller at a seam the workflow chooses, steered by `compact`. The
+  # transcript keeps everything; only what the next turn carries shrinks.
+  - name: Compact
+    if: inputs.compact != '' && steps.setup.outputs.resumed == 'true' && steps.gather.outputs.prompt != ''
+    shell: bash
+    env:
+      INSTRUCTIONS: ${{ inputs.compact }}
+      SESSION_ID: ${{ steps.setup.outputs.session_id }}
+      CLAUDE: ${{ env.PATH_TO_CLAUDE_CODE_EXECUTABLE || 'claude' }}
+    run: '"$CLAUDE" -p "/compact $INSTRUCTIONS" --resume "$SESSION_ID" --strict-mcp-config --output-format json > /dev/null'
 
   # One turn per run: nothing may outlive it. A subagent left running in the background
   # comes back on the next resume as a turn of its own, ahead of the real one.

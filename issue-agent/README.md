@@ -73,6 +73,7 @@ new-side line numbered).
 | `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |
 | `opt_in_label`, `max_runs` | `""`, `0` | The gate |
 | `mcp_config` | `""` | Inline JSON or a file; `${VAR}` from env |
+| `compact` | `""` | Compact a resumed session before the turn, steered by these instructions |
 | `model`, `max_turns`, `allowed_tools`, `disallowed_tools`, `permission_mode` | the agent's | Per-job overrides |
 | `claude_args` | `""` | Extra Claude Code flags |
 | `show_full_output` | `false` | Keep false in public repos |
