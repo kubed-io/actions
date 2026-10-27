@@ -218,6 +218,8 @@ runs:
   # transcript keeps everything; only what the next turn carries shrinks.
   - name: Compact
     if: inputs.compact != '' && steps.setup.outputs.resumed == 'true' && steps.gather.outputs.prompt != ''
+    # an uncompacted session still takes its turn
+    continue-on-error: true
     shell: bash
     env:
       INSTRUCTIONS: ${{ inputs.compact }}
