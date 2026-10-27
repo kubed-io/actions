@@ -56,10 +56,13 @@ runs:
       header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
       echo "::add-mask::${header}"
       export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="$header"
-      # on top of the remote branch, which a browser edit may have moved past the pin
-      git -C "$SUB" fetch --no-tags origin "$BRANCH"
-      git -C "$SUB" checkout -B "$BRANCH" FETCH_HEAD
+      # commit where the checkout is, then onto the remote branch, which another run or a
+      # browser edit may have moved past the pin. A file both changed takes this run's
+      # version: agents write their docs whole each turn
+      git -C "$SUB" checkout -B "$BRANCH"
       git -C "$SUB" add -A
       git -C "$SUB" commit -m "$MESSAGE"
+      git -C "$SUB" fetch --no-tags origin "$BRANCH"
+      git -C "$SUB" rebase -X theirs FETCH_HEAD
       git -C "$SUB" push origin "HEAD:refs/heads/${BRANCH}"
       { echo "committed=true"; echo "sha=$(git -C "$SUB" rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"
