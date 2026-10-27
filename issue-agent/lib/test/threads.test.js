@@ -45,3 +45,13 @@ test('the thread step never marks ready, and the ready step answers no thread', 
   assert.ok(!ready.calls.some((c) => c.params?.thread));
   assert.ok(ready.calls.some((c) => c.params?.id === 'PR'));
 });
+
+test('a thread reply carries the action\'s tag, so the next run knows it for its own', async () => {
+  const { TAG } = require('../state');
+  const github = fake.github({ 'graphql:addPullRequestReviewThreadReply': {}, 'pulls.get': { draft: false, node_id: 'PR' } });
+  Object.assign(process.env, { MODE: '', NUMBER: '40', PUSHED: 'true', STRUCTURED_FILE: structured({ threads: [{ id: 'T1', reply: 'Fixed in abc.', resolve: false }], ready: false }) });
+  await threads.run({ github, context: fake.context(), core: fake.core() });
+  const body = github.calls.find((c) => c.name === 'graphql:addPullRequestReviewThreadReply').params.body;
+  assert.ok(body.startsWith('Fixed in abc.'));
+  assert.ok(body.includes(TAG));
+});

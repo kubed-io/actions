@@ -2,6 +2,7 @@
 // resolve when it fixed or settled one), and marks a draft ready when the agent says so.
 // A reply and its resolve happen together, never one without the other.
 
+const { TAG } = require('./state');
 const fs = require('fs');
 const { gql } = require('./util');
 
@@ -21,7 +22,8 @@ async function run({ github, context, core }) {
     return;
   }
   for (const t of out.threads || []) {
-    await github.graphql(gql('reply-thread'), { thread: t.id, body: t.reply });
+    // tagged, so the review GitHub wraps a reply in reads as the agent's own next run
+    await github.graphql(gql('reply-thread'), { thread: t.id, body: `${t.reply}\n\n${TAG}` });
     if (t.resolve) await github.graphql(gql('resolve-thread'), { thread: t.id });
     core.info(`thread ${t.id}: replied${t.resolve ? ' and resolved' : ''}`);
   }

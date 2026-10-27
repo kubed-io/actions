@@ -56,7 +56,10 @@ function fromComment(c) {
 
 // an agent's review is its answer, as its comment would be: a Bot's, with the action's tag
 function fromReview(r, comments) {
-  const agent = isAgent(r.body) && r.user?.type === 'Bot';
+  // a review GitHub made to hold the agent's own thread replies has an empty body: it is
+  // the agent's when every one of its comments carries the tag
+  const replies = (comments || []).length > 0 && comments.every((c) => isAgent(c.body));
+  const agent = (isAgent(r.body) || replies) && r.user?.type === 'Bot';
   return { id: r.id, kind: agent ? 'agent' : 'review', user: r.user || GHOST, at: r.submitted_at, updated: null, state: r.state, body: r.body || '', comments };
 }
 

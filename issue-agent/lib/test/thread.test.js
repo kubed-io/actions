@@ -285,3 +285,13 @@ test('a nudge is the turn only when the thread has nothing new', () => {
   const withNew = messages(ISSUE, answer(1, '2026-10-08T13:05:00Z', '2026-10-08T13:00:00Z'), comment(2, OWNER, '2026-10-08T14:10:00Z', 'Use ffmpeg.'));
   assert.ok(turnOf(withNew, { nudge: 'ignored' }).text.startsWith('Use ffmpeg.'));
 });
+
+test('a bot review made only of the agent\'s tagged thread replies is the agent\'s own, not a new message', () => {
+  const botUser = { login: 'kubed-io[bot]', id: 9, type: 'Bot' };
+  const reply = { path: 'CONTRIBUTING.md', line: 155, body: `Fixed in b534290.\n\n${TAG}` };
+  assert.equal(thread.fromReview({ id: 3, user: botUser, submitted_at: 't', body: '' }, [reply]).kind, 'agent');
+  // one untagged comment, or a stranger's tags, keep it a review someone made
+  assert.equal(thread.fromReview({ id: 4, user: botUser, submitted_at: 't', body: '' }, [reply, { path: 'a', line: 1, body: 'look here' }]).kind, 'review');
+  assert.equal(thread.fromReview({ id: 5, user: STRANGER, submitted_at: 't', body: '' }, [reply]).kind, 'review');
+  assert.equal(thread.fromReview({ id: 6, user: botUser, submitted_at: 't', body: '' }, []).kind, 'review');
+});
