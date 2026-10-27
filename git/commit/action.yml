@@ -16,6 +16,10 @@ inputs:
     description: Paths or globs (`**`, `*`, `?`), one per line; only matching changes are committed. Every change when empty.
     required: false
     default: ""
+  ignore:
+    description: Paths or globs, one per line, left out of the commit with a warning even when they changed.
+    required: false
+    default: ""
   branch:
     description: The branch to commit to, which must exist (git/branch makes it); the checkout's when empty.
     required: false
@@ -35,6 +39,9 @@ outputs:
   files:
     description: JSON list of the committed paths, deletions included.
     value: ${{ steps.commit.outputs.files }}
+  ignored:
+    description: JSON list of the changed paths `ignore` left out.
+    value: ${{ steps.commit.outputs.ignored }}
   committed:
     description: "`false` when there was nothing to commit and allow_empty is off."
     value: ${{ steps.commit.outputs.committed }}
@@ -49,6 +56,7 @@ runs:
     env:
       MESSAGE: ${{ inputs.message }}
       FILES: ${{ inputs.files }}
+      IGNORE: ${{ inputs.ignore }}
       BRANCH: ${{ inputs.branch }}
       ALLOW_EMPTY: ${{ inputs.allow_empty }}
       TOKEN: ${{ inputs.token }}

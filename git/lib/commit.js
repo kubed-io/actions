@@ -222,7 +222,18 @@ async function run({ github, context, core, exec }) {
   const root = (await git(exec, ['rev-parse', '--show-toplevel'])).trim() || env.GITHUB_WORKSPACE || process.cwd();
 
   const changes = parseStatus(await git(exec, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
-  const { kept: paths, links } = await checkSubmodules({ exec, core, root, patterns, paths: selected(changes, patterns, root) });
+  let { kept: paths, links } = await checkSubmodules({ exec, core, root, patterns, paths: selected(changes, patterns, root) });
+
+  // `ignore` leaves changes out on purpose (workflow files a token cannot write, say),
+  // and says so, so the caller can tell whoever made them
+  const skip = matcher(lines(env.IGNORE));
+  const ignored = env.IGNORE ? [...paths, ...links.map((l) => l.path)].filter(skip).sort() : [];
+  if (ignored.length) {
+    paths = paths.filter((p) => !skip(p));
+    links = links.filter((l) => !skip(l.path));
+    core.warning(`left out by ignore: ${ignored.join(', ')}`);
+  }
+  core.setOutput('ignored', JSON.stringify(ignored));
 
   if (!paths.length && !links.length && !allowEmpty) {
     core.notice('nothing to commit');

@@ -61,6 +61,7 @@ commit and the working tree is left as it was, so changes it did not select stay
 | `token` | yes | — | Writes contents |
 | `message` | yes | — | First line is the headline, the rest the body |
 | `files` | no | every change | Paths, directories or globs (`**`, `*`, `?`) from the repository root, one per line |
+| `ignore` | no | — | Paths or globs left out even when changed, with a warning; for example workflow files the token cannot write |
 | `branch` | no | the checkout's | Must exist (`git/branch` makes it) |
 | `allow_empty` | no | `false` | Commit with no changes, so a PR can open on a new branch |
 
@@ -68,6 +69,7 @@ commit and the working tree is left as it was, so changes it did not select stay
 |---|---|
 | `sha`, `url` | The commit; empty when nothing was committed |
 | `files` | JSON list of the committed paths, deletions included |
+| `ignored` | JSON list of the changed paths `ignore` left out |
 | `committed` | `false` when there was nothing and `allow_empty` is off (not an error) |
 
 - Changes come from `git status`: added, changed, deleted, untracked, and a rename as a

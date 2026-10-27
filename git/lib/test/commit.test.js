@@ -8,7 +8,7 @@ const fake = require('./fake');
 
 // a checkout on disk: `files` are what the working tree holds
 function setup({ files = {}, env = {} } = {}) {
-  for (const k of ['MESSAGE', 'FILES', 'BRANCH', 'ALLOW_EMPTY', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME']) delete process.env[k];
+  for (const k of ['MESSAGE', 'FILES', 'IGNORE', 'BRANCH', 'ALLOW_EMPTY', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME']) delete process.env[k];
   Object.assign(process.env, { MESSAGE: 'docs: recordings', ...env });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'git-commit-'));
   for (const [file, contents] of Object.entries(files)) {
@@ -69,6 +69,7 @@ test('every change is committed: additions with contents, deletions, a rename as
     url: 'https://github.com/kubed-io/actions/commit/c0ffee',
     files: JSON.stringify(['deep/x/y.txt', 'del.txt', 'mod.txt', 'new.txt', 'old.txt']),
     committed: 'true',
+    ignored: '[]',
   });
 });
 
@@ -125,7 +126,7 @@ test('nothing selected commits nothing and calls no API', async () => {
   await commit.run({ github, context: fake.context(), core, exec });
   assert.equal(github.calls.length, 0);
   assert.ok(!exec.calls.some((c) => c[1] === 'fetch' || c[1] === 'reset'));
-  assert.deepEqual(core.outputs, { sha: '', url: '', files: '[]', committed: 'false' });
+  assert.deepEqual(core.outputs, { sha: '', url: '', files: '[]', committed: 'false', ignored: '[]' });
 });
 
 test('a clean tree commits nothing', async () => {
@@ -336,4 +337,32 @@ test('branch given wins over the checkout', async () => {
   await commit.run({ github, context: fake.context(), core: fake.core(), exec });
   assert.equal(input(github).branch.branchName, 'other');
   assert.ok(!exec.calls.some((c) => c.includes('--abbrev-ref')));
+});
+
+test('ignore leaves matching changes out with a warning, lists them, and commits the rest', async () => {
+  const root = setup({ files: { 'a.txt': 'a', '.github/workflows/ui.yml': 'x', 'src/b.js': 'b' }, env: { IGNORE: '.github/workflows/**' } });
+  const exec = git(root, [' M .github/workflows/ui.yml', '?? a.txt', ' M src/b.js']);
+  const github = fake.github(routes());
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core, exec });
+  assert.deepEqual(input(github).fileChanges.additions.map((a) => a.path), ['a.txt', 'src/b.js']);
+  assert.equal(core.outputs.ignored, '[".github/workflows/ui.yml"]');
+  assert.ok(core.notices.some((m) => /left out by ignore: \.github\/workflows\/ui\.yml/.test(m)));
+});
+
+test('ignore that leaves nothing commits nothing and calls no API', async () => {
+  const root = setup({ files: { '.github/workflows/ui.yml': 'x' }, env: { IGNORE: '.github/workflows/**' } });
+  const github = fake.github(routes());
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core, exec: git(root, [' M .github/workflows/ui.yml']) });
+  assert.equal(core.outputs.committed, 'false');
+  assert.equal(core.outputs.ignored, '[".github/workflows/ui.yml"]');
+  assert.equal(github.calls.length, 0);
+});
+
+test('with no ignore, ignored is an empty list', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const core = fake.core();
+  await commit.run({ github: fake.github(routes()), context: fake.context(), core, exec: git(root, ['?? a.txt']) });
+  assert.equal(core.outputs.ignored, '[]');
 });
