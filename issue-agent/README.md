@@ -84,6 +84,34 @@ new-side line numbered).
 `structured` (the whole response, JSON), `output` (the role's part, JSON), `reply`,
 `number`, `comment_id`, `review_id`, `head_sha`, `session_id`, `conclusion`.
 
+## Landing the turn
+
+`issue-agent/land` puts a turn's work on its branch, after the agent step. From the
+agent's `output` it takes `commit_message`, plus `Agent: done` on it when `done` is true, so
+that push wakes nothing. It pushes the wiki submodule with git, then makes one signed commit
+through the API, with the wiki's pointer in it. If the commit fails, or `ignore` leaves
+files out, it says so under the turn's reply, so the reply never claims work the branch
+does not have. When the agent is done, it marks `pull_request` ready. No commit message
+means no commit.
+
+```yaml
+- uses: kubed-io/actions/issue-agent/land@main
+  id: land
+  with:
+    token: ${{ steps.app.outputs.token }}
+    app_slug: ${{ steps.app.outputs.app-slug }}
+    branch: ${{ needs.route.outputs.head }}
+    output: ${{ steps.agent.outputs.output }}
+    comment_id: ${{ steps.agent.outputs.comment_id }}
+    # the App cannot write workflow files, and one in the commit refuses all of it
+    ignore: .github/workflows/**
+    pull_request: ${{ needs.route.outputs.number }}
+```
+
+Inputs: `token`, `app_slug`, `branch`, `output`, `comment_id`, `files` and `ignore` (as
+git/commit's), `wiki` (the submodule, `docs`; empty for none), `pull_request` (empty never
+marks one ready). Outputs: `message`, `done`, `sha`, `ignored`.
+
 ## Reading a session in VS Code
 
 Open it to read it. To continue it there, fork it: `claude --resume <id> --fork-session`.

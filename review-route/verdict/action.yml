@@ -1,0 +1,64 @@
+name: Review Verdict
+description: >
+  The review agent's verdict as the review status on the head it reviewed, linked to the
+  review: `looks good` passes, anything else fails, no verdict is an error. The other end of
+  review-route, which reads these statuses back as its memory.
+
+inputs:
+  github_token:
+    description: >
+      The reviewer's token (github-actions[bot]'s, the built-in one), with statuses write:
+      review-route reads back only the reviewer's statuses.
+    required: false
+    default: ${{ github.token }}
+  check:
+    description: The commit status's context, as review-route's.
+    required: false
+    default: Agent review
+  number:
+    description: The pull request (review-route's `number`).
+    required: true
+  sha:
+    description: The head that was reviewed (review-route's `sha`).
+    required: true
+  last:
+    description: review-route's `last`.
+    required: false
+    default: "false"
+  output:
+    description: The review agent's structured output (issue-agent's `output`), with `verdict`.
+    required: false
+    default: ""
+  review_id:
+    description: issue-agent's `review_id`, which the status links to.
+    required: false
+    default: ""
+  comment_id:
+    description: issue-agent's `comment_id`, linked when there is no review.
+    required: false
+    default: ""
+
+outputs:
+  verdict:
+    description: The verdict; empty when the review did not finish.
+    value: ${{ steps.verdict.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Set the Check
+    id: verdict
+    uses: actions/github-script@v9
+    env:
+      CHECK: ${{ inputs.check }}
+      NUMBER: ${{ inputs.number }}
+      SHA: ${{ inputs.sha }}
+      LAST: ${{ inputs.last }}
+      OUTPUT: ${{ inputs.output }}
+      REVIEW_ID: ${{ inputs.review_id }}
+      COMMENT_ID: ${{ inputs.comment_id }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/verdict.js`).run({ github, context, core });

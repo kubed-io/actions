@@ -52,3 +52,24 @@ The token needs `pull-requests: read`, `statuses: write`, `actions: read` (the a
 | `checks_artifact` | `checks-report` | |
 
 Outputs: `number` (empty: no review), `sha`, `last` (the last review before a human).
+
+## Verdict
+
+`review-route/verdict` is the other end: after the review agent, it sets the review status
+on the head that was reviewed, linked to the review. `looks good` passes, any other verdict
+fails, and no verdict is an error. It must run on the reviewer's token (the built-in one),
+since review-route reads back only the reviewer's statuses.
+
+```yaml
+- uses: kubed-io/actions/review-route/verdict@main
+  if: always()
+  with:
+    number: ${{ needs.route.outputs.number }}
+    sha: ${{ needs.route.outputs.sha }}
+    last: ${{ needs.route.outputs.last }}
+    output: ${{ steps.agent.outputs.output }}
+    review_id: ${{ steps.agent.outputs.review_id }}
+    comment_id: ${{ steps.agent.outputs.comment_id }}
+```
+
+Output: `verdict`.

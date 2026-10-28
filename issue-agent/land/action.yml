@@ -1,0 +1,117 @@
+name: Issue Agent · Land
+description: >
+  Lands an issue-agent turn on its branch: the commit message from the agent's output
+  (`commit_message`, and `done`, which adds `Agent: done`), the wiki submodule pushed with
+  git, then one signed commit through the API with the wiki's pointer. When the commit fails
+  or leaves files out, the turn's reply says so. When the agent is done, the PR is marked
+  ready. Nothing is committed when the output has no commit message.
+
+inputs:
+  token:
+    description: The App's token, so the commit and the ready PR wake workflows.
+    required: true
+  app_slug:
+    description: The App's slug, the wiki commit's author.
+    required: true
+  branch:
+    description: The branch to commit to.
+    required: true
+  output:
+    description: issue-agent's `output`.
+    required: true
+  comment_id:
+    description: issue-agent's `comment_id`, the reply that must not claim what did not land.
+    required: false
+    default: ""
+  files:
+    description: git/commit's `files`; every change when empty.
+    required: false
+    default: ""
+  ignore:
+    description: git/commit's `ignore`.
+    required: false
+    default: ""
+  wiki:
+    description: The wiki submodule's path; empty for none.
+    required: false
+    default: docs
+  pull_request:
+    description: The PR to mark ready when the agent is done; empty never marks one.
+    required: false
+    default: ""
+
+outputs:
+  message:
+    description: The commit message; empty when nothing was to be committed.
+    value: ${{ steps.msg.outputs.message }}
+  done:
+    description: "`true` when the agent said its work is done."
+    value: ${{ steps.msg.outputs.done }}
+  sha:
+    description: The commit; empty when nothing was committed.
+    value: ${{ steps.commit.outputs.sha }}
+  ignored:
+    description: JSON list of the changed paths `ignore` left out.
+    value: ${{ steps.commit.outputs.ignored }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Commit Message
+    id: msg
+    uses: actions/github-script@v9
+    env:
+      OUTPUT: ${{ inputs.output }}
+    with:
+      script: |
+        require(`${process.env.GITHUB_ACTION_PATH}/../lib/land.js`).message({ core });
+
+  # the wiki first, with git; then its pointer goes in the same signed commit as the rest
+  - name: Push the Wiki
+    id: wiki
+    if: steps.msg.outputs.message != '' && inputs.wiki != ''
+    uses: kubed-io/actions/git/submodule@main
+    with:
+      path: ${{ inputs.wiki }}
+      message: ${{ steps.msg.outputs.message }}
+      token: ${{ inputs.token }}
+      app_slug: ${{ inputs.app_slug }}
+
+  - name: Commit
+    id: commit
+    if: steps.msg.outputs.message != ''
+    uses: kubed-io/actions/git/commit@main
+    with:
+      token: ${{ inputs.token }}
+      branch: ${{ inputs.branch }}
+      message: ${{ steps.msg.outputs.message }}
+      files: ${{ inputs.files }}
+      ignore: ${{ inputs.ignore }}
+
+  - name: Say What Was Left Out
+    if: >-
+      always() && inputs.comment_id != '' &&
+      (steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' ||
+        (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
+    uses: actions/github-script@v9
+    env:
+      COMMENT_ID: ${{ inputs.comment_id }}
+      IGNORED: ${{ steps.commit.outputs.ignored }}
+      FAILED: ${{ steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    with:
+      github-token: ${{ inputs.token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/land.js`).note({ github, context });
+
+  # after the commit, so the checks and the review start once, on the final commit
+  - name: Mark Ready
+    if: steps.msg.outputs.done == 'true' && inputs.pull_request != ''
+    uses: actions/github-script@v9
+    env:
+      NUMBER: ${{ inputs.pull_request }}
+    with:
+      github-token: ${{ inputs.token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/land.js`).ready({ github, context, core });
