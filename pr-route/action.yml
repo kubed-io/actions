@@ -1,0 +1,75 @@
+name: PR Route
+description: >
+  Decides what an event on an agent-built pull request is for the agents: a plan turn, a
+  code turn, or nothing, and the kb prompt the turn starts with. Reads the PR and its head
+  commit only; runs no Claude. The job's `if` still gates who may cause an event.
+
+inputs:
+  github_token:
+    description: A token that may read pull requests and commits.
+    required: false
+    default: ${{ github.token }}
+  owner:
+    description: The owner's user id; their comments and reviews are turns.
+    required: true
+  app:
+    description: The code agent's (the App's bot's) user id; its pushes to the draft are the next task.
+    required: true
+  copilot:
+    description: Copilot's reviewer user id; its reviews are code turns.
+    required: false
+    default: "175728472"
+  branch_prefix:
+    description: Head branches the agents build start with this.
+    required: false
+    default: issue-
+  label:
+    description: The label that approves the plan and starts the code.
+    required: false
+    default: plan approved
+  prompts:
+    description: What the kb prompts' names follow, as slash commands.
+    required: false
+    default: /mcp__superpowers__superpowers_
+
+outputs:
+  stage:
+    description: "`plan`, `code` or `none`."
+    value: ${{ steps.route.outputs.stage }}
+  number:
+    description: The pull request.
+    value: ${{ steps.route.outputs.number }}
+  head:
+    description: Its head branch.
+    value: ${{ steps.route.outputs.head }}
+  prompt:
+    description: The turn's prompt, when the event has no words of its own.
+    value: ${{ steps.route.outputs.prompt }}
+  prompt_when:
+    description: issue-agent's `prompt_when`, `always` for a dispatch, else `quiet`.
+    value: ${{ steps.route.outputs.prompt_when }}
+  takeover:
+    description: "`true` when the approval label takes the PR over."
+    value: ${{ steps.route.outputs.takeover }}
+  run_id:
+    description: The failed checks run a `ci` dispatch names, for its report.
+    value: ${{ steps.route.outputs.run_id }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Route
+    id: route
+    uses: actions/github-script@v9
+    env:
+      OWNER_ID: ${{ inputs.owner }}
+      APP_ID: ${{ inputs.app }}
+      COPILOT_ID: ${{ inputs.copilot }}
+      PREFIX: ${{ inputs.branch_prefix }}
+      LABEL: ${{ inputs.label }}
+      PROMPTS: ${{ inputs.prompts }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/route.js`).run({ github, context, core });
