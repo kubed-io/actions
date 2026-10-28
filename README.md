@@ -14,5 +14,6 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [git/commit](git/) | Commits the checkout's changes to a branch through `createCommitOnBranch`, so every commit is GitHub-signed |
 | [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
+| [review-route](review-route/) | Decides whether the review agent reviews a PR's head, as a commit status: red checks go to the code agent, a base merge or a passing review's applied suggestions keep the verdict |
 | [app-token](app-token/) | Mints a kubed-io GitHub App token from GCP Secret Manager through Workload Identity Federation, exporting no GCP credential to the job |
 | [krm-setup](krm-setup/) | Installs the KRM toolchain (kubectl, kustomize, helm, krew, kompose, yq) and `kubed-krm` Python package |

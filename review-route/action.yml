@@ -1,0 +1,84 @@
+name: Review Route
+description: >
+  Decides whether the review agent reviews a pull request's head, and says so with a commit
+  status on it: the PR's required check, and the memory of what was judged. Red checks send
+  the code agent an `agent-code` dispatch instead; a commit that only merges the base in, or
+  only applies a passing review's own suggestions, keeps the last verdict. Runs no Claude.
+
+inputs:
+  github_token:
+    description: >
+      A token that may read pull requests, actions and statuses, write statuses, and
+      dispatch (contents write). Its bot's statuses are the memory, so the review job must
+      set its verdict with the same identity.
+    required: false
+    default: ${{ github.token }}
+  check:
+    description: The commit status's context.
+    required: false
+    default: Agent review
+  reviewer:
+    description: The user id whose statuses and suggestions are the review agent's.
+    required: false
+    default: "41898282"
+  trusted:
+    description: User ids, comma-separated, whose checks run or dispatch may start a review.
+    required: true
+  owner:
+    description: The user id whose own dispatch is never capped.
+    required: true
+  max_reviews:
+    description: Reviews on one PR without a pass before it goes to a human.
+    required: false
+    default: "3"
+  max_fixes:
+    description: Commits with failed checks before it goes to a human.
+    required: false
+    default: "3"
+  branch_prefix:
+    description: Head branches the agents build start with this.
+    required: false
+    default: issue-
+  labels:
+    description: Labels, comma-separated, a PR the agents built has.
+    required: false
+    default: plan approved
+  checks_artifact:
+    description: >
+      On workflow_run, the artifact the checks run uploads when it ran the checks; a run
+      without it is skipped.
+    required: false
+    default: checks-report
+
+outputs:
+  number:
+    description: The pull request to review; empty when there is no review.
+    value: ${{ steps.route.outputs.number }}
+  sha:
+    description: The head the review is for.
+    value: ${{ steps.route.outputs.sha }}
+  last:
+    description: "`true` when this is the last review before a human."
+    value: ${{ steps.route.outputs.last }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Route
+    id: route
+    uses: actions/github-script@v9
+    env:
+      CHECK: ${{ inputs.check }}
+      REVIEWER: ${{ inputs.reviewer }}
+      TRUSTED: ${{ inputs.trusted }}
+      OWNER: ${{ inputs.owner }}
+      MAX_REVIEWS: ${{ inputs.max_reviews }}
+      MAX_FIXES: ${{ inputs.max_fixes }}
+      PREFIX: ${{ inputs.branch_prefix }}
+      LABELS: ${{ inputs.labels }}
+      ARTIFACT: ${{ inputs.checks_artifact }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/route.js`).run({ github, context, core });
