@@ -1,0 +1,52 @@
+name: PR Checks Report
+description: >
+  The producer side of pr-checks: run as a checks workflow's last job, after every check,
+  it writes what failed in the run (failed steps, annotations, error lines, the log up to
+  the last error) to report.md and report.json, puts it in the step summary, and uploads it
+  as an artifact for the code agent. Skip its job when the run ran no checks (a draft, a
+  label): no artifact is how review-route knows to skip that run.
+
+inputs:
+  github_token:
+    description: A token that may read the run's jobs, their logs (actions read) and annotations (checks read).
+    required: false
+    default: ${{ github.token }}
+  sha:
+    description: The commit the checks ran on.
+    required: false
+    default: ${{ github.event.pull_request.head.sha || github.sha }}
+  artifact:
+    description: The artifact's name.
+    required: false
+    default: checks-report
+  retention_days:
+    description: How long the artifact is kept.
+    required: false
+    default: "14"
+
+outputs:
+  failed:
+    description: How many jobs failed.
+    value: ${{ steps.collect.outputs.failed }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Collect
+    id: collect
+    uses: actions/github-script@v9
+    env:
+      DIR: ${{ runner.temp }}/checks-report
+      SHA: ${{ inputs.sha }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/report.js`).run({ github, context, core });
+
+  - name: Upload the Report
+    uses: actions/upload-artifact@v7
+    with:
+      name: ${{ inputs.artifact }}
+      path: ${{ runner.temp }}/checks-report
+      retention-days: ${{ inputs.retention_days }}
