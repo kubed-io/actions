@@ -35,7 +35,8 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
 // so the methodology's own text drives the turn
 function promptOf({ dispatched, reason, labelled, pushed }, prefix) {
   const turn = (name) => `${prefix}${name}`;
-  const reasons = { review: turn('review-came-in'), ci: turn('checks-failed') };
+  // copilot: Copilot's hand-back, sent as its review run ends; a review to answer
+  const reasons = { review: turn('review-came-in'), copilot: turn('review-came-in'), ci: turn('checks-failed') };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (labelled) return turn('plan-approved');
   if (pushed) return turn('next-task');
@@ -85,6 +86,8 @@ async function run({ github, context, core, env = process.env }) {
   core.setOutput('run_id', runId ? String(runId) : '');
   // the approval label takes the PR over; anything else waits its turn
   core.setOutput('takeover', String(labelled));
+  // the dispatch's reason: `copilot` asks the route job to wait for Copilot's review first
+  core.setOutput('reason', dispatched ? String(facts.reason || '') : '');
   core.info(`#${number}: ${stage}`);
 }
 

@@ -9,7 +9,7 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
 | Copilot's review | | `code` |
-| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in |
+| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `copilot` (Copilot's hand-back) → review-came-in, after the route job waits for Copilot's review |
 | Anything else (the App's own thread replies, a push out of draft) | `none` | `none` |
 
 The prompts are kb prompts sent as slash commands (`prompts` + name), so the methodology's
@@ -40,4 +40,4 @@ starts. The token needs `pull-requests: read` and `contents: read`.
 | `prompts` | `/mcp__superpowers__superpowers_` | |
 
 Outputs: `stage` (`plan`, `code`, `none`), `number`, `head`, `prompt`, `prompt_when`,
-`takeover`, `run_id`.
+`takeover`, `run_id`, `reason` (a dispatch's).

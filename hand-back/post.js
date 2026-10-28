@@ -17,6 +17,7 @@ async function call(method, path, body) {
   const run = await call('GET', `/repos/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`);
   const pull = run.pull_requests?.[0]?.number || 0;
   const payload = { pull_request: pull, sha: run.head_sha, run_id: run.id, event: run.event };
+  if (process.env.INPUT_REASON) payload.reason = process.env.INPUT_REASON;
   await call('POST', `/repos/${repo}/dispatches`, { event_type: process.env.INPUT_EVENT_TYPE || 'copilot-review', client_payload: payload });
   console.log(`sent ${process.env.INPUT_EVENT_TYPE || 'copilot-review'}: ${JSON.stringify(payload)}`);
 })().catch((e) => {

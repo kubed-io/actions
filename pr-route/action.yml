@@ -54,6 +54,9 @@ outputs:
   run_id:
     description: The failed checks run a `ci` dispatch names, for its report.
     value: ${{ steps.route.outputs.run_id }}
+  reason:
+    description: A dispatch's reason (`ci`, `review`, `copilot`); empty for any other event.
+    value: ${{ steps.route.outputs.reason }}
 
 runs:
   using: composite

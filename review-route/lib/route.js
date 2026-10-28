@@ -3,6 +3,8 @@
 // is a commit status on the head: the PR's required check, and the loop's memory, since a
 // head the review agent already judged carries its status.
 
+const { isCopilot } = require('../../issue-agent/lib/copilot');
+
 const VERDICT = /^(looks good|changes requested|needs a human)$|^changes requested, last review/;
 // a verdict carried to a later commit, with the commit it was given on
 const CARRIED = /^(?:no changes|suggestions applied) since \w+: /;
@@ -63,6 +65,12 @@ function appliedSuggestion(commit, reviewer, byPath) {
     if (!lines || f.status !== 'modified' || f.patch == null) return false;
     return f.patch.split('\n').filter((l) => l.startsWith('+')).every((l) => lines.has(l.slice(1)));
   });
+}
+
+// Copilot never shows in requested_reviewers once it reviewed; the timeline keeps the ask
+async function copilotAsked(github, repo, number) {
+  const events = await github.paginate(github.rest.issues.listEventsForTimeline, { ...repo, issue_number: number, per_page: 100 });
+  return events.some((e) => e.event === 'review_requested' && isCopilot(e.requested_reviewer));
 }
 
 async function run({ github, context, core, env = process.env }) {
@@ -143,6 +151,13 @@ async function run({ github, context, core, env = process.env }) {
     return core.info(`checks failed: agent-code dispatched with run ${checksRun.id}`);
   }
 
+  // a PR the owner asked Copilot to review is Copilot's: the review agent stands aside,
+  // unless a dispatch asks for it by name. Copilot's hand-back wakes the code agent
+  if (!dispatched && await copilotAsked(github, repo, number)) {
+    await status('success', 'Copilot reviews this PR');
+    return core.info(`#${number}: Copilot was asked to review it`);
+  }
+
   // the last verdict, the review agent's own or one carried forward
   const prior = judged.find((s) => VERDICT.test(s.description) || CARRIED.test(s.description));
   if (prior && !dispatched) {
@@ -186,4 +201,4 @@ async function run({ github, context, core, env = process.env }) {
   core.setOutput('last', String(capped && done + 1 >= cfg.maxReviews));
 }
 
-module.exports = { run, appliedSuggestion, suggested, prChanges };
+module.exports = { run, appliedSuggestion, suggested, prChanges, copilotAsked };

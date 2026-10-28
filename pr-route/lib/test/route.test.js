@@ -88,3 +88,16 @@ test("a PR not on the agents' branches, or closed, is nothing, and names no PR",
     assert.deepEqual(t.core.outputs, { stage: 'none' });
   }
 });
+
+test("Copilot's hand-back is a review to answer, and says so in reason", async () => {
+  const t = setup(dispatch('copilot', { sha: 'h', run_id: 3 }));
+  assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
+  assert.equal(t.core.outputs.reason, 'copilot');
+  assert.equal(t.core.outputs.run_id, '');
+});
+
+test('reason is empty for anything but a dispatch', async () => {
+  const t = setup(comment());
+  await t.go();
+  assert.equal(t.core.outputs.reason, '');
+});

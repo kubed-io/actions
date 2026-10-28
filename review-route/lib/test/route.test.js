@@ -47,6 +47,7 @@ function setup({ commits = [A, B], statuses = {}, conclusion = 'success', artifa
     'repos.compareCommitsWithBasehead': (p) => diff(`@@ -1 +1 @@\n+${p.basehead.endsWith(head) ? 'now' : 'then'}`),
     'repos.createCommitStatus': {},
     'repos.createDispatchEvent': {},
+    'issues.listEventsForTimeline': [],
     ...routes,
   });
   const context = fake.context({
@@ -197,4 +198,35 @@ test('a push (pull_request_target) is routed without a checks run', async () => 
   await t.go();
   assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
   assert.ok(!t.github.calls.some((c) => c.name === 'actions.listWorkflowRunArtifacts'));
+});
+
+const askedCopilot = { 'issues.listEventsForTimeline': [{ event: 'review_requested', requested_reviewer: { login: 'Copilot', type: 'Bot' } }] };
+
+test('a PR Copilot was asked to review is Copilot\'s: no review agent, the check passes', async () => {
+  const t = setup({ routes: askedCopilot });
+  await t.go();
+  assert.deepEqual(t.posted(), ['success: Copilot reviews this PR']);
+  assert.equal(t.core.outputs.number, '');
+});
+
+test('with Copilot asked, red checks still go to the code agent', async () => {
+  const t = setup({ conclusion: 'failure', routes: askedCopilot });
+  await t.go();
+  assert.deepEqual(t.posted(), ['failure: checks failed (fix 1 of 3)']);
+  assert.equal(t.dispatched().length, 1);
+});
+
+test("the owner's dispatch asks for the review agent even when Copilot was asked", async () => {
+  const t = setup({
+    routes: askedCopilot, eventName: 'repository_dispatch',
+    payload: { action: 'agent-review', client_payload: { pull_request: 7 }, sender: { id: DRK } },
+  });
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
+});
+
+test('a request for someone else, or none, leaves the review to the review agent', async () => {
+  const t = setup({ routes: { 'issues.listEventsForTimeline': [{ event: 'review_requested', requested_reviewer: { login: 'kferrone' } }] } });
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
 });

@@ -13,6 +13,10 @@ inputs:
     description: The repository_dispatch event type.
     required: false
     default: copilot-review
+  reason:
+    description: "`client_payload.reason`, for a receiver that routes by it (agent-code's `copilot`); none when empty."
+    required: false
+    default: ""
 
 runs:
   using: node24
