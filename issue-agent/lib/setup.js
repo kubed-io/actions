@@ -1,7 +1,7 @@
 // Everything claude-code-action is given besides the turn: the agent (a Claude Code agent
 // file, loaded through --agents), the appended system prompt (the contract, the job's own
 // text, a guide to the repo's rule files), the envelope schema, MCP servers, per-job
-// overrides and the session.
+// overrides, the session, and with live_messages the agent-flow channel and its hooks.
 
 const fs = require('fs');
 const path = require('path');
@@ -154,12 +154,37 @@ function envelope({ role, review, threads, ready }) {
   return schema;
 }
 
-function flags({ agentsFile, agent, schema, mcpFile, mcpServers = [], over = {}, session }) {
+// The claude runner's agent-flow channel (kubed-io/github runners/claude/channel): its MCP
+// server keeps the inbox and the reply tool; in -p only these hooks hand the inbox to the turn.
+const CHANNEL_HOOK = 'bun /home/runner/channel/hook.js';
+const REPLY_TOOL = 'mcp__agent-flow__reply';
+
+function hookSettings(command = CHANNEL_HOOK) {
+  const hook = [{ hooks: [{ type: 'command', command }] }];
+  return { hooks: { PostToolBatch: hook, Stop: hook } };
+}
+
+// the channel's profile when live_messages is on and the runner can carry it, else null
+function channelOf(env, core) {
+  if (env.LIVE_MESSAGES !== 'true') return null;
+  const file = path.join(env.CLAUDE_MCP_PROFILES || '', 'channel.json');
+  let why = '';
+  if (!env.AGENT_FLOW_N8N_TOKEN || !env.AGENT_FLOW_CALLBACK_URL) why = 'AGENT_FLOW_N8N_TOKEN or AGENT_FLOW_CALLBACK_URL is not set';
+  else if (!env.CLAUDE_MCP_PROFILES || !fs.existsSync(file)) why = `there is no channel profile at ${file}`;
+  if (why) {
+    core.warning(`live_messages is on, but ${why}: messages wait for the next turn`);
+    return null;
+  }
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function flags({ agentsFile, agent, schema, mcpFile, settingsFile, mcpServers = [], over = {}, session }) {
   const args = [];
   if (agentsFile) args.push('--agents', q(agentsFile));
   if (agent) args.push('--agent', q(agent));
   if (schema) args.push('--json-schema', q(schema));
   if (mcpFile) args.push('--mcp-config', q(mcpFile));
+  if (settingsFile) args.push('--settings', q(settingsFile));
   if (over.model) args.push('--model', q(over.model));
   if (over.maxTurns) args.push('--max-turns', q(over.maxTurns));
   if (over.permissionMode) args.push('--permission-mode', q(over.permissionMode));
@@ -237,12 +262,23 @@ async function run({ github, context, core }) {
 
   let mcpFile = '';
   let mcpServers = [];
+  let config = null;
   const mcpText = fileOr(env.MCP_CONFIG);
   if (mcpText) {
-    const config = JSON.parse(mcpText.replace(/\$\{(\w+)\}/g, (_, name) => env[name] ?? ''));
+    config = JSON.parse(mcpText.replace(/\$\{(\w+)\}/g, (_, name) => env[name] ?? ''));
     mcpServers = Object.keys(config.mcpServers || {});
+  }
+  // one file: claude-code-action keeps only the last of several --mcp-config files
+  const channel = channelOf(env, core);
+  if (channel) config = { ...config, mcpServers: { ...config?.mcpServers, ...channel.mcpServers } };
+  if (config) {
     mcpFile = path.join(env.RUNNER_TEMP, 'issue-agent-mcp.json');
     fs.writeFileSync(mcpFile, JSON.stringify(config));
+  }
+  let settingsFile = '';
+  if (channel) {
+    settingsFile = path.join(env.RUNNER_TEMP, 'issue-agent-settings.json');
+    fs.writeFileSync(settingsFile, JSON.stringify(hookSettings()));
   }
 
   // uuid5(repo + key) is the session id, so the same key resumes the same session
@@ -261,15 +297,17 @@ async function run({ github, context, core }) {
     model: env.MODEL,
     maxTurns: env.MAX_TURNS,
     permissionMode: env.PERMISSION_MODE,
-    allowed: list(env.ALLOWED_TOOLS),
+    // the channel's one tool, not the whole server
+    allowed: [...list(env.ALLOWED_TOOLS), ...(channel ? [REPLY_TOOL] : [])],
     disallowed: list(env.DISALLOWED_TOOLS),
   };
-  const args = flags({ agentsFile, agent, schema, mcpFile, mcpServers, over, session });
+  const args = flags({ agentsFile, agent, schema, mcpFile, settingsFile, mcpServers, over, session });
   core.setOutput('system_prompt_file', promptFile);
   core.setOutput('args', args);
   core.setOutput('resumed', String(!!session?.resumed));
   core.setOutput('session_id', session?.id || '');
+  core.setOutput('live', String(!!channel));
   core.info(args);
 }
 
-module.exports = { uuid5, q, guide, agentsFallback, parseAgent, toAgent, envelope, flags, run };
+module.exports = { uuid5, q, guide, agentsFallback, parseAgent, toAgent, envelope, hookSettings, flags, run };
