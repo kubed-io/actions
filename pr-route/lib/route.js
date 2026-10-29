@@ -6,11 +6,14 @@
 // and a push to the draft by the agent or the owner are code turns; a push whose commit
 // says `Agent: done` is not. Anything else is nothing.
 //
-// An `agent-route` dispatch (n8n's relay of a review or a push) routes like the event it
-// carries. Copilot's review is a turn only for the current head, with line comments, out
-// of draft.
+// An `agent-route` dispatch (n8n's relay of a review, a push, a comment or the approval
+// label) routes like the event it carries. Its payload is a pointer: who commented or
+// labelled is read back from GitHub, and only the owner's are turns, where the native
+// events have the job's gate. Copilot's review is a turn only for the current head, with
+// line comments, out of draft.
 
 const { reviewComments } = require('../../issue-agent/lib/copilot');
+const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 
 const FINISHED = /^Agent: done$/m;
 
@@ -26,14 +29,14 @@ function settings(env) {
 }
 
 // The stage an event is for, from who caused it and what it was
-function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished }) {
+function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished, vouched = true }) {
   if (dispatched) return approved ? 'code' : 'none';
   if (!approved) return byOwner && !pushed ? 'plan' : 'none';
   // a review wakes the code agent when it is the owner's or Copilot's: the agent's own
   // thread replies arrive as reviews too, by the App, and must not wake it again
   if (review) return byOwner || (byCopilot && copilotOk) ? 'code' : 'none';
-  // a comment, the label: the owner's, by the job's gate
-  if (!pushed) return 'code';
+  // a comment, the label: the owner's, by the job's gate, or, relayed, read back
+  if (!pushed) return byOwner || vouched ? 'code' : 'none';
   return draft && (byOwner || byApp) && !finished ? 'code' : 'none';
 }
 
@@ -68,8 +71,13 @@ async function run({ github, context, core, env = process.env }) {
   const via = e.client_payload?.action;
   const pushed = viaRoute ? carried === 'pull_request' && via === 'synchronize' : carried === 'pull_request';
   const review = viaRoute ? carried === 'pull_request_review' && via === 'submitted' : carried === 'pull_request_review';
-  // a dispatch carries only the relayed events: a push, or a submitted review
-  if (viaRoute && !pushed && !review) return core.info('agent-route: unknown event');
+  const commented = viaRoute && carried === 'issue_comment' && via === 'created';
+  const labelled = viaRoute
+    ? carried === 'pull_request' && via === 'labeled' && e.client_payload?.label === cfg.label
+    : context.eventName === 'pull_request_target';
+  // a dispatch carries only the relayed events: a push, a submitted review, a new comment,
+  // the approval label
+  if (viaRoute && !pushed && !review && !commented && !labelled) return core.info('agent-route: unknown event');
   let actor = String(viaRoute ? e.client_payload?.actor : (checksRun ? checksRun.triggering_actor : e.sender)?.id);
   let copilotOk = true;
   if (viaRoute && review) {
@@ -89,12 +97,33 @@ async function run({ github, context, core, env = process.env }) {
         && await reviewComments(github, { ...context.repo, number, reviewId }) >= 1;
     }
   }
-  const labelled = context.eventName === 'pull_request_target';
+  if (viaRoute && commented) {
+    const commentId = Number(e.client_payload?.comment_id) || 0;
+    let got = null;
+    if (commentId) {
+      try {
+        ({ data: got } = await github.rest.issues.getComment({ ...context.repo, comment_id: commentId }));
+      } catch (err) {
+        if (err.status !== 404) throw err;
+      }
+    }
+    const here = got?.issue_url?.endsWith(`/issues/${number}`);
+    if (!got || !here || String(got.user?.id) !== actor) actor = 'unknown';
+  }
+  const approved = pr.labels.some((l) => l.name === cfg.label);
+  if (viaRoute && labelled) {
+    // gone again: nothing to approve
+    if (!approved) return core.info(`agent-route: ${cfg.label} is no longer on #${number}`);
+    const events = await github.paginate(github.rest.issues.listEvents, { ...context.repo, issue_number: number, per_page: 100 });
+    actor = String(lastLabeledBy(events, cfg.label)?.id ?? 'unknown');
+  }
   // the run that finished the plan said so on its commit: its push wakes nothing
   const { data: head } = await github.rest.repos.getCommit({ ...context.repo, ref: pr.head.sha });
   const facts = {
     dispatched, pushed, labelled,
-    approved: pr.labels.some((l) => l.name === cfg.label),
+    approved,
+    // a native comment or label passed the job's gate; a relayed one is the actor's
+    vouched: !viaRoute,
     review,
     copilotOk,
     copilotTurn: viaRoute && review && actor === cfg.copilot,

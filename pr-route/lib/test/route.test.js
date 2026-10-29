@@ -9,8 +9,13 @@ const COPILOT = 175728472;
 const P = '/mcp__superpowers__superpowers_';
 const ENV = { OWNER_ID: String(DRK), APP_ID: String(APP), COPILOT_ID: String(COPILOT), PREFIX: 'issue-', LABEL: 'plan approved', PROMPTS: P };
 
-// the agents' PR #7; `approved` puts the label on it, `message` is its head commit's
-function setup({ eventName, payload, approved = true, draft = true, message = 'Task 3', pr = {}, review = {}, lineComments = 2 }) {
+const ISSUE_URL = 'https://api.github.com/repos/kubed-io/selenium-flow/issues/7';
+const labelEvents = (...evs) => evs.map(([event, id, name = 'plan approved']) => ({ event, actor: { id }, label: { name } }));
+
+// the agents' PR #7; `approved` puts the label on it, `message` is its head commit's; `got`
+// is the comment GitHub has, `events` the PR's issue events
+function setup({ eventName, payload, approved = true, draft = true, message = 'Task 3', pr = {}, review = {}, lineComments = 2,
+  got = { user: { id: DRK }, issue_url: ISSUE_URL }, events = labelEvents(['labeled', DRK]) }) {
   const github = fake.github({
     'pulls.get': {
       state: 'open', draft, labels: approved ? [{ name: 'plan approved' }] : [],
@@ -20,10 +25,12 @@ function setup({ eventName, payload, approved = true, draft = true, message = 'T
     'repos.getCommit': { commit: { message } },
     'pulls.getReview': { user: { id: DRK }, commit_id: 'h'.repeat(40), ...review },
     'pulls.listCommentsForReview': Array.from({ length: lineComments }, (_, i) => ({ id: i })),
+    'issues.getComment': got,
+    'issues.listEvents': events,
   });
   const core = fake.core();
   const go = () => route.run({ github, context: fake.context({ eventName, payload }), core, env: ENV });
-  return { core, go };
+  return { core, github, go };
 }
 const comment = (id = DRK) => ({ eventName: 'issue_comment', payload: { issue: { number: 7 }, sender: { id } } });
 const relayed = (event, id) => ({ eventName: 'workflow_run', payload: { workflow_run: { event, pull_requests: [{ number: 7 }], triggering_actor: { id } } } });
@@ -157,4 +164,72 @@ test('agent-route: a review without a usable id, or one GitHub no longer has, is
   await route.run({ github, context: fake.context(routed()), core, env: ENV });
   assert.equal(core.outputs.stage, 'none');
   assert.ok(t);
+});
+
+// phase 3: n8n relays the owner's comments and the approval label as agent-route too
+const said = (extra = {}) => routed({ event: 'issue_comment', action: 'created', comment_id: 31, review_id: undefined, ...extra });
+const approval = (extra = {}) => routed({ event: 'pull_request', action: 'labeled', label: 'plan approved', review_id: undefined, ...extra });
+test("agent-route: the owner's comment is a plan turn before the approval, a code turn after, in their words", async () => {
+  assert.deepEqual(await outcome(setup({ ...said(), approved: false })), ['plan', '', 'quiet']);
+  const t = setup(said());
+  assert.deepEqual(await outcome(t), ['code', '', 'quiet']);
+  assert.equal(t.core.outputs.takeover, 'false');
+  assert.equal(t.core.outputs.head, 'issue-6');
+});
+
+test("agent-route: the comment's author is read back by its id", async () => {
+  const t = setup(said());
+  await t.go();
+  assert.deepEqual(t.github.calls.find((c) => c.name === 'issues.getComment').params, { owner: 'kubed-io', repo: 'selenium-flow', comment_id: 31 });
+});
+
+test("agent-route: a comment by anyone but the owner, the App's own included, is nothing, before or after the approval", async () => {
+  for (const approved of [true, false]) {
+    for (const id of [APP, COPILOT, 12345]) {
+      assert.equal((await outcome(setup({ ...said({ actor: id }), approved, got: { user: { id }, issue_url: ISSUE_URL } })))[0], 'none');
+    }
+  }
+});
+
+test('agent-route: a comment whose author contradicts the actor, on another thread, gone, or with no id, is nothing', async () => {
+  assert.equal((await outcome(setup({ ...said(), got: { user: { id: 12345 }, issue_url: ISSUE_URL } })))[0], 'none');
+  assert.equal((await outcome(setup({ ...said(), got: { user: { id: DRK }, issue_url: ISSUE_URL.replace(/7$/, '8') } })))[0], 'none');
+  assert.equal((await outcome(setup({ ...said(), got: fake.notFound() })))[0], 'none');
+  for (const comment_id of [undefined, 'abc', 0]) {
+    assert.equal((await outcome(setup(said({ comment_id }))))[0], 'none');
+  }
+});
+
+test('agent-route: a comment action other than created is nothing', async () => {
+  assert.equal((await outcome(setup(said({ action: 'edited' }))))[0], 'none');
+});
+
+test("agent-route: the owner's approval label takes the PR over and starts the code, with plan-approved", async () => {
+  const t = setup(approval());
+  assert.deepEqual(await outcome(t), ['code', `${P}plan-approved`, 'quiet']);
+  assert.equal(t.core.outputs.takeover, 'true');
+  assert.equal(t.core.outputs.head, 'issue-6');
+});
+
+test('agent-route: the labeler is the latest labeled event for that label, whatever the payload says', async () => {
+  // the payload's actor is not who labelled it
+  assert.equal((await outcome(setup({ ...approval({ actor: 12345 }) })))[0], 'code');
+  // the owner labelled it once, then someone else did, after it was removed
+  const relabelled = labelEvents(['labeled', DRK], ['unlabeled', DRK], ['labeled', 12345], ['labeled', DRK, 'agent']);
+  assert.equal((await outcome(setup({ ...approval(), events: relabelled })))[0], 'none');
+});
+
+test('agent-route: the approval label by anyone else, never labelled, or taken off again, is nothing', async () => {
+  assert.equal((await outcome(setup({ ...approval({ actor: APP }), events: labelEvents(['labeled', APP]) })))[0], 'none');
+  assert.equal((await outcome(setup({ ...approval(), events: labelEvents(['labeled', DRK, 'agent']) })))[0], 'none');
+  assert.equal((await outcome(setup({ ...approval(), events: labelEvents(['labeled', DRK], ['unlabeled', DRK]), approved: false })))[0], 'none');
+  // gone from the PR, whatever the events say
+  assert.equal((await outcome(setup({ ...approval(), approved: false })))[0], 'none');
+});
+
+test('agent-route: any other label is an unknown event', async () => {
+  const t = setup({ ...approval({ label: 'agent' }), events: labelEvents(['labeled', DRK, 'agent']) });
+  assert.equal((await outcome(t))[0], 'none');
+  assert.equal(t.github.calls.some((c) => c.name === 'issues.listEvents'), false);
+  assert.equal((await outcome(setup(approval({ label: undefined }))))[0], 'none');
 });
