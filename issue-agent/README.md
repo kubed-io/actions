@@ -27,26 +27,21 @@ steps after it decide what to commit (`git/commit`), branch (`git/branch`) or op
   uses: kubed-io/actions/issue-agent@main
   with:
     github_token: ${{ steps.app.outputs.token }}
-    agent: plan
+    agent: .issue/roles/claude/agents/plan.md
+    schema: .issue/roles/claude/agents/plan.schema.json
     append_system_prompt: Plans go under docs/superpowers/plans/.
     header: "📄 [{{ output.plan_path }}]({{ link:output.plan_path }})"
     session_key: pr-${{ github.event.issue.number }}
+    mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
 - uses: kubed-io/actions/git/commit@main
   with:
     token: ${{ steps.app.outputs.token }}
     message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
 ```
 
-The `agent` is a name: the claude runner image's `$CLAUDE_AGENTS/<name>/`, whose
-`schema.json` and `mcp.json` are the `schema` and `mcp_config` unless the job gives its own.
-A repository that brings its own agent names a file instead. Either is loaded with
-`--agents`, and its body replaces Claude Code's default system prompt. Then the action's
-contract and `append_system_prompt` are appended. A name only the repo's
-`.claude/agents/` has is left to Claude Code.
-
-The frontmatter's `allowedTools` and `disallowedTools` (a comma list or a YAML list) become
-`--allowedTools` and `--disallowedTools`; a job's `allowed_tools` or `disallowed_tools`
-replaces them.
+The `agent` is a Claude Code agent file (frontmatter and body). It is loaded with
+`--agents` from wherever the workflow put it, and its body replaces Claude Code's default
+system prompt. Then the action's contract and `append_system_prompt` are appended.
 
 ## What the agent returns
 
@@ -71,8 +66,8 @@ new-side line numbered).
 |---|---|---|
 | `github_token` | required | Thread I/O; the App's, so what it posts wakes workflows |
 | `number` | the event's | For a run started off the thread |
-| `agent` | `""` | A name (`$CLAUDE_AGENTS/<name>/`, else `.claude/agents/`), or an agent file |
-| `schema` | the agent's `schema.json` | The role's output schema, inline or a path; becomes `output` |
+| `agent` | `""` | A Claude Code agent file, or a name Claude Code knows |
+| `schema` | `""` | The role's output schema, inline or a path; becomes `output` |
 | `append_system_prompt` | `""` | This job's extras, inline or a path |
 | `prompt` | `""` | The event's turn, for an event with no words |
 | `prompt_when` | `quiet` | `quiet`: only when nothing new; `always`: every run, quoted above the reply |
@@ -81,7 +76,7 @@ new-side line numbered).
 | `session_key` | `""` | Resumable session |
 | `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |
 | `opt_in_label`, `max_runs` | `""`, `0` | The gate |
-| `mcp_config` | the agent's `mcp.json` | Inline JSON or a file; `${VAR}` from env |
+| `mcp_config` | `""` | Inline JSON or a file; `${VAR}` from env |
 | `compact` | `""` | Compact a resumed session before the turn, steered by these instructions |
 | `model`, `max_turns`, `allowed_tools`, `disallowed_tools`, `permission_mode` | the agent's | Per-job overrides |
 | `claude_args` | `""` | Extra Claude Code flags |
