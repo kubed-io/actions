@@ -82,6 +82,22 @@ new-side line numbered).
 | `claude_args` | `""` | Extra Claude Code flags |
 | `show_full_output` | `false` | Keep false in public repos |
 | `scratch_dir` | `.issue` | Thread files; gitignore it |
+| `live_messages` | `false` | n8n's pushes reach the running turn (claude runner); see below |
+
+## Live messages
+
+With `live_messages: true` on the claude runner, the owner's comments reach the agent while it
+works, and it can answer them at once. The run loads the runner's agent-flow channel
+(`$CLAUDE_MCP_PROFILES/channel.json`, merged into the one MCP file) and its `PostToolBatch` and
+`Stop` hooks (`--settings`), and allows `mcp__agent-flow__reply`. It needs
+`AGENT_FLOW_N8N_TOKEN` in the job's env and `AGENT_FLOW_CALLBACK_URL` on the runner; without
+them, or the profile, it warns and runs as off. A `--settings` in `claude_args` replaces the
+hooks.
+
+The placeholder carries `<!-- issue-agent-placeholder {"run_id": N} -->`, since n8n reposts it
+under each in-flight reply: the answer, the failure note and the review find it by that. The
+answer's seen marker covers the comments and reviews the hook handed over, but never one older
+that it did not, so the comment's own queued run finds nothing new and none is lost.
 
 ## Outputs
 

@@ -108,6 +108,12 @@ inputs:
     description: Where the thread files go; gitignore it.
     required: false
     default: .issue
+  live_messages:
+    description: >
+      On the claude runner, n8n's pushes reach the running turn: the agent-flow channel and its
+      hooks, and the reply tool. Needs AGENT_FLOW_N8N_TOKEN and AGENT_FLOW_CALLBACK_URL.
+    required: false
+    default: "false"
 
 outputs:
   structured:
@@ -124,7 +130,7 @@ outputs:
     value: ${{ steps.gather.outputs.number }}
   comment_id:
     description: The comment the reply is in (empty when it went as a review).
-    value: ${{ steps.review.outputs.posted != 'true' && steps.ack.outputs.comment_id || '' }}
+    value: ${{ steps.review.outputs.posted != 'true' && (steps.reply.outputs.comment_id || steps.ack.outputs.comment_id) || '' }}
   review_id:
     description: The review the reply is the body of, when it had line comments.
     value: ${{ steps.review.outputs.review_id }}
@@ -176,6 +182,7 @@ runs:
       DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
       SESSION_KEY: ${{ inputs.session_key }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
+      LIVE_MESSAGES: ${{ inputs.live_messages }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -206,6 +213,7 @@ runs:
     uses: actions/github-script@v9
     env:
       MODE: ack
+      LIVE: ${{ steps.setup.outputs.live }}
       NUMBER: ${{ steps.gather.outputs.number }}
       PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
@@ -235,6 +243,8 @@ runs:
     uses: anthropics/claude-code-action@v1
     env:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
+      # the thread the agent-flow channel registers as live
+      AGENT_FLOW_NUMBER: ${{ steps.setup.outputs.live == 'true' && steps.gather.outputs.number || '' }}
     with:
       prompt: ${{ steps.gather.outputs.prompt }}
       # the job's own token, as narrow as the job's permissions: an App token here would be
@@ -286,6 +296,10 @@ runs:
     if: steps.gather.outputs.is_pr == 'true' && inputs.review == 'true' && steps.read.outputs.structured_file != ''
     uses: actions/github-script@v9
     env:
+      LIVE: ${{ steps.setup.outputs.live }}
+      IS_PR: ${{ steps.gather.outputs.is_pr }}
+      TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
+      TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       DIFF_FILE: ${{ github.workspace }}/${{ inputs.scratch_dir }}/diff.json
@@ -311,6 +325,10 @@ runs:
     uses: actions/github-script@v9
     env:
       MODE: reply
+      LIVE: ${{ steps.setup.outputs.live }}
+      IS_PR: ${{ steps.gather.outputs.is_pr }}
+      TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
+      TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
       NUMBER: ${{ steps.gather.outputs.number }}
       COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
@@ -346,6 +364,7 @@ runs:
     uses: actions/github-script@v9
     env:
       MODE: failure
+      LIVE: ${{ steps.setup.outputs.live }}
       NUMBER: ${{ steps.gather.outputs.number }}
       COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
       PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
