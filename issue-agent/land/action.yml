@@ -3,8 +3,10 @@ description: >
   Lands an issue-agent turn on its branch: the commit message from the agent's output
   (`commit_message`, and `done`, which adds `Agent: done`), the wiki submodule pushed with
   git, then one signed commit through the API with the wiki's pointer. When the commit fails
-  or leaves files out, the turn's reply says so. When the agent is done, the PR is marked
-  ready. Nothing is committed when the output has no commit message.
+  or leaves files out, the turn's reply says so. A commit that fails (the branch moved and
+  changed a file it has, say) keeps the working tree's changes in the scratchpad,
+  `{scratch_dir}/scratch/unlanded/`, for the next turn. When the agent is done, the PR is
+  marked ready. Nothing is committed when the output has no commit message.
 
 inputs:
   token:
@@ -39,6 +41,20 @@ inputs:
     description: The PR to mark ready when the agent is done; empty never marks one.
     required: false
     default: ""
+  number:
+    description: >
+      issue-agent's `number`, whose scratchpad keeps what did not land; empty, it is written
+      to the scratch dir but not kept past this job.
+    required: false
+    default: ""
+  scratch_dir:
+    description: issue-agent's `scratch_dir`.
+    required: false
+    default: .issue
+  keep_scratch:
+    description: issue-agent's `keep_scratch`.
+    required: false
+    default: "true"
 
 outputs:
   message:
@@ -89,6 +105,28 @@ runs:
       files: ${{ inputs.files }}
       ignore: ${{ inputs.ignore }}
 
+  # the commit refused or failed: the working tree is the only copy of the turn's work
+  - name: Keep What Did Not Land
+    id: unlanded
+    if: always() && (steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure')
+    uses: actions/github-script@v9
+    env:
+      SCRATCH_DIR: ${{ inputs.scratch_dir }}
+      CONFLICTS: ${{ steps.commit.outputs.conflicts }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    with:
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/land.js`).unlanded({ exec, core });
+
+  # after issue-agent saved the scratchpad: this entry is newer, so the next turn gets it
+  - name: Save the Scratchpad
+    if: always() && steps.unlanded.outputs.kept == 'true' && inputs.number != '' && inputs.keep_scratch == 'true'
+    continue-on-error: true
+    uses: actions/cache/save@v6
+    with:
+      path: ${{ inputs.scratch_dir }}/scratch
+      key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ inputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}-unlanded
+
   - name: Say What Was Left Out
     if: >-
       always() && inputs.comment_id != '' &&
@@ -99,6 +137,8 @@ runs:
       COMMENT_ID: ${{ inputs.comment_id }}
       IGNORED: ${{ steps.commit.outputs.ignored }}
       FAILED: ${{ steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' }}
+      CONFLICTS: ${{ steps.commit.outputs.conflicts }}
+      KEPT: ${{ steps.unlanded.outputs.kept == 'true' && inputs.number != '' && inputs.keep_scratch == 'true' }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     with:
       github-token: ${{ inputs.token }}

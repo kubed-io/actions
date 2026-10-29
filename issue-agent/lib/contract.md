@@ -14,6 +14,7 @@ Beside the turn, in `{scratch}/` at the repository root (never committed):
   every unresolved review thread with its id), `issues.md` (the issues it closes or is
   part of, each with the notes its agent left: where this pull request starts) and
   `diff.md` (the diff, every new-side line numbered).
+- `scratch/`: yours. Anything you leave there is there next turn; never a secret.
 
 ### What you return
 

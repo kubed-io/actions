@@ -150,6 +150,15 @@ test('run: the agent file, the system prompt, the envelope on a draft PR, and a 
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8')).mcpServers.kb.url, 'https://kb');
 });
 
+test('the scratchpad is there for the agent, and the contract says it is kept', async () => {
+  const { ws, github } = scene();
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(fs.statSync(path.join(ws, '.issue/scratch')).isDirectory());
+  const prompt = fs.readFileSync(core.outputs.system_prompt_file, 'utf8');
+  assert.ok(prompt.includes('- `scratch/`: yours. Anything you leave there is there next turn; never a secret.'));
+});
+
 test('run on an issue gives the agent none of the PR fields', async () => {
   const { github } = scene();
   const core = fake.core();

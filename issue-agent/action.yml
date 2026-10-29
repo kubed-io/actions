@@ -108,6 +108,12 @@ inputs:
     description: Where the thread files go; gitignore it.
     required: false
     default: .issue
+  keep_scratch:
+    description: >
+      Keep `{scratch_dir}/scratch/`, the agent's own folder, from turn to turn of one issue or
+      PR, in this repository's Actions cache.
+    required: false
+    default: "true"
   live_messages:
     description: >
       On the claude runner, n8n's pushes reach the running turn: the agent-flow channel and its
@@ -205,6 +211,16 @@ runs:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/thread.js`).run({ github, context, core });
+
+  # the agent's folder as the last turn of this thread left it: the newest entry by prefix
+  - name: Restore the Scratchpad
+    id: scratch
+    if: inputs.keep_scratch == 'true' && steps.gather.outputs.number != '' && steps.gather.outputs.prompt != ''
+    uses: actions/cache/restore@v6
+    with:
+      path: ${{ inputs.scratch_dir }}/scratch
+      key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ steps.gather.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+      restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ steps.gather.outputs.number }}-
 
   # the reply's comment goes up first, as a spinner and a link to this run
   - name: Acknowledge
@@ -373,3 +389,12 @@ runs:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
+
+  # kept even when the turn failed; a scratchpad that could not be saved fails no turn
+  - name: Save the Scratchpad
+    if: always() && steps.scratch.outcome == 'success'
+    continue-on-error: true
+    uses: actions/cache/save@v6
+    with:
+      path: ${{ inputs.scratch_dir }}/scratch
+      key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ steps.gather.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}

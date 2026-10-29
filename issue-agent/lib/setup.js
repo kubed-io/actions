@@ -210,7 +210,8 @@ async function run({ github, context, core }) {
   };
 
   const scratch = env.SCRATCH_DIR || '.issue';
-  fs.mkdirSync(path.join(ws || '.', scratch), { recursive: true });
+  // the agent's own folder, which the action keeps from turn to turn
+  fs.mkdirSync(path.join(ws || '.', scratch, 'scratch'), { recursive: true });
 
   // what kind of thread this is decides which of the action's fields the agent gets
   const number = Number(env.NUMBER) || 0;

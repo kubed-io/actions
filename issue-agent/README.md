@@ -58,7 +58,10 @@ The action wraps the role's `schema` in its own:
 
 Beside the turn, in `{scratch_dir}/`: `context.md`, `notes.md`, and on a PR `pr.md`,
 `reviews.md`, `issues.md` (each linked issue with its agent's notes) and `diff.md` (every
-new-side line numbered).
+new-side line numbered). And `scratch/`, the agent's own: what it leaves there is there next
+turn of the same issue or PR, kept in the repository's Actions cache (restored from the newest
+`agent-scratch-<owner>-<repo>-<number>-` entry, saved even when the turn fails). Not artifacts:
+a public repository's artifacts are anyone's to download, its caches only its workflows'.
 
 ## Inputs
 
@@ -82,6 +85,7 @@ new-side line numbered).
 | `claude_args` | `""` | Extra Claude Code flags |
 | `show_full_output` | `false` | Keep false in public repos |
 | `scratch_dir` | `.issue` | Thread files; gitignore it |
+| `keep_scratch` | `true` | Keep `{scratch_dir}/scratch/` from turn to turn |
 | `live_messages` | `false` | n8n's pushes reach the running turn (claude runner); see below |
 
 ## Live messages
@@ -111,8 +115,11 @@ agent's `output` it takes `commit_message`, plus `Agent: done` on it when `done`
 that push wakes nothing. It pushes the wiki submodule with git, then makes one signed commit
 through the API, with the wiki's pointer in it. If the commit fails, or `ignore` leaves
 files out, it says so under the turn's reply, so the reply never claims work the branch
-does not have. When the agent is done, it marks `pull_request` ready. No commit message
-means no commit.
+does not have. The commit never overwrites: when the branch moved during the turn and changed
+a file the commit has, it is refused, the reply names the files, and the working tree's
+changes go to `{scratch_dir}/scratch/unlanded/` (each file, the deletions, a patch, why),
+kept for the next turn when `number` is given. When the agent is done, it marks
+`pull_request` ready. No commit message means no commit.
 
 ```yaml
 - uses: kubed-io/actions/issue-agent/land@main
@@ -126,11 +133,13 @@ means no commit.
     # the App cannot write workflow files, and one in the commit refuses all of it
     ignore: .github/workflows/**
     pull_request: ${{ needs.route.outputs.number }}
+    number: ${{ steps.agent.outputs.number }}
 ```
 
 Inputs: `token`, `app_slug`, `branch`, `output`, `comment_id`, `files` and `ignore` (as
 git/commit's), `wiki` (the submodule, `docs`; empty for none), `pull_request` (empty never
-marks one ready). Outputs: `message`, `done`, `sha`, `ignored`.
+marks one ready), `number`, `scratch_dir` and `keep_scratch` (as issue-agent's: whose
+scratchpad keeps what did not land). Outputs: `message`, `done`, `sha`, `ignored`.
 
 ## Reading a session in VS Code
 
