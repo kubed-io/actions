@@ -3,8 +3,9 @@
 // moved the placeholder, so the reply and the note find it by its run (live.js).
 
 const fs = require('fs');
+const path = require('path');
 const { TAG, seenMarker, placeholderMarker } = require('./state');
-const { fillHeader } = require('./header');
+const { fillHeader, wikisOf, linkTo } = require('./header');
 const { settle } = require('./live');
 
 const SPINNER = '<img src="https://github.com/user-attachments/assets/5ac382c7-e004-429b-8e35-7feb3e8f9c6f" width="14px" height="14px" style="vertical-align: middle; margin-left: 4px;" />';
@@ -41,7 +42,13 @@ function headerOf(env) {
     session_id: env.SESSION_ID,
     number: env.NUMBER,
     blob: env.BLOB,
-  });
+  }, { link: linkTo({ blob: env.BLOB, wikis: wikisOf(gitmodules(env)) }) });
+}
+
+// the checkout's .gitmodules, for links into a wiki submodule; empty when there is none
+function gitmodules(env) {
+  const file = path.join(env.GITHUB_WORKSPACE || '.', '.gitmodules');
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
 }
 
 async function post(github, { owner, repo, issue_number, comment_id, body }) {

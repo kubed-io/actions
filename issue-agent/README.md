@@ -30,7 +30,7 @@ steps after it decide what to commit (`git/commit`), branch (`git/branch`) or op
     agent: .issue/roles/claude/agents/plan.md
     schema: .issue/roles/claude/agents/plan.schema.json
     append_system_prompt: Plans go under docs/superpowers/plans/.
-    header: "📄 [{{ output.plan_path }}]({{ blob }}/{{ output.plan_path }})"
+    header: "📄 [{{ output.plan_path }}]({{ link:output.plan_path }})"
     session_key: pr-${{ github.event.issue.number }}
     mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
 - uses: kubed-io/actions/git/commit@main
@@ -71,7 +71,7 @@ new-side line numbered).
 | `append_system_prompt` | `""` | This job's extras, inline or a path |
 | `prompt` | `""` | The event's turn, for an event with no words |
 | `prompt_when` | `quiet` | `quiet`: only when nothing new; `always`: every run, quoted above the reply |
-| `header` | `""` | Template above the reply: `{{ output.<field> }}`, `{{ run_url }}`, `{{ session_id }}`, `{{ number }}`, `{{ blob }}` |
+| `header` | `""` | Template above the reply: `{{ output.<field> }}`, `{{ link:output.<field> }}` (the file's wiki page when it is in a wiki submodule, else its blob), `{{ run_url }}`, `{{ session_id }}`, `{{ number }}`, `{{ blob }}` |
 | `review`, `threads`, `ready` | `false`, `true`, `false` | The PR fields the agent gets |
 | `session_key` | `""` | Resumable session |
 | `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |

@@ -35,7 +35,7 @@ inputs:
     required: false
     default: quiet
   header:
-    description: "A markdown template above the reply: {{ output.<field> }}, {{ run_url }}, {{ session_id }}, {{ number }}, {{ blob }}. Empty, no header."
+    description: "A markdown template above the reply: {{ output.<field> }}, {{ link:output.<field> }} (a link to that file, its wiki page in a wiki submodule), {{ run_url }}, {{ session_id }}, {{ number }}, {{ blob }}. Empty, no header."
     required: false
     default: ""
   review:
