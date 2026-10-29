@@ -36,10 +36,25 @@ description: Writes the plan of record.
 tools: Read, Glob, Grep, Write
 disallowedTools:
   - Bash
+skills: writing-plans
 model: opus
 maxTurns: 80
 ---
 You write this pull request's plan.
+`;
+
+const CODE = `---
+name: code
+description: Implements the approved plan.
+model: opus
+maxTurns: 200
+permissionMode: acceptEdits
+allowedTools: Read, Edit, Bash(git log:*)
+disallowedTools:
+  - NotebookEdit
+  - WebFetch
+---
+You implement the plan.
 `;
 
 test('an agent file becomes one --agents entry: frontmatter fields, the body as its prompt', () => {
@@ -49,13 +64,25 @@ test('an agent file becomes one --agents entry: frontmatter fields, the body as 
     plan: {
       description: 'Writes the plan of record.',
       tools: ['Read', 'Glob', 'Grep', 'Write'],
-      disallowedTools: ['Bash'],
+      skills: ['writing-plans'],
       model: 'opus',
       maxTurns: 80,
       prompt: "You write this pull request's plan.",
     },
   });
   assert.deepEqual(setup.toAgent(setup.parseAgent('Just a prompt.', 'info')), { info: { prompt: 'Just a prompt.', description: 'info' } });
+});
+
+test('the frontmatter\'s allowedTools and disallowedTools are flags, never the --agents entry\'s', () => {
+  const parsed = setup.parseAgent(CODE, 'fallback');
+  assert.deepEqual(setup.agentTools(parsed), { allowed: ['Read', 'Edit', 'Bash(git log:*)'], disallowed: ['NotebookEdit', 'WebFetch'] });
+  const entry = setup.toAgent(parsed).code;
+  // allowedTools is ours; `tools` would be an allow-list that cuts the agent off its MCP tools
+  assert.equal(entry.allowedTools, undefined);
+  assert.equal(entry.disallowedTools, undefined);
+  assert.equal(entry.tools, undefined);
+  assert.deepEqual(setup.agentTools(setup.parseAgent(AGENT, 'plan')), { allowed: [], disallowed: ['Bash'] });
+  assert.deepEqual(setup.agentTools(setup.parseAgent('Just a prompt.', 'info')), { allowed: [], disallowed: [] });
 });
 
 test('the envelope: reply and notes always; the toggles add theirs; the role is output', () => {
@@ -90,12 +117,15 @@ test('flags: the agent, schema, MCP servers and their resource tools, overrides,
   assert.equal(setup.flags({ agent: 'info-agent' }), `--agent 'info-agent'`);
 });
 
-test('an agent that is a name passes through; a missing agent file is an error', async () => {
-  const { github } = scene();
+test('a name the repository\'s .claude/agents/ has passes through; a missing agent file is an error', async () => {
+  const { ws, github } = scene();
+  fs.mkdirSync(path.join(ws, '.claude/agents'), { recursive: true });
+  fs.writeFileSync(path.join(ws, '.claude/agents/info-agent.md'), '---\nname: info-agent\n---\nAnswers.\n');
   process.env.AGENT = 'info-agent';
   const core = fake.core();
   await setup.run({ github, context: fake.context(), core });
   assert.ok(core.outputs.args.startsWith(`--agent 'info-agent'`));
+  assert.ok(!core.outputs.args.includes('--agents'));
   process.env.AGENT = '.issue/roles/claude/agents/nope.md';
   await assert.rejects(setup.run({ github, context: fake.context(), core: fake.core() }), /agent not found/);
 });
@@ -125,7 +155,7 @@ function scene({ pr = false, draft = false } = {}) {
     REVIEW: 'true', THREADS: '', READY: 'true', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
     SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '',
   });
-  for (const name of ['AGENT_FLOW_N8N_TOKEN', 'AGENT_FLOW_CALLBACK_URL', 'CLAUDE_MCP_PROFILES']) delete process.env[name];
+  for (const name of ['AGENT_FLOW_N8N_TOKEN', 'AGENT_FLOW_CALLBACK_URL', 'CLAUDE_MCP_PROFILES', 'CLAUDE_AGENTS']) delete process.env[name];
   const github = fake.github({
     'issues.get': { number: 81, title: 'Flows tab', ...(pr ? { pull_request: {} } : {}) },
     'pulls.get': { draft },
@@ -252,4 +282,111 @@ test('on without the token, the callback URL or the channel profile: a warning, 
     assert.equal(core.notices.length, 1);
     assert.match(core.notices[0], /live_messages/);
   }
+});
+
+// the claude runner image's agents: $CLAUDE_AGENTS/<name>/ with AGENT.md, schema.json, mcp.json
+function agents({ schema = true, mcp = true } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agents-'));
+  fs.mkdirSync(path.join(root, 'code'));
+  fs.writeFileSync(path.join(root, 'code/AGENT.md'), CODE);
+  if (schema) fs.writeFileSync(path.join(root, 'code/schema.json'), '{"type":"object","properties":{"done":{"type":"boolean"}},"required":["done"]}');
+  if (mcp) fs.writeFileSync(path.join(root, 'code/mcp.json'), '{"mcpServers":{"coder":{"url":"${KB_URL}/coder"}}}');
+  return root;
+}
+
+async function asName(env = {}, opts = {}) {
+  const { ws, tmp, github } = scene();
+  const root = agents(opts);
+  Object.assign(process.env, { CLAUDE_AGENTS: root, AGENT: 'code', SCHEMA: '', MCP_CONFIG: '' });
+  for (const [k, v] of Object.entries(env)) process.env[k] = v;
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  return { ws, tmp, root, core, args: core.outputs.args };
+}
+
+function listOf(flag, args) {
+  const m = new RegExp(`--${flag} '([^']*)'`).exec(args);
+  return m ? m[1].split(',') : null;
+}
+
+test('a name is the runner image\'s agent: $CLAUDE_AGENTS/<name>/AGENT.md, through --agents', async () => {
+  const { tmp, args } = await asName();
+  const entry = JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-agents.json'), 'utf8'));
+  assert.deepEqual(Object.keys(entry), ['code']);
+  assert.equal(entry.code.prompt, 'You implement the plan.');
+  assert.equal(entry.code.permissionMode, 'acceptEdits');
+  assert.equal(entry.code.allowedTools, undefined);
+  assert.ok(args.includes(`--agents '${path.join(tmp, 'issue-agent-agents.json')}' --agent 'code'`));
+});
+
+test('a name\'s folder gives the schema and the MCP servers when the job gives none', async () => {
+  const { tmp, args } = await asName();
+  assert.deepEqual(schemaOf(args).properties.output.required, ['done']);
+  const mcp = JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8'));
+  assert.deepEqual(mcp, { mcpServers: { coder: { url: 'https://kb/coder' } } });
+  assert.ok(listOf('allowedTools', args).includes('mcp__coder'));
+});
+
+test('a job\'s schema and mcp_config win over the folder\'s', async () => {
+  const { tmp, args } = await asName({ SCHEMA: '{"type":"object","properties":{"plan_path":{"type":"string"}},"required":["plan_path"]}', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}' });
+  assert.deepEqual(schemaOf(args).properties.output.required, ['plan_path']);
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8')).mcpServers), ['kb']);
+});
+
+test('a folder without schema.json or mcp.json: no output field, no MCP file', async () => {
+  const { tmp, args } = await asName({}, { schema: false, mcp: false });
+  assert.deepEqual(Object.keys(schemaOf(args).properties), ['reply', 'notes']);
+  assert.ok(!args.includes('--mcp-config'));
+  assert.ok(!fs.existsSync(path.join(tmp, 'issue-agent-mcp.json')));
+});
+
+test('the frontmatter\'s tools are the flags; the job\'s allowed_tools and disallowed_tools win', async () => {
+  const own = (await asName()).args;
+  assert.deepEqual(listOf('allowedTools', own), ['Read', 'Edit', 'Bash(git log:*)', 'mcp__coder', 'ListMcpResourcesTool', 'ReadMcpResourceTool']);
+  assert.deepEqual(listOf('disallowedTools', own), ['NotebookEdit', 'WebFetch']);
+  const narrowed = (await asName({ ALLOWED_TOOLS: 'Read,Glob', DISALLOWED_TOOLS: 'Bash,Edit,Write' })).args;
+  assert.deepEqual(listOf('allowedTools', narrowed), ['Read', 'Glob', 'mcp__coder', 'ListMcpResourcesTool', 'ReadMcpResourceTool']);
+  assert.deepEqual(listOf('disallowedTools', narrowed), ['Bash', 'Edit', 'Write']);
+});
+
+test('a path agent\'s frontmatter tools are flags too', async () => {
+  const { ws, github } = scene();
+  fs.writeFileSync(path.join(ws, '.issue/roles/claude/agents/code.md'), CODE);
+  process.env.AGENT = '.issue/roles/claude/agents/code.md';
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.deepEqual(listOf('allowedTools', core.outputs.args).slice(0, 3), ['Read', 'Edit', 'Bash(git log:*)']);
+  assert.deepEqual(listOf('disallowedTools', core.outputs.args), ['NotebookEdit', 'WebFetch']);
+});
+
+test('live with a name: the channel joins the folder\'s mcp.json, and reply joins the frontmatter\'s tools', async () => {
+  const { tmp, github } = scene();
+  channel();
+  Object.assign(process.env, { CLAUDE_AGENTS: agents(), AGENT: 'code', SCHEMA: '', MCP_CONFIG: '', LIVE_MESSAGES: 'true' });
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  const mcp = JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8'));
+  assert.deepEqual(Object.keys(mcp.mcpServers), ['coder', 'agent-flow']);
+  assert.equal(mcp.mcpServers.coder.url, 'https://kb/coder');
+  const allowed = listOf('allowedTools', core.outputs.args);
+  assert.deepEqual(allowed.slice(0, 4), ['Read', 'Edit', 'Bash(git log:*)', 'mcp__agent-flow__reply']);
+  assert.ok(allowed.includes('mcp__coder'));
+  // and with the job's tools in place of the frontmatter's
+  process.env.ALLOWED_TOOLS = 'Read';
+  const narrowed = fake.core();
+  await setup.run({ github, context: fake.context(), core: narrowed });
+  assert.deepEqual(listOf('allowedTools', narrowed.outputs.args).slice(0, 2), ['Read', 'mcp__agent-flow__reply']);
+});
+
+test('a name with no folder, no AGENT.md or no CLAUDE_AGENTS is an error naming the path', async () => {
+  const { github } = scene();
+  const root = agents();
+  Object.assign(process.env, { CLAUDE_AGENTS: root, AGENT: 'nope' });
+  await assert.rejects(setup.run({ github, context: fake.context(), core: fake.core() }), (e) => e.message.includes(path.join(root, 'nope/AGENT.md')) && /CLAUDE_AGENTS/.test(e.message));
+  fs.mkdirSync(path.join(root, 'empty'));
+  process.env.AGENT = 'empty';
+  await assert.rejects(setup.run({ github, context: fake.context(), core: fake.core() }), (e) => e.message.includes(path.join(root, 'empty/AGENT.md')));
+  delete process.env.CLAUDE_AGENTS;
+  process.env.AGENT = 'code';
+  await assert.rejects(setup.run({ github, context: fake.context(), core: fake.core() }), /CLAUDE_AGENTS is not set/);
 });

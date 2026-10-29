@@ -77,20 +77,42 @@ function unquote(v) {
   return /^(['"]).*\1$/.test(t) ? t.slice(1, -1) : t;
 }
 
-const ARRAYS = ['tools', 'disallowedTools', 'skills'];
+const ARRAYS = ['tools', 'skills'];
 const NUMBERS = ['maxTurns'];
+// become --allowedTools and --disallowedTools, so a job's own lists replace them
+const FLAGS = ['allowedTools', 'disallowedTools'];
+
+const toList = (v) => (Array.isArray(v) ? v : String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean));
 
 // the --agents JSON entry: { <name>: { description, prompt, tools, … } }
 function toAgent(parsed) {
   const { name, ...fields } = parsed;
   const out = {};
   for (const [k, v] of Object.entries(fields)) {
-    if (ARRAYS.includes(k)) out[k] = Array.isArray(v) ? v : String(v).split(',').map((x) => x.trim()).filter(Boolean);
+    if (FLAGS.includes(k)) continue;
+    if (ARRAYS.includes(k)) out[k] = toList(v);
     else if (NUMBERS.includes(k)) out[k] = Number(v);
     else out[k] = v;
   }
   if (!out.description) out.description = name;
   return { [name]: out };
+}
+
+function agentTools(parsed) {
+  return { allowed: toList(parsed.allowedTools), disallowed: toList(parsed.disallowedTools) };
+}
+
+// A name (no `/`, no `.md`) is the runner image's agent, $CLAUDE_AGENTS/<name>/ with AGENT.md
+// beside its schema.json and mcp.json; failing that, one in the repo's .claude/agents/, which
+// Claude Code finds itself. Anything else is a path to an agent file.
+function locateAgent(value, env, exists) {
+  if (/[/\\]|\.md$/.test(value)) return { file: value };
+  const root = env.CLAUDE_AGENTS;
+  const file = root ? path.join(root, value, 'AGENT.md') : '';
+  if (file && fs.existsSync(file)) return { file, dir: path.dirname(file) };
+  if (exists(`.claude/agents/${value}.md`)) return { name: value };
+  const where = root ? `no ${file} (CLAUDE_AGENTS=${root})` : `CLAUDE_AGENTS is not set`;
+  throw new Error(`agent not found: ${value}: ${where}, and no .claude/agents/${value}.md in the repository`);
 }
 
 const REVIEW = {
@@ -232,25 +254,26 @@ async function run({ github, context, core }) {
   const promptFile = path.join(env.RUNNER_TEMP, 'issue-agent-system.md');
   fs.writeFileSync(promptFile, `${[contract.trim(), extra.trim(), guide(exists), agentsFallback(read)].filter(Boolean).join('\n\n')}\n`);
 
-  // the agent: a file is loaded through --agents; anything else is a name Claude knows
+  // the agent: a file is loaded through --agents; its frontmatter's tools become the flags
   let agentsFile = '';
   let agent = '';
-  if (env.AGENT) {
-    const text = read(env.AGENT);
-    if (text != null) {
-      const parsed = parseAgent(text, path.basename(env.AGENT).replace(/\.md$/, ''));
-      agent = parsed.name;
-      agentsFile = path.join(env.RUNNER_TEMP, 'issue-agent-agents.json');
-      fs.writeFileSync(agentsFile, JSON.stringify(toAgent(parsed)));
-    } else if (/[/\\]|\.md$/.test(env.AGENT)) {
-      throw new Error(`agent not found: ${env.AGENT}`);
-    } else {
-      // a name: an agent Claude Code finds itself, in the repo's .claude/agents/
-      agent = env.AGENT;
-    }
+  let tools = { allowed: [], disallowed: [] };
+  const found = env.AGENT ? locateAgent(env.AGENT, env, exists) : {};
+  // a runner image agent's folder: the schema and MCP servers when the job gives none
+  const fromDir = (file) => (found.dir && fs.existsSync(path.join(found.dir, file)) ? path.join(found.dir, file) : '');
+  if (found.file) {
+    const text = read(found.file);
+    if (text == null) throw new Error(`agent not found: ${found.file}`);
+    const parsed = parseAgent(text, found.dir ? env.AGENT : path.basename(found.file).replace(/\.md$/, ''));
+    agent = parsed.name;
+    tools = agentTools(parsed);
+    agentsFile = path.join(env.RUNNER_TEMP, 'issue-agent-agents.json');
+    fs.writeFileSync(agentsFile, JSON.stringify(toAgent(parsed)));
+  } else if (found.name) {
+    agent = found.name;
   }
 
-  const roleText = fileOr(env.SCHEMA);
+  const roleText = fileOr(env.SCHEMA || fromDir('schema.json'));
   const role = roleText ? JSON.parse(roleText) : null;
   const on = (v, dflt) => (v === '' || v == null ? dflt : v === 'true');
   const schema = JSON.stringify(envelope({
@@ -263,7 +286,7 @@ async function run({ github, context, core }) {
   let mcpFile = '';
   let mcpServers = [];
   let config = null;
-  const mcpText = fileOr(env.MCP_CONFIG);
+  const mcpText = fileOr(env.MCP_CONFIG || fromDir('mcp.json'));
   if (mcpText) {
     config = JSON.parse(mcpText.replace(/\$\{(\w+)\}/g, (_, name) => env[name] ?? ''));
     mcpServers = Object.keys(config.mcpServers || {});
@@ -297,9 +320,9 @@ async function run({ github, context, core }) {
     model: env.MODEL,
     maxTurns: env.MAX_TURNS,
     permissionMode: env.PERMISSION_MODE,
-    // the channel's one tool, not the whole server
-    allowed: [...list(env.ALLOWED_TOOLS), ...(channel ? [REPLY_TOOL] : [])],
-    disallowed: list(env.DISALLOWED_TOOLS),
+    // the job's lists replace the agent's; the channel's one tool, not the whole server
+    allowed: [...(list(env.ALLOWED_TOOLS).length ? list(env.ALLOWED_TOOLS) : tools.allowed), ...(channel ? [REPLY_TOOL] : [])],
+    disallowed: list(env.DISALLOWED_TOOLS).length ? list(env.DISALLOWED_TOOLS) : tools.disallowed,
   };
   const args = flags({ agentsFile, agent, schema, mcpFile, settingsFile, mcpServers, over, session });
   core.setOutput('system_prompt_file', promptFile);
@@ -310,4 +333,4 @@ async function run({ github, context, core }) {
   core.info(args);
 }
 
-module.exports = { uuid5, q, guide, agentsFallback, parseAgent, toAgent, envelope, hookSettings, flags, run };
+module.exports = { uuid5, q, guide, agentsFallback, parseAgent, toAgent, agentTools, locateAgent, envelope, hookSettings, flags, run };

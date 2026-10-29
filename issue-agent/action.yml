@@ -15,11 +15,14 @@ inputs:
     required: false
     default: ""
   agent:
-    description: A Claude Code agent file (frontmatter and body), loaded with --agents and run with --agent; or the name of one Claude Code already knows.
+    description: >
+      A name: the claude runner's $CLAUDE_AGENTS/<name>/ (AGENT.md, schema.json, mcp.json), else
+      the repo's .claude/agents/<name>.md. A path: a Claude Code agent file. A file is loaded with
+      --agents; its frontmatter's allowedTools and disallowedTools become the flags.
     required: false
     default: ""
   schema:
-    description: The role's output schema, inline JSON or a path. It becomes the `output` field beside the action's own.
+    description: The role's output schema, inline JSON or a path; defaults to a named agent's schema.json. It becomes the `output` field beside the action's own.
     required: false
     default: ""
   append_system_prompt:
@@ -67,7 +70,7 @@ inputs:
     required: false
     default: "0"
   mcp_config:
-    description: MCP servers, inline JSON or a file; ${VAR} is filled from env. Every server is allowed.
+    description: MCP servers, inline JSON or a file; defaults to a named agent's mcp.json. ${VAR} is filled from env. Every server is allowed.
     required: false
     default: ""
   compact:
@@ -85,11 +88,11 @@ inputs:
     required: false
     default: ""
   allowed_tools:
-    description: Comma-separated tools to allow on top of the agent's.
+    description: Comma-separated tools to allow, in place of the agent's allowedTools.
     required: false
     default: ""
   disallowed_tools:
-    description: Comma-separated tools to deny.
+    description: Comma-separated tools to deny, in place of the agent's disallowedTools.
     required: false
     default: ""
   permission_mode:
