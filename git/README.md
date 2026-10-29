@@ -71,6 +71,7 @@ commit and the working tree is left as it was, so changes it did not select stay
 | `files` | JSON list of the committed paths, deletions included |
 | `ignored` | JSON list of the changed paths `ignore` left out |
 | `committed` | `false` when there was nothing and `allow_empty` is off (not an error) |
+| `conflicts` | JSON list of the paths the branch also changed, when that refused the commit |
 
 - Changes come from `git status`: added, changed, deleted, untracked, and a rename as a
   delete plus an add. Files land as regular files: a symlink fails.
@@ -82,6 +83,10 @@ commit and the working tree is left as it was, so changes it did not select stay
 - Other submodule changes cannot be committed from here: edits inside a submodule, a
   pointer with no new commit, a deleted gitlink. Swept up by "every change", they are
   left out with a warning naming them; named in `files`, they fail.
+- It never overwrites. The commit goes on the branch's head as it is now; when that is not
+  the commit the checkout is at (someone pushed meanwhile), the files changed in between
+  must not be any it writes, submodule pointers included. If one is, nothing is committed
+  and the step fails naming the paths and both commits.
 - Afterwards it fetches the branch with `token` (never on the command line) and resets
   `HEAD` and the index to the new commit, so `persist-credentials: false` is fine.
 

@@ -366,3 +366,84 @@ test('with no ignore, ignored is an empty list', async () => {
   await commit.run({ github: fake.github(routes()), context: fake.context(), core, exec: git(root, ['?? a.txt']) });
   assert.equal(core.outputs.ignored, '[]');
 });
+
+// the branch moved after the checkout: the checkout is at `local`, GitHub's head is `head`
+function moved(changed, { pages } = {}) {
+  return (p) => {
+    const all = pages || [changed.map((f) => (typeof f === 'string' ? { filename: f, status: 'modified' } : f))];
+    return { status: 'ahead', files: all[(p.page || 1) - 1] || [] };
+  };
+}
+
+test('the branch where the checkout is: nothing is compared, the commit goes as before', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const github = fake.github(routes());
+  await commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, ['?? a.txt'], { 'rev-parse HEAD': 'head\n' }) });
+  assert.ok(!call(github, 'repos.compareCommitsWithBasehead'));
+  assert.equal(input(github).expectedHeadOid, 'head');
+});
+
+test('the branch moved, on other files: the commit goes on the new head', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const github = fake.github({ ...routes(), 'repos.compareCommitsWithBasehead': moved(['b.txt', 'docs']) });
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core, exec: git(root, [' M a.txt'], { 'rev-parse HEAD': 'local\n' }) });
+  assert.equal(call(github, 'repos.compareCommitsWithBasehead').basehead, 'local...head');
+  assert.equal(input(github).expectedHeadOid, 'head');
+  assert.equal(core.outputs.committed, 'true');
+});
+
+test('the branch moved and changed a file the commit has: nothing is committed, the error names the files and both commits', async () => {
+  const root = setup({ files: { 'a.txt': 'a', 'b.txt': 'b', 'new.txt': 'n' } });
+  const github = fake.github({
+    ...routes(),
+    'repos.compareCommitsWithBasehead': moved(['a.txt', 'z.txt', { filename: 'moved.txt', previous_filename: 'old.txt', status: 'renamed' }]),
+  });
+  const core = fake.core();
+  const exec = git(root, [' M a.txt', ' M b.txt', 'R  new.txt', 'old.txt'], { 'rev-parse HEAD': 'local\n' });
+  await assert.rejects(commit.run({ github, context: fake.context(), core, exec }), (e) => {
+    assert.match(e.message, /issue-5 moved from local to head/);
+    assert.match(e.message, /a\.txt, old\.txt/);
+    assert.match(e.message, /nothing was committed/);
+    return true;
+  });
+  assert.ok(!call(github, 'graphql:createCommitOnBranch'));
+  assert.equal(core.outputs.conflicts, '["a.txt","old.txt"]');
+  assert.ok(!exec.calls.some((c) => c[1] === 'reset'));
+});
+
+test('a submodule pointer moved on both sides is refused too, before any tree is made', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  fs.mkdirSync(path.join(root, 'wiki'));
+  const github = fake.github({ ...treeRoutes(), 'repos.compareCommitsWithBasehead': moved(['wiki']) });
+  const exec = git(root, [' M wiki', '?? a.txt'], { ...linked(root, { at: 'f00d' }), 'rev-parse HEAD': 'local\n' });
+  await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core(), exec }), /changed wiki too/);
+  assert.ok(!call(github, 'git.createTree'));
+  assert.ok(!call(github, 'git.createBlob'), 'nothing is sent before the check');
+});
+
+test('a head that moves during the retry is checked again', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const heads = { 'heads/issue-5': 'local' };
+  const r = routes(heads);
+  r['graphql:createCommitOnBranch'] = () => { heads['heads/issue-5'] = 'pushed'; return new Error('Expected branch to point to "local"'); };
+  r['repos.compareCommitsWithBasehead'] = moved(['a.txt']);
+  const github = fake.github(r);
+  await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, [' M a.txt'], { 'rev-parse HEAD': 'local\n' }) }), /moved from local to pushed/);
+  assert.equal(github.calls.filter((c) => c.name === 'graphql:createCommitOnBranch').length, 1);
+});
+
+test('every page of the comparison counts', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const first = Array.from({ length: 300 }, (_, i) => ({ filename: `f${i}.txt`, status: 'modified' }));
+  const github = fake.github({ ...routes(), 'repos.compareCommitsWithBasehead': moved([], { pages: [first, [{ filename: 'a.txt', status: 'modified' }]] }) });
+  await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, [' M a.txt'], { 'rev-parse HEAD': 'local\n' }) }), /a\.txt/);
+  assert.deepEqual(github.calls.filter((c) => c.name === 'repos.compareCommitsWithBasehead').map((c) => c.params.page), [1, 2]);
+});
+
+test('a checkout commit GitHub does not know fails: what moved cannot be told', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const github = fake.github({ ...routes(), 'repos.compareCommitsWithBasehead': () => fake.notFound() });
+  await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, [' M a.txt'], { 'rev-parse HEAD': 'local\n' }) }), /local is not on GitHub/);
+  assert.ok(!call(github, 'graphql:createCommitOnBranch'));
+});

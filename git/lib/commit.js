@@ -2,10 +2,14 @@
 // the commit: createCommitOnBranch for files, or the Git Data API when a submodule's pointer
 // moves too, which createCommitOnBranch cannot write. Afterwards HEAD and the index are the
 // new commit; the working tree is untouched, so changes it did not select stay changed.
+//
+// It never overwrites: the commit goes on the branch's head as it is now, so when the branch
+// moved since the commit the checkout is at, and a path the commit writes changed there in
+// between, nothing is committed and the step fails naming the paths.
 
 const fs = require('fs');
 const path = require('path');
-const { lines, gql, headOid, matcher } = require('./util');
+const { lines, gql, headOid, compareFiles, matcher } = require('./util');
 
 const UNMERGED = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 const SUBMODULE_HINT = 'a submodule moves only to a commit made inside it: commit inside the submodule first';
@@ -149,13 +153,35 @@ function selected(changes, patterns, root) {
   return [...paths].sort();
 }
 
+// A check run on the head each try will commit on: from the checkout's commit (`local`) to
+// that head, the paths changed there must not be any the commit writes, or it would write
+// over them. A rename there counts as its old path and its new.
+function guard({ github, core, owner, repo, branch, local, paths }) {
+  return async (head) => {
+    if (!local || head === local) return;
+    let files;
+    try {
+      files = await compareFiles(github, owner, repo, `${local}...${head}`);
+    } catch (e) {
+      if (e.status !== 404) throw e;
+      throw new Error(`the checkout's commit ${local} is not on GitHub, so what moved on ${branch} since cannot be told; nothing was committed`);
+    }
+    const changed = new Set(files.flatMap((f) => [f.filename, f.previous_filename].filter(Boolean)));
+    const both = paths.filter((p) => changed.has(p)).sort();
+    if (!both.length) return;
+    core.setOutput('conflicts', JSON.stringify(both));
+    throw new Error(`the branch ${branch} moved from ${local} to ${head} since the checkout and changed ${both.join(', ')} too: nothing was committed, so neither side is overwritten`);
+  };
+}
+
 // one try, then one more on the branch's new head
-async function commitOnBranch({ github, core, owner, repo, branch, message, fileChanges: changes }) {
+async function commitOnBranch({ github, core, owner, repo, branch, message, fileChanges: changes, check }) {
   const [headline, ...rest] = message.split('\n');
   const body = rest.join('\n').trim();
   for (let attempt = 1; ; attempt += 1) {
     const expectedHeadOid = await headOid(github, owner, repo, branch);
     if (!expectedHeadOid) throw new Error(`branch ${branch} does not exist; git/branch makes it`);
+    await check(expectedHeadOid);
     try {
       const input = {
         branch: { repositoryNameWithOwner: `${owner}/${repo}`, branchName: branch },
@@ -175,20 +201,26 @@ async function commitOnBranch({ github, core, owner, repo, branch, message, file
 // Files and moved submodules in one commit, through the Git Data API: blobs, a tree on the
 // branch head's, a commit with no author or committer (GitHub signs it as the token's App),
 // and the branch moved only by a fast forward. One try, then one more on the new head.
-async function commitTree({ github, core, owner, repo, branch, message, additions, deletions, links }) {
-  const blobs = [];
-  for (const a of additions) {
-    const { data } = await github.rest.git.createBlob({ owner, repo, content: a.contents, encoding: 'base64' });
-    blobs.push({ path: a.path, mode: a.mode, type: 'blob', sha: data.sha });
-  }
-  const entries = [
-    ...blobs,
-    ...deletions.map((d) => ({ path: d.path, mode: '100644', type: 'blob', sha: null })),
-    ...links.map((l) => ({ path: l.path, mode: '160000', type: 'commit', sha: l.sha })),
-  ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+async function commitTree({ github, core, owner, repo, branch, message, additions, deletions, links, check }) {
+  // the blobs once, after the first check passes: a refused commit uploads nothing
+  let entries = null;
+  const build = async () => {
+    const blobs = [];
+    for (const a of additions) {
+      const { data } = await github.rest.git.createBlob({ owner, repo, content: a.contents, encoding: 'base64' });
+      blobs.push({ path: a.path, mode: a.mode, type: 'blob', sha: data.sha });
+    }
+    return [
+      ...blobs,
+      ...deletions.map((d) => ({ path: d.path, mode: '100644', type: 'blob', sha: null })),
+      ...links.map((l) => ({ path: l.path, mode: '160000', type: 'commit', sha: l.sha })),
+    ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  };
   for (let attempt = 1; ; attempt += 1) {
     const head = await headOid(github, owner, repo, branch);
     if (!head) throw new Error(`branch ${branch} does not exist; git/branch makes it`);
+    await check(head);
+    entries = entries || await build();
     try {
       const { data: parent } = await github.rest.git.getCommit({ owner, repo, commit_sha: head });
       const { data: tree } = await github.rest.git.createTree({ owner, repo, base_tree: parent.tree.sha, tree: entries });
@@ -245,14 +277,17 @@ async function run({ github, context, core, exec }) {
   }
 
   const { additions, deletions } = fileChanges(root, paths);
+  // the commit the checkout is at, which a hook may have moved forward during the turn
+  const local = (await git(exec, ['rev-parse', 'HEAD'], { ignoreReturnCode: true })).trim();
+  const check = guard({ github, core, owner, repo, branch, local, paths: [...paths, ...links.map((l) => l.path)] });
   let commit;
   if (links.length) {
-    commit = await commitTree({ github, core, owner, repo, branch, message, additions, deletions, links });
+    commit = await commitTree({ github, core, owner, repo, branch, message, additions, deletions, links, check });
   } else {
     // an empty commit still sends additions: GitHub refuses a commit with no fileChanges
     const plain = additions.map(({ path: p, contents }) => ({ path: p, contents }));
     const changesInput = deletions.length ? { additions: plain, deletions } : { additions: plain };
-    commit = await commitOnBranch({ github, core, owner, repo, branch, message, fileChanges: changesInput });
+    commit = await commitOnBranch({ github, core, owner, repo, branch, message, fileChanges: changesInput, check });
   }
 
   // HEAD and index to the new commit; the working tree keeps what was not selected. The

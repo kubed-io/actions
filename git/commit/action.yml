@@ -3,7 +3,8 @@ description: >
   Commits the checkout's changes to a branch through the API, so GitHub signs the commit.
   A submodule checked out at a new commit moves its pointer in the same commit (the Git
   Data API); afterwards HEAD and the index match the commit and the working tree is left
-  as it was.
+  as it was. It never overwrites: when the branch moved since the checkout's commit and
+  changed a path the commit writes, nothing is committed and the step fails naming them.
 
 inputs:
   token:
@@ -45,6 +46,9 @@ outputs:
   committed:
     description: "`false` when there was nothing to commit and allow_empty is off."
     value: ${{ steps.commit.outputs.committed }}
+  conflicts:
+    description: JSON list of the paths the branch changed too, when that refused the commit; empty otherwise.
+    value: ${{ steps.commit.outputs.conflicts }}
 
 runs:
   using: composite

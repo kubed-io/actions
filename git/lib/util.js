@@ -27,6 +27,19 @@ async function headOid(github, owner, repo, branch) {
   }
 }
 
+// the files `base...head` changed (from their merge base), each rename as its old path and
+// its new; every page, as GitHub sends at most 300 files a page and 3000 in all
+async function compareFiles(github, owner, repo, basehead) {
+  const files = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead, per_page: 100, page });
+    const got = data.files || [];
+    files.push(...got);
+    if (got.length < 300) break;
+  }
+  return files;
+}
+
 async function defaultBranch(github, owner, repo) {
   const { data } = await github.rest.repos.get({ owner, repo });
   return data.default_branch;
@@ -68,4 +81,4 @@ function matcher(patterns) {
   };
 }
 
-module.exports = { list, lines, gql, headOid, defaultBranch, globToRegex, matcher };
+module.exports = { list, lines, gql, headOid, compareFiles, defaultBranch, globToRegex, matcher };
