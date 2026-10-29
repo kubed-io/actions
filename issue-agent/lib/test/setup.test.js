@@ -204,7 +204,7 @@ test('live: the channel joins the one MCP file, the hooks come as --settings, re
   assert.ok(!allowed.includes('mcp__agent-flow'));
 });
 
-test('live with no mcp_config: the MCP file is the channel alone', async () => {
+test('live with no mcp: the MCP file is the channel alone', async () => {
   const { tmp, github } = scene();
   channel();
   Object.assign(process.env, { LIVE_MESSAGES: 'true', MCP_CONFIG: '' });
