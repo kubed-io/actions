@@ -15,6 +15,7 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [git/commit](git/) | Commits the checkout's changes to a branch through `createCommitOnBranch`, so every commit is GitHub-signed |
 | [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
+| [issue-route](issue-route/) | Decides what an event on a work item is: a spec turn, the hand-off to a plan or nothing; natively or from n8n's `agent-issue` dispatch |
 | [pr-route](pr-route/) | Decides what an event on an agent-built PR is: a plan turn, a code turn or nothing, and the kb prompt it starts with; also routes an `agent-route` dispatch, n8n's relay of a review, a push, a comment or the approval label |
 | [pr-checks/report](pr-checks/) | The checks workflow's last job: what failed in the run, for the code agent, as the step summary and the `checks-report` artifact |
 | [review-route](review-route/) | Decides whether the review agent reviews a PR's head, as a commit status: red checks go to the code agent, a base merge or a passing review's applied suggestions keep the verdict; `review-route/verdict` sets the status from the review |
