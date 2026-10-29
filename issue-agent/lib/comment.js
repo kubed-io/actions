@@ -1,9 +1,11 @@
 // Every comment the action posts: the "Working on it…" placeholder, the reply it becomes,
-// and the note that replaces it when the run does not finish.
+// and the note that replaces it when the run does not finish. On a live turn n8n may have
+// moved the placeholder, so the reply and the note find it by its run (live.js).
 
 const fs = require('fs');
-const { TAG, seenMarker } = require('./state');
+const { TAG, seenMarker, placeholderMarker } = require('./state');
 const { fillHeader } = require('./header');
+const { settle } = require('./live');
 
 const SPINNER = '<img src="https://github.com/user-attachments/assets/5ac382c7-e004-429b-8e35-7feb3e8f9c6f" width="14px" height="14px" style="vertical-align: middle; margin-left: 4px;" />';
 
@@ -15,8 +17,9 @@ function quote(prompt) {
   return `${text.split('\n').map((l) => `> ${l}`).join('\n')}\n\n`;
 }
 
-function placeholder({ prompt, runUrl }) {
-  return `${TAG}\n${quote(prompt)}Working on it… ${SPINNER}\n\n<sub>[Follow the run](${runUrl})</sub>`;
+function placeholder({ prompt, runUrl, runId }) {
+  const marker = runId ? `${placeholderMarker(runId)}\n` : '';
+  return `${TAG}\n${marker}${quote(prompt)}Working on it… ${SPINNER}\n\n<sub>[Follow the run](${runUrl})</sub>`;
 }
 
 function reply({ prompt, header, text, runUrl, seen }) {
@@ -49,14 +52,17 @@ async function post(github, { owner, repo, issue_number, comment_id, body }) {
 async function run({ github, context, core }) {
   const env = process.env;
   const { owner, repo } = context.repo;
+  const live = env.LIVE === 'true';
   const where = { owner, repo, issue_number: Number(env.NUMBER), comment_id: Number(env.COMMENT_ID) || 0 };
 
   if (env.MODE === 'ack') {
-    const { data } = await github.rest.issues.createComment({ owner, repo, issue_number: where.issue_number, body: placeholder({ prompt: env.PROMPT, runUrl: env.RUN_URL }) });
+    const body = placeholder({ prompt: env.PROMPT, runUrl: env.RUN_URL, runId: live ? context.runId : 0 });
+    const { data } = await github.rest.issues.createComment({ owner, repo, issue_number: where.issue_number, body });
     core.setOutput('comment_id', String(data.id));
     return;
   }
   if (env.MODE === 'failure') {
+    if (live) where.comment_id = (await settle({ github, context, env })).commentId;
     await post(github, { ...where, body: failure({ prompt: env.PROMPT, runUrl: env.RUN_URL }) });
     return;
   }
@@ -64,10 +70,13 @@ async function run({ github, context, core }) {
     core.setFailed('the agent wrote no reply');
     return;
   }
-  const seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
-  await post(github, { ...where, body: reply({ prompt: env.PROMPT, header: headerOf(env), text: env.REPLY, runUrl: env.RUN_URL, seen }) });
+  let seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
+  if (live) ({ commentId: where.comment_id, seen } = await settle({ github, context, env, seen }));
+  const { data } = await post(github, { ...where, body: reply({ prompt: env.PROMPT, header: headerOf(env), text: env.REPLY, runUrl: env.RUN_URL, seen }) });
   // a cancel that lands after this must not overwrite the posted reply
   core.setOutput('posted', 'true');
+  // not the placeholder's first id when n8n moved it, or none was left
+  if (live) core.setOutput('comment_id', String(data.id));
 }
 
 module.exports = { placeholder, reply, failure, headerOf, run };

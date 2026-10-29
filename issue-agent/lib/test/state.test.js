@@ -31,3 +31,12 @@ test('an unclosed seen marker before a real one does not swallow it', () => {
 test('a marker whose JSON is invalid reads as null, never throws', () => {
   assert.equal(state.readSeen('<!-- issue-agent-seen {nope} -->'), null);
 });
+
+test('the placeholder marker carries its run, in the contract\'s exact form, and reads back', () => {
+  assert.equal(state.placeholderMarker(7), '<!-- issue-agent-placeholder {"run_id": 7} -->');
+  assert.deepEqual(state.readPlaceholder(`${state.TAG}\n${state.placeholderMarker(7)}\nWorking on it…`), { run_id: 7 });
+  assert.equal(state.readPlaceholder('Working on it…'), null);
+  assert.equal(state.readPlaceholder('<!-- issue-agent-placeholder {nope} -->'), null);
+  // the last one wins, as with the seen marker
+  assert.deepEqual(state.readPlaceholder(`${state.placeholderMarker(6)}\n${state.placeholderMarker(7)}`), { run_id: 7 });
+});

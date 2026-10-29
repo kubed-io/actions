@@ -378,6 +378,6 @@ async function run({ github, context, core }) {
 }
 
 module.exports = {
-  isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, turn,
+  isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, unseen, turn,
   content, brief, strip, specLines, partOf, contextFile, prFile, reviewsFile, issuesFile, diffFiles, prompts, run,
 };

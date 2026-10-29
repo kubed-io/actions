@@ -31,18 +31,18 @@ test('a range goes to GitHub with start_line on the RIGHT; one line without it',
   assert.deepEqual(review.toGithub({ path: 'a.py', line: 12, body: 'b' }), { path: 'a.py', line: 12, side: 'RIGHT', body: 'b' });
 });
 
-function scene(comments, routes = {}) {
+function scene(comments, routes = {}, env = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-'));
   fs.writeFileSync(path.join(dir, 's.json'), JSON.stringify({ reply: 'Looks close.', notes: 'n', review: { comments } }));
   fs.writeFileSync(path.join(dir, 'diff.json'), JSON.stringify(LINES));
   Object.assign(process.env, {
     NUMBER: '81', STRUCTURED_FILE: path.join(dir, 's.json'), DIFF_FILE: path.join(dir, 'diff.json'), HEAD_SHA: 'abc123',
     COMMENT_ID: '555', PROMPT: '', REPLY: 'Looks close.', HEADER: '', SESSION_KEY: 'review-81', THROUGH: 't', THROUGH_ID: '9',
-    RUN_URL: 'https://run', BLOB: '', SESSION_ID: '',
+    RUN_URL: 'https://run', BLOB: '', SESSION_ID: '', LIVE: '', ...env,
   });
   const github = fake.github({ 'pulls.createReview': { id: 77 }, 'issues.deleteComment': {}, ...routes });
   const core = fake.core();
-  return { github, core, done: review.run({ github, context: fake.context(), core }) };
+  return { github, core, done: review.run({ github, context: fake.context({ runId: 7 }), core }) };
 }
 
 test('the reply is one COMMENT review on the commit read; off-diff comments go in its body; the placeholder goes', async () => {
@@ -92,4 +92,32 @@ test('no comments, no review: the reply goes as a comment', async () => {
   await done;
   assert.ok(!github.calls.some((c) => c.name === 'pulls.createReview'));
   assert.equal(core.outputs.posted, 'false');
+});
+
+test('live: the review deletes the placeholder where n8n moved it, and its seen marker covers what was handed over', async () => {
+  const owner = { login: 'kferrone', id: 4399427, type: 'User' };
+  const app = { login: 'kubed-io[bot]', id: 235398881, type: 'Bot' };
+  const inbox = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-')), 'inbox.jsonl');
+  const text = `${JSON.stringify({ kind: 'message', comment_kind: 'comment', comment_id: 11 })}\n`;
+  fs.writeFileSync(inbox, text);
+  fs.writeFileSync(`${inbox}.cursor`, String(text.length));
+  const { github, done } = scene([{ path: 'a.py', line: 12, body: 'Name this.' }], {
+    'issues.listComments': [
+      { id: 11, user: owner, created_at: '2026-10-29T10:05:00Z', body: 'and the tests?' },
+      { id: 60, user: app, created_at: '2026-10-29T10:06:00Z', body: `${state.TAG}\n${state.placeholderMarker(7)}\nWorking on it…` },
+    ],
+    'pulls.listReviews': [],
+    'pulls.listReviewComments': [],
+  }, { LIVE: 'true', IS_PR: 'true', THROUGH: '2026-10-29T10:00:00Z', TRUSTED_IDS: '4399427', TRUSTED_BOTS: '', CLAUDE_CHANNEL_INBOX: inbox });
+  await done;
+  assert.equal(github.calls.find((c) => c.name === 'issues.deleteComment').params.comment_id, 60);
+  const body = github.calls.find((c) => c.name === 'pulls.createReview').params.body;
+  assert.deepEqual(state.readSeen(body), { key: 'review-81', through: '2026-10-29T10:05:00Z', id: '11' });
+});
+
+test('live with no placeholder left: the review deletes nothing', async () => {
+  const { github, core, done } = scene([{ path: 'a.py', line: 12, body: 'x' }], { 'issues.listComments': [] }, { LIVE: 'true', IS_PR: 'true', CLAUDE_CHANNEL_INBOX: '/nowhere/inbox.jsonl' });
+  await done;
+  assert.ok(!github.calls.some((c) => c.name === 'issues.deleteComment'));
+  assert.equal(core.outputs.posted, 'true');
 });

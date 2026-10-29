@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const { reply, headerOf } = require('./comment');
+const { settle } = require('./live');
 
 // a fence longer than any backtick run in the text, so a suggestion can hold code fences
 function fence(text) {
@@ -63,7 +64,10 @@ async function run({ github, context, core }) {
   const comments = (structured?.review?.comments || []).filter((c) => c && c.path && Number.isInteger(c.line) && (c.body || '').trim());
   if (!comments.length || !(env.REPLY || '').trim()) return;
   const lineMap = env.DIFF_FILE && fs.existsSync(env.DIFF_FILE) ? JSON.parse(fs.readFileSync(env.DIFF_FILE, 'utf8')) : {};
-  const seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
+  let seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
+  // on a live turn the placeholder is wherever n8n last moved it
+  let placeholderId = Number(env.COMMENT_ID) || 0;
+  if (env.LIVE === 'true') ({ commentId: placeholderId, seen } = await settle({ github, context, env, seen }));
   const bodyFor = (outside) => reply({ prompt: env.PROMPT, header: headerOf(env), text: `${env.REPLY.trim()}${outsideSection(outside)}`, runUrl: env.RUN_URL, seen });
   const at = { owner, repo, pull_number: Number(env.NUMBER), commit_id: env.HEAD_SHA, event: 'COMMENT' };
 
@@ -81,7 +85,7 @@ async function run({ github, context, core }) {
     }
   }
   // the review is the one response: the placeholder comment goes
-  if (Number(env.COMMENT_ID)) await github.rest.issues.deleteComment({ owner, repo, comment_id: Number(env.COMMENT_ID) });
+  if (placeholderId) await github.rest.issues.deleteComment({ owner, repo, comment_id: placeholderId });
   core.setOutput('posted', 'true');
   core.setOutput('review_id', String(review.id));
   core.info(`review ${review.id}: ${inline.length} on the diff, ${outside.length} outside it`);

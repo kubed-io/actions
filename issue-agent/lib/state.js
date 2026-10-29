@@ -3,6 +3,8 @@
 //
 //   <!-- issue-agent -->               on every comment and review the action posts
 //   <!-- issue-agent-seen {...} -->    on a reply: the last message it answered
+//   <!-- issue-agent-placeholder {...} -->  on a live turn's "Working on it…": its run, so
+//                                      the answer finds it where n8n moved it
 //
 // The notes block in a body has its own markers (notes.js).
 
@@ -10,6 +12,8 @@ const TAG = '<!-- issue-agent -->';
 // a marker's JSON never holds `-->` (encode) and never opens another comment, so a stray
 // unclosed marker cannot swallow the real one after it
 const SEEN = /<!-- issue-agent-seen (\{(?:(?!-->|<!--)[\s\S])*?\}) -->/g;
+
+const PLACEHOLDER = /<!-- issue-agent-placeholder (\{(?:(?!-->|<!--)[\s\S])*?\}) -->/g;
 
 function parse(text) {
   try {
@@ -34,8 +38,18 @@ function readSeen(body) {
   return found ? parse(found[1]) : null;
 }
 
+// the contract's exact text, `{"run_id": N}`, which n8n copies when it moves the placeholder
+function placeholderMarker(runId) {
+  return `<!-- issue-agent-placeholder {"run_id": ${Number(runId)}} -->`;
+}
+
+function readPlaceholder(body) {
+  const found = [...(body || '').matchAll(PLACEHOLDER)].pop();
+  return found ? parse(found[1]) : null;
+}
+
 function isAgent(body) {
   return (body || '').includes(TAG);
 }
 
-module.exports = { TAG, seenMarker, readSeen, isAgent };
+module.exports = { TAG, seenMarker, readSeen, placeholderMarker, readPlaceholder, isAgent };

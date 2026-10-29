@@ -67,3 +67,86 @@ test('a prompt that is a slash command is not quoted: it is an instruction, not 
   assert.ok(body.startsWith(`${state.TAG}\nLooks good.`));
   assert.ok(!comment.placeholder({ prompt: '/mcp__x__y', runUrl: RUN }).includes('mcp__x__y'));
 });
+
+// live_messages: the placeholder n8n moved, and the inbox the hook handed over
+const os = require('os');
+const path = require('path');
+const fs = require('fs');
+
+const OWNER = { login: 'kferrone', id: 4399427, type: 'User' };
+const APP = { login: 'kubed-io[bot]', id: 235398881, type: 'Bot' };
+const MOVED = { id: 60, user: APP, created_at: '2026-10-29T10:06:00Z', body: `${state.TAG}\n${state.placeholderMarker(7)}\nWorking on it…` };
+const ASKED = { id: 11, user: OWNER, created_at: '2026-10-29T10:05:00Z', updated_at: '2026-10-29T10:05:00Z', body: 'how is it going?' };
+
+function liveEnv(mode, extra = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'inbox-'));
+  const inbox = path.join(dir, 'inbox.jsonl');
+  const text = `${JSON.stringify({ kind: 'message', comment_kind: 'comment', comment_id: 11, created_at: ASKED.created_at })}\n`;
+  fs.writeFileSync(inbox, text);
+  fs.writeFileSync(`${inbox}.cursor`, String(Buffer.byteLength(text)));
+  Object.assign(process.env, {
+    MODE: mode, LIVE: 'true', NUMBER: '12', COMMENT_ID: '55', RUN_URL: RUN, PROMPT: '', REPLY: 'Hello.', HEADER: '',
+    SESSION_KEY: 'issue-12', THROUGH: '2026-10-29T10:00:00Z', THROUGH_ID: '9', IS_PR: 'false',
+    TRUSTED_IDS: '4399427', TRUSTED_BOTS: '', CLAUDE_CHANNEL_INBOX: inbox, ...extra,
+  });
+}
+
+test('live: the placeholder carries the run, on the line after the tag', async () => {
+  liveEnv('ack');
+  const github = fake.github({ 'issues.createComment': { id: 55 } });
+  await comment.run({ github, context: fake.context({ runId: 7 }), core: fake.core() });
+  const body = github.calls[0].params.body;
+  assert.ok(body.startsWith(`${state.TAG}\n<!-- issue-agent-placeholder {"run_id": 7} -->\nWorking on it…`));
+  assert.deepEqual(state.readPlaceholder(body), { run_id: 7 });
+});
+
+test('live: the answer goes into the placeholder where n8n moved it, and its seen marker covers what was handed over', async () => {
+  liveEnv('reply');
+  const github = fake.github({ 'issues.listComments': [ASKED, MOVED], 'issues.updateComment': { id: 60 } });
+  const core = fake.core();
+  await comment.run({ github, context: fake.context({ runId: 7 }), core });
+  const edit = github.calls.find((c) => c.name === 'issues.updateComment').params;
+  assert.equal(edit.comment_id, 60);
+  assert.deepEqual(state.readSeen(edit.body), { key: 'issue-12', through: ASKED.created_at, id: '11' });
+  assert.equal(state.readPlaceholder(edit.body), null);
+  assert.equal(core.outputs.comment_id, '60');
+  assert.equal(core.outputs.posted, 'true');
+});
+
+test('live: with no placeholder left, the answer is a new comment', async () => {
+  liveEnv('reply');
+  const github = fake.github({ 'issues.listComments': [ASKED], 'issues.createComment': { id: 61 } });
+  const core = fake.core();
+  await comment.run({ github, context: fake.context({ runId: 7 }), core });
+  assert.equal(github.calls.find((c) => c.name === 'issues.createComment').params.issue_number, 12);
+  assert.ok(!github.calls.some((c) => c.name === 'issues.updateComment'));
+  assert.equal(core.outputs.comment_id, '61');
+});
+
+test('live: the failure note replaces the moved placeholder', async () => {
+  liveEnv('failure');
+  const github = fake.github({ 'issues.listComments': [ASKED, MOVED], 'issues.updateComment': { id: 60 } });
+  await comment.run({ github, context: fake.context({ runId: 7 }), core: fake.core() });
+  const edit = github.calls.find((c) => c.name === 'issues.updateComment').params;
+  assert.equal(edit.comment_id, 60);
+  assert.ok(edit.body.includes("I didn't finish this one"));
+});
+
+test('off: the placeholder, the answer and the failure note are today\'s, on the saved id, with no listing', async () => {
+  for (const off of ['', 'false']) {
+    liveEnv('ack', { LIVE: off });
+    const github = fake.github({ 'issues.createComment': { id: 55 }, 'issues.updateComment': { id: 55 } });
+    await comment.run({ github, context: fake.context({ runId: 7 }), core: fake.core() });
+    assert.equal(github.calls[0].params.body, comment.placeholder({ prompt: '', runUrl: RUN }));
+    assert.ok(!github.calls[0].params.body.includes('issue-agent-placeholder'));
+    for (const mode of ['reply', 'failure']) {
+      process.env.MODE = mode;
+      const core = fake.core();
+      await comment.run({ github, context: fake.context({ runId: 7 }), core });
+      assert.equal(github.calls.at(-1).params.comment_id, 55);
+      assert.equal(core.outputs.comment_id, undefined);
+    }
+    assert.deepEqual(state.readSeen(github.calls.at(-2).params.body), { key: 'issue-12', through: '2026-10-29T10:00:00Z', id: '9' });
+    assert.ok(!github.calls.some((c) => c.name === 'issues.listComments'));
+  }
+});
