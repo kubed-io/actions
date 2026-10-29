@@ -65,15 +65,25 @@ async function run({ github, context, core, env = process.env }) {
   if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith(cfg.prefix)) return core.info(`#${number} is not the agents'`);
 
   const carried = viaRoute ? e.client_payload?.event : checksRun?.event;
-  const pushed = carried === 'pull_request';
-  const review = carried === 'pull_request_review';
+  const via = e.client_payload?.action;
+  const pushed = viaRoute ? carried === 'pull_request' && via === 'synchronize' : carried === 'pull_request';
+  const review = viaRoute ? carried === 'pull_request_review' && via === 'submitted' : carried === 'pull_request_review';
+  // a dispatch carries only the relayed events: a push, or a submitted review
+  if (viaRoute && !pushed && !review) return core.info('agent-route: unknown event');
   let actor = String(viaRoute ? e.client_payload?.actor : (checksRun ? checksRun.triggering_actor : e.sender)?.id);
   let copilotOk = true;
   if (viaRoute && review) {
     // the payload is a pointer: who reviewed, and of what, is read back from GitHub
-    const reviewId = e.client_payload?.review_id;
-    const { data: got } = await github.rest.pulls.getReview({ ...context.repo, pull_number: number, review_id: reviewId });
-    if (String(got.user?.id) !== actor) actor = 'unknown';
+    const reviewId = Number(e.client_payload?.review_id) || 0;
+    let got = null;
+    if (reviewId) {
+      try {
+        ({ data: got } = await github.rest.pulls.getReview({ ...context.repo, pull_number: number, review_id: reviewId }));
+      } catch (err) {
+        if (err.status !== 404) throw err;
+      }
+    }
+    if (!got || String(got.user?.id) !== actor) actor = 'unknown';
     if (actor === cfg.copilot) {
       copilotOk = got.commit_id === pr.head.sha && !pr.draft
         && await reviewComments(github, { ...context.repo, number, reviewId }) >= 1;

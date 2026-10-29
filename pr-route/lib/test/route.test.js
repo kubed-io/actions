@@ -138,3 +138,23 @@ test('agent-route: the App\'s push to the draft is the next task; the finishing 
   assert.deepEqual(await outcome(setup({ ...push })), ['code', `${P}next-task`, 'quiet']);
   assert.equal((await outcome(setup({ ...push, message: 'Task 8\n\nAgent: done' })))[0], 'none');
 });
+
+test('agent-route: an unknown or missing event, or an action the relay never carried, is nothing', async () => {
+  assert.equal((await outcome(setup(routed({ event: undefined, review_id: undefined }))))[0], 'none');
+  assert.equal((await outcome(setup({ ...routed({ event: 'issue_comment' }), approved: false })))[0], 'none');
+  assert.equal((await outcome(setup(routed({ action: 'dismissed' }))))[0], 'none');
+  assert.equal((await outcome(setup(routed({ event: 'pull_request', action: 'labeled', actor: DRK, review_id: undefined }))))[0], 'none');
+});
+
+test('agent-route: a review without a usable id, or one GitHub no longer has, is nothing, not a failure', async () => {
+  for (const review_id of [undefined, 'abc', 0]) {
+    assert.equal((await outcome(setup(routed({ review_id }))))[0], 'none');
+  }
+  const t = setup(routed());
+  const missing = Object.assign(new Error('Not Found'), { status: 404 });
+  const github = fake.github({ 'pulls.get': { state: 'open', draft: true, labels: [{ name: 'plan approved' }], head: { sha: 'h', ref: 'issue-6', repo: { full_name: 'kubed-io/selenium-flow' } } }, 'repos.getCommit': { commit: { message: '' } }, 'pulls.getReview': missing });
+  const core = fake.core();
+  await route.run({ github, context: fake.context(routed()), core, env: ENV });
+  assert.equal(core.outputs.stage, 'none');
+  assert.ok(t);
+});
