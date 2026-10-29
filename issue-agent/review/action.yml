@@ -3,7 +3,8 @@ description: >
   Waits for Copilot's review of a pull request's head, once a user has asked for it, and
   says whether it left comments for the code agent. Only a user can ask Copilot, and every
   run Copilot's review triggers is held for approval, so the run the user's request wakes
-  waits in-band instead. Runs no Claude.
+  waits in-band instead. For repositories without n8n: where n8n relays the review as an
+  `agent-route` dispatch, nothing waits. Runs no Claude.
 
 inputs:
   github_token:

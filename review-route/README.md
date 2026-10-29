@@ -10,7 +10,7 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 | Checks red on the head | `failure`: checks failed (fix n of max) | an `agent-code` dispatch, `reason: ci`, with the run |
 | Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
-| The owner asked Copilot to review the PR | `success`: Copilot reviews this PR | none: Copilot's hand-back wakes the code agent; an `agent-review` dispatch still asks the review agent |
+| The owner asked Copilot to review the PR | `success`: Copilot reviews this PR | none: Copilot's hand-back, or n8n's relay where it runs, wakes the code agent; an `agent-review` dispatch still asks the review agent |
 | A new head, checks green | `pending`: reviewing (n of max) | `number`, `sha`, `last` for the review job |
 | `max_reviews` verdicts without a pass | `failure`: needs a human | |
 

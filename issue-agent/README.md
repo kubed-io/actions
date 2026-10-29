@@ -9,6 +9,10 @@ Your new comments are the turn, in your words. The agent answers with:
 - on a pull request, **a review**: line comments and suggestions under its reply, the way
   Copilot reviews (`review: true`).
 
+Where n8n relays Copilot's review (as an `agent-route` dispatch, see
+[pr-route](../pr-route/)), nothing waits for it; `review/` and its wait are for
+repositories without n8n.
+
 It does nothing else: no git, no workflow. Its structured response is its output, so the
 steps after it decide what to commit (`git/commit`), branch (`git/branch`) or open
 (`git/pr`). Open the session from `/claude` in VS Code and it reads as the chat it was.

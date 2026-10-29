@@ -10,7 +10,7 @@ const P = '/mcp__superpowers__superpowers_';
 const ENV = { OWNER_ID: String(DRK), APP_ID: String(APP), COPILOT_ID: String(COPILOT), PREFIX: 'issue-', LABEL: 'plan approved', PROMPTS: P };
 
 // the agents' PR #7; `approved` puts the label on it, `message` is its head commit's
-function setup({ eventName, payload, approved = true, draft = true, message = 'Task 3', pr = {} }) {
+function setup({ eventName, payload, approved = true, draft = true, message = 'Task 3', pr = {}, review = {}, lineComments = 2 }) {
   const github = fake.github({
     'pulls.get': {
       state: 'open', draft, labels: approved ? [{ name: 'plan approved' }] : [],
@@ -18,6 +18,8 @@ function setup({ eventName, payload, approved = true, draft = true, message = 'T
       ...pr,
     },
     'repos.getCommit': { commit: { message } },
+    'pulls.getReview': { user: { id: DRK }, commit_id: 'h'.repeat(40), ...review },
+    'pulls.listCommentsForReview': Array.from({ length: lineComments }, (_, i) => ({ id: i })),
   });
   const core = fake.core();
   const go = () => route.run({ github, context: fake.context({ eventName, payload }), core, env: ENV });
@@ -100,4 +102,39 @@ test('reason is empty for anything but a dispatch', async () => {
   const t = setup(comment());
   await t.go();
   assert.equal(t.core.outputs.reason, '');
+});
+
+// n8n's relay: a repository_dispatch of type agent-route, the payload a pointer
+const routed = (extra = {}) => ({ eventName: 'repository_dispatch', payload: { action: 'agent-route', client_payload: { pull_request: 7, event: 'pull_request_review', action: 'submitted', actor: DRK, review_id: 9, ...extra }, sender: { id: 41898282 } } });
+
+test("agent-route: the owner's review is a code turn after the approval, a plan turn before", async () => {
+  assert.deepEqual(await outcome(setup({ ...routed(), draft: false })), ['code', '', 'quiet']);
+  assert.equal((await outcome(setup({ ...routed(), approved: false })))[0], 'plan');
+});
+
+test("agent-route: Copilot's review of the head with line comments is a review to answer", async () => {
+  const t = setup({ ...routed({ actor: COPILOT }), draft: false, review: { user: { id: COPILOT } } });
+  assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
+  assert.equal(t.core.outputs.reason, '');
+});
+
+test("agent-route: Copilot's review with no line comments, of an older head, or on a draft is nothing", async () => {
+  const base = { ...routed({ actor: COPILOT }), draft: false, review: { user: { id: COPILOT } } };
+  assert.equal((await outcome(setup({ ...base, lineComments: 0 })))[0], 'none');
+  assert.equal((await outcome(setup({ ...base, review: { user: { id: COPILOT }, commit_id: 'old' } })))[0], 'none');
+  assert.equal((await outcome(setup({ ...base, draft: true })))[0], 'none');
+});
+
+test("agent-route: the App's own review replies are nothing", async () => {
+  assert.equal((await outcome(setup({ ...routed({ actor: APP }), draft: false, review: { user: { id: APP } } })))[0], 'none');
+});
+
+test("agent-route: a payload actor the review's author contradicts is nothing", async () => {
+  assert.equal((await outcome(setup({ ...routed({ actor: DRK }), review: { user: { id: 12345 } } })))[0], 'none');
+});
+
+test('agent-route: the App\'s push to the draft is the next task; the finishing one wakes nothing', async () => {
+  const push = routed({ event: 'pull_request', action: 'synchronize', actor: APP, review_id: undefined });
+  assert.deepEqual(await outcome(setup({ ...push })), ['code', `${P}next-task`, 'quiet']);
+  assert.equal((await outcome(setup({ ...push, message: 'Task 8\n\nAgent: done' })))[0], 'none');
 });

@@ -49,6 +49,12 @@ async function clearHeldRuns(github, { owner, repo, branch, core }) {
   }
 }
 
+// the line comments a review left
+async function reviewComments(github, { owner, repo, number, reviewId }) {
+  const comments = await github.paginate(github.rest.pulls.listCommentsForReview, { owner, repo, pull_number: number, review_id: reviewId, per_page: 100 });
+  return comments.length;
+}
+
 // issue-agent/review: waits for Copilot's review of the head, once it is asked, and says
 // whether it left anything for the code agent to answer
 async function run({ github, context, core, wait = sleep }) {
@@ -77,11 +83,11 @@ async function run({ github, context, core, wait = sleep }) {
     core.warning(`Copilot did not review ${sha.slice(0, 7)} in time`);
     return;
   }
-  const comments = await github.paginate(github.rest.pulls.listCommentsForReview, { owner, repo, pull_number: number, review_id: review.id, per_page: 100 });
+  const comments = await reviewComments(github, { owner, repo, number, reviewId: review.id });
   core.setOutput('review_url', review.html_url || '');
-  core.setOutput('comments', String(comments.length));
-  core.setOutput('respond', String(comments.length > 0));
-  core.notice(`Copilot reviewed ${sha.slice(0, 7)}: ${comments.length} comment(s)`);
+  core.setOutput('comments', String(comments));
+  core.setOutput('respond', String(comments > 0));
+  core.notice(`Copilot reviewed ${sha.slice(0, 7)}: ${comments} comment(s)`);
 }
 
-module.exports = { isCopilot, isAsked, run };
+module.exports = { isCopilot, isAsked, reviewComments, run };

@@ -2,7 +2,8 @@ name: Hand Back
 description: >
   Sends a repository_dispatch at the very end of the job, from its post step. In Copilot's
   `copilot-setup-steps` job that is after Copilot's review is posted: the hand-back to
-  whatever answers the review, since every run Copilot triggers directly is held.
+  whatever answers the review, since every run Copilot triggers directly is held. For
+  repositories without n8n: where n8n relays the review (`agent-route`), nothing hands back.
 
 inputs:
   token:

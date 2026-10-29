@@ -2,7 +2,9 @@ name: PR Route
 description: >
   Decides what an event on an agent-built pull request is for the agents: a plan turn, a
   code turn, or nothing, and the kb prompt the turn starts with. Reads the PR and its head
-  commit only; runs no Claude. The job's `if` still gates who may cause an event.
+  commit only; runs no Claude. The job's `if` still gates who may cause an event. An
+  `agent-route` dispatch (n8n's relay of a review or a push, where it runs) routes like the
+  event it carries.
 
 inputs:
   github_token:
@@ -55,7 +57,7 @@ outputs:
     description: The failed checks run a `ci` dispatch names, for its report.
     value: ${{ steps.route.outputs.run_id }}
   reason:
-    description: A dispatch's reason (`ci`, `review`, `copilot`); empty for any other event.
+    description: An `agent-code` dispatch's reason (`ci`, `review`, `copilot`); empty for any other event, an `agent-route` dispatch included.
     value: ${{ steps.route.outputs.reason }}
 
 runs:

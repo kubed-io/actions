@@ -152,7 +152,7 @@ async function run({ github, context, core, env = process.env }) {
   }
 
   // a PR the owner asked Copilot to review is Copilot's: the review agent stands aside,
-  // unless a dispatch asks for it by name. Copilot's hand-back wakes the code agent
+  // unless a dispatch asks for it by name. Copilot's hand-back, or n8n's relay where it runs, wakes the code agent
   if (!dispatched && await copilotAsked(github, repo, number)) {
     await status('success', 'Copilot reviews this PR');
     return core.info(`#${number}: Copilot was asked to review it`);

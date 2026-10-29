@@ -10,6 +10,7 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
 | Copilot's review | | `code` |
 | An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `copilot` (Copilot's hand-back) → review-came-in, after the route job waits for Copilot's review |
+| An `agent-route` dispatch | routes like the `pull_request_review` or `pull_request` it carries; Copilot's review is `code` only for the head, with line comments, out of draft, `prompt` review-came-in |
 | Anything else (the App's own thread replies, a push out of draft) | `none` | `none` |
 
 The prompts are kb prompts sent as slash commands (`prompts` + name), so the methodology's
@@ -25,7 +26,9 @@ anything else is answered in its own words and gets the prompt only when nothing
 ```
 
 It answers `issue_comment`, `pull_request_target` (the label), `workflow_run` (a relay of
-`pull_request` and `pull_request_review`) and `repository_dispatch`. The job's `if` still
+`pull_request` and `pull_request_review`) and `repository_dispatch`: `agent-code`, or
+`agent-route` where n8n relays the events instead (`client_payload`: `pull_request`, `event`,
+`action`, `actor`, `review_id`; a pointer, the review is read back from GitHub). The job's `if` still
 gates who may cause each: only GitHub's event data can vouch for a sender before a runner
 starts. The token needs `pull-requests: read` and `contents: read`.
 
