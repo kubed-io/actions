@@ -106,7 +106,10 @@ that it did not, so the comment's own queued run finds nothing new and none is l
 ## Outputs
 
 `structured` (the whole response, JSON), `output` (the role's part, JSON), `reply`,
-`number`, `comment_id`, `review_id`, `head_sha`, `session_id`, `conclusion`.
+`number`, `comment_id`, `review_id`, `head_sha`, `reviewed_sha`, `session_id`, `conclusion`.
+`reviewed_sha` is the commit the review is on: the checkout's when the turn ended, past
+`head_sha` when a push was brought in during it, and then line comments are checked against
+that commit's diff.
 
 ## Landing the turn
 

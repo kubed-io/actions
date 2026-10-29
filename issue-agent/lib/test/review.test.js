@@ -31,7 +31,7 @@ test('a range goes to GitHub with start_line on the RIGHT; one line without it',
   assert.deepEqual(review.toGithub({ path: 'a.py', line: 12, body: 'b' }), { path: 'a.py', line: 12, side: 'RIGHT', body: 'b' });
 });
 
-function scene(comments, routes = {}, env = {}) {
+function scene(comments, routes = {}, env = {}, head = 'abc123') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-'));
   fs.writeFileSync(path.join(dir, 's.json'), JSON.stringify({ reply: 'Looks close.', notes: 'n', review: { comments } }));
   fs.writeFileSync(path.join(dir, 'diff.json'), JSON.stringify(LINES));
@@ -42,7 +42,8 @@ function scene(comments, routes = {}, env = {}) {
   });
   const github = fake.github({ 'pulls.createReview': { id: 77 }, 'issues.deleteComment': {}, ...routes });
   const core = fake.core();
-  return { github, core, done: review.run({ github, context: fake.context({ runId: 7 }), core }) };
+  const exec = fake.exec(head);
+  return { github, core, exec, done: review.run({ github, context: fake.context({ runId: 7 }), core, exec }) };
 }
 
 test('the reply is one COMMENT review on the commit read; off-diff comments go in its body; the placeholder goes', async () => {
@@ -120,4 +121,49 @@ test('live with no placeholder left: the review deletes nothing', async () => {
   await done;
   assert.ok(!github.calls.some((c) => c.name === 'issues.deleteComment'));
   assert.equal(core.outputs.posted, 'true');
+});
+
+test('the checkout still at the head Gather read: the review is on it, nothing is compared', async () => {
+  const { github, core, exec, done } = scene([{ path: 'a.py', line: 12, body: 'x' }]);
+  await done;
+  assert.deepEqual(exec.calls, [['git', 'rev-parse', 'HEAD']]);
+  assert.ok(!github.calls.some((c) => c.name === 'repos.compareCommitsWithBasehead' || c.name === 'pulls.get'));
+  assert.equal(github.calls.find((c) => c.name === 'pulls.createReview').params.commit_id, 'abc123');
+  assert.equal(core.outputs.reviewed_sha, 'abc123');
+});
+
+// the push brought in mid-turn: a.py's hunk now starts at 30
+const MOVED = {
+  'pulls.get': { base: { ref: 'main' }, head: { sha: 'def456' } },
+  'repos.compareCommitsWithBasehead': { files: [{ filename: 'a.py', status: 'modified', patch: '@@ -28,2 +30,3 @@\n ctx\n+new\n ctx2' }] },
+};
+
+test('the checkout moved during the turn: the review is on the commit it ended on, its lines from that commit\'s diff', async () => {
+  const { github, core, done } = scene([
+    { path: 'a.py', line: 31, body: 'On the new line.' },
+    { path: 'a.py', line: 12, body: 'Off the diff now.' },
+  ], MOVED, {}, 'def456');
+  await done;
+  assert.equal(github.calls.find((c) => c.name === 'repos.compareCommitsWithBasehead').params.basehead, 'main...def456');
+  const call = github.calls.find((c) => c.name === 'pulls.createReview').params;
+  assert.equal(call.commit_id, 'def456');
+  assert.deepEqual(call.comments.map((c) => c.line), [31]);
+  assert.ok(call.body.includes('- **`a.py:12`**: Off the diff now.'));
+  assert.equal(core.outputs.reviewed_sha, 'def456');
+});
+
+test('moved with no line comments: the reply goes as a comment, and the commit it judged is still the new one', async () => {
+  const { github, core, done } = scene([], MOVED, {}, 'def456');
+  await done;
+  assert.ok(!github.calls.some((c) => c.name === 'pulls.createReview' || c.name === 'repos.compareCommitsWithBasehead'));
+  assert.equal(core.outputs.reviewed_sha, 'def456');
+});
+
+test('moved, and its diff cannot be read: every comment goes in the body of a review on the new commit', async () => {
+  const { github, core, done } = scene([{ path: 'a.py', line: 31, body: 'x' }], { ...MOVED, 'repos.compareCommitsWithBasehead': () => fake.notFound() }, {}, 'def456');
+  await done;
+  const call = github.calls.find((c) => c.name === 'pulls.createReview').params;
+  assert.equal(call.commit_id, 'def456');
+  assert.deepEqual(call.comments, []);
+  assert.ok(core.notices.some((m) => /def456/.test(m)));
 });

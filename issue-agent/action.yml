@@ -143,6 +143,11 @@ outputs:
   head_sha:
     description: The PR head the agent read.
     value: ${{ steps.gather.outputs.head_sha }}
+  reviewed_sha:
+    description: >
+      The commit the review is on: the checkout's when the turn ended, which a push brought in
+      during it moves past `head_sha`; `head_sha` when no review step ran.
+    value: ${{ steps.review.outputs.reviewed_sha || steps.gather.outputs.head_sha }}
   session_id:
     description: The Claude session id.
     value: ${{ steps.claude.outputs.session_id }}
@@ -333,7 +338,7 @@ runs:
     with:
       github-token: ${{ inputs.github_token }}
       script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/review.js`).run({ github, context, core });
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/review.js`).run({ github, context, core, exec });
 
   - name: Reply
     id: reply
