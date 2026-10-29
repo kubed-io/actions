@@ -58,3 +58,15 @@ checks:
 | `retention_days` | `14` | |
 
 Output: `failed`, how many jobs failed.
+
+`pr-checks/rerun` re-runs a checks run's failed jobs, at most `max_attempts` runs in all
+(default 2), for a failure judged not the change's own: a flaky test, an outage. A run past
+the limit, or one that didn't fail, is left alone, and the output `rerun` says which.
+
+```yaml
+  - uses: kubed-io/actions/pr-checks/rerun@main
+    with:
+      github_token: ${{ steps.app.outputs.token }}   # actions: write
+      run_id: ${{ needs.route.outputs.run_id }}
+```
+

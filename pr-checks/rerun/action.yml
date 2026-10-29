@@ -1,0 +1,38 @@
+name: PR Checks Re-run
+description: >
+  Re-runs a checks run's failed jobs, at most max_attempts runs in all: for a failure someone
+  judged not the change's own (a flaky test, an outage). A run that failed again past the
+  limit, or that did not fail, is left alone.
+
+inputs:
+  github_token:
+    description: A token that may re-run workflows (actions write).
+    required: false
+    default: ${{ github.token }}
+  run_id:
+    description: The checks run whose failed jobs to re-run.
+    required: true
+  max_attempts:
+    description: The most runs in all, the first included.
+    required: false
+    default: "2"
+
+outputs:
+  rerun:
+    description: "`true` when the failed jobs were re-run."
+    value: ${{ steps.rerun.outputs.rerun }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Re-run
+    id: rerun
+    uses: actions/github-script@v9
+    env:
+      RUN_ID: ${{ inputs.run_id }}
+      MAX_ATTEMPTS: ${{ inputs.max_attempts }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/rerun.js`).run({ github, context, core });

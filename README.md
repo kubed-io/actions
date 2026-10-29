@@ -18,6 +18,7 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [issue-route](issue-route/) | Decides what an event on a work item is: a spec turn, the hand-off to a plan or nothing; natively or from n8n's `agent-issue` dispatch |
 | [pr-route](pr-route/) | Decides what an event on an agent-built PR is: a plan turn, a code turn or nothing, and the kb prompt it starts with; also routes an `agent-route` dispatch, n8n's relay of a review, a push, a comment or the approval label |
 | [pr-checks/report](pr-checks/) | The checks workflow's last job: what failed in the run, for the code agent, as the step summary and the `checks-report` artifact |
+| [pr-checks/rerun](pr-checks/) | Re-runs a checks run's failed jobs once, when the failure was judged not the change's (a flaky test, an outage) |
 | [review-route](review-route/) | Decides whether the review agent reviews a PR's head, as a commit status: red checks go to the code agent, a base merge or a passing review's applied suggestions keep the verdict; `review-route/verdict` sets the status from the review |
 | [app-token](app-token/) | Mints a kubed-io GitHub App token from GCP Secret Manager through Workload Identity Federation, exporting no GCP credential to the job |
 | [krm-setup](krm-setup/) | Installs the KRM toolchain (kubectl, kustomize, helm, krew, kompose, yq) and `kubed-krm` Python package |
