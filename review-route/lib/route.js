@@ -1,5 +1,6 @@
 // Decides whether the review agent reviews a PR's head, from a finished checks run
-// (workflow_run), a push (pull_request_target) or an `agent-review` dispatch. Its answer
+// (workflow_run, or the run's own `agent-review` dispatch with `reason: checks`), a push
+// (pull_request_target) or an `agent-review` dispatch that asks again. Its answer
 // is a commit status on the head: the PR's required check, and the loop's memory, since a
 // head the review agent already judged carries its status.
 
@@ -10,6 +11,7 @@ const VERDICT = /^(looks good|changes requested|needs a human)$|^changes request
 const CARRIED = /^(?:no changes|suggestions applied) since \w+: /;
 const failedChecks = (s) => /^checks failed/.test(s?.description || '');
 const short = (sha) => (sha || '').slice(0, 7);
+const BAD = ['failure', 'cancelled', 'timed_out'];
 const csv = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 function settings(env) {
@@ -73,16 +75,32 @@ async function copilotAsked(github, repo, number) {
   return events.some((e) => e.event === 'review_requested' && isCopilot(e.requested_reviewer));
 }
 
+// A checks run that points at itself from its last job is still running: it failed when
+// any job that finished did
+async function jobsFailed(github, repo, runId) {
+  const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+    { ...repo, run_id: runId, filter: 'latest', per_page: 100 });
+  return jobs.filter((j) => j.status === 'completed' && BAD.includes(j.conclusion)).length;
+}
+
 async function run({ github, context, core, env = process.env }) {
   const cfg = settings(env);
   const repo = context.repo;
   const e = context.payload;
-  const dispatched = context.eventName === 'repository_dispatch';
-  const checksRun = e.workflow_run;
+  const sent = context.eventName === 'repository_dispatch' ? e.client_payload || {} : null;
+  // the checks run's pointer to itself routes as the run; any other dispatch asks again
+  const pointer = sent?.reason === 'checks';
+  const dispatched = !!sent && !pointer;
+  let checksRun = e.workflow_run;
   for (const k of ['number', 'sha', 'last']) core.setOutput(k, '');
+  if (pointer) {
+    ({ data: checksRun } = await github.rest.actions.getWorkflowRun({ ...repo, run_id: Number(sent.run_id) }));
+    if (checksRun.event !== 'pull_request') return core.info(`run ${checksRun.id} is a ${checksRun.event} run`);
+    if (checksRun.head_sha !== sent.sha) return core.info(`run ${checksRun.id} ran on ${short(checksRun.head_sha)}, not ${short(sent.sha)}`);
+  }
   if (checksRun?.conclusion === 'cancelled') return core.info('cancelled: a newer push has its own run');
 
-  let number = Number(dispatched ? e.client_payload?.pull_request
+  let number = Number(sent ? sent.pull_request
     : checksRun ? checksRun.pull_requests?.[0]?.number : e.pull_request?.number) || 0;
   // a fork's run names no PR: find it by its head
   if (!number && checksRun) {
@@ -102,6 +120,8 @@ async function run({ github, context, core, env = process.env }) {
   const ours = pr.head.repo?.full_name === `${repo.owner}/${repo.repo}`;
   const labels = pr.labels.map((l) => l.name);
   if (!ours || !pr.head.ref.startsWith(cfg.prefix) || !cfg.labels.every((l) => labels.includes(l))) {
+    // the pointer comes only for the agents' PRs, whose check this is
+    if (pointer) return core.info(`#${number} was not built by the agents: no status`);
     await status('success', 'not built by the agents');
     return core.info(`#${number} was not built by the agents`);
   }
@@ -111,7 +131,13 @@ async function run({ github, context, core, env = process.env }) {
   if (checksRun) {
     const { data } = await github.rest.actions.listWorkflowRunArtifacts({ ...repo, run_id: checksRun.id, name: cfg.artifact });
     if (!data.artifacts.length) return core.info('no checks ran in this run');
-    checks = checksRun.conclusion === 'success' ? 'passed' : 'failed';
+    if (pointer) {
+      const failed = await jobsFailed(github, repo, checksRun.id);
+      if (sent.failed != null && Number(sent.failed) !== failed) {
+        core.warning(`run ${checksRun.id} reported ${sent.failed} failed jobs, its jobs say ${failed}`);
+      }
+      checks = failed ? 'failed' : 'passed';
+    } else checks = checksRun.conclusion === 'success' ? 'passed' : 'failed';
   }
 
   // the review agent's own statuses are the memory: one per commit it judged

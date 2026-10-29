@@ -6,7 +6,7 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 
 | What happened | Status | Then |
 |---|---|---|
-| A PR the agents did not build | `success`: not built by the agents | |
+| A PR the agents did not build | `success`: not built by the agents; none on a checks dispatch | |
 | Checks red on the head | `failure`: checks failed (fix n of max) | an `agent-code` dispatch, `reason: ci`, with the run |
 | Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
@@ -31,9 +31,18 @@ requested` get a review: the review may have asked for more than its suggestions
 ```
 
 It answers `workflow_run` (the checks run ended; one without the `checks_artifact` ran no
-checks and is skipped), `pull_request_target` (a push, with no checks gate) and
-`repository_dispatch`. The job's `if` still gates who may dispatch: only GitHub's event
-data can vouch for a sender before a runner starts.
+checks and is skipped), `pull_request_target` (a push, with no checks gate) and an
+`agent-review` dispatch. A dispatch with `reason: checks` is the checks run's last job
+pointing at its own run, and is routed as that run:
+
+```json
+{"pull_request": 7, "reason": "checks", "run_id": 123, "sha": "<head>", "failed": 0}
+```
+
+The run is read back: its head must be `sha` and the PR's, its `triggering_actor` must be
+trusted, and its finished jobs, not `failed`, say whether the checks passed. Any other
+`agent-review` dispatch asks again. The job's `if` still gates who may dispatch: only
+GitHub's event data can vouch for a sender before a runner starts.
 
 The token needs `pull-requests: read`, `statuses: write`, `actions: read` (the artifact) and
 `contents: write` (the dispatch). The review job must set its verdict as the same bot, the

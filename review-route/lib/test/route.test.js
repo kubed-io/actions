@@ -230,3 +230,112 @@ test('a request for someone else, or none, leaves the review to the review agent
   await t.go();
   assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
 });
+
+// the checks run's own last job points at itself: `agent-review`, `reason: checks`, sent
+// as github-actions[bot] while that job is still running
+const CHECKS = { id: 3, event: 'pull_request', status: 'in_progress', conclusion: null, head_sha: B, html_url: 'https://run/3', triggering_actor: { id: DRK } };
+const job = (name, conclusion, status = 'completed') => ({ name, status, conclusion });
+const GREEN = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'success'), job('Bench', 'skipped'), job('Checks', null, 'in_progress')];
+const RED = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'failure'), job('Checks', null, 'in_progress')];
+function pointed({ run = {}, jobs = GREEN, failed = 0, sha = B, ...over } = {}) {
+  return setup({
+    eventName: 'repository_dispatch',
+    payload: { action: 'agent-review', client_payload: { pull_request: 7, reason: 'checks', run_id: 3, sha, failed }, sender: { id: BOT } },
+    ...over,
+    routes: { 'actions.getWorkflowRun': { ...CHECKS, ...run }, 'actions.listJobsForWorkflowRun': jobs, ...over.routes },
+  });
+}
+
+test('the checks dispatch, green: the run read back starts a review', async () => {
+  const t = pointed();
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
+  assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false' });
+  for (const name of ['actions.getWorkflowRun', 'actions.listWorkflowRunArtifacts', 'actions.listJobsForWorkflowRun']) {
+    assert.equal(t.github.calls.find((c) => c.name === name).params.run_id, 3, name);
+  }
+});
+
+test('the checks dispatch, red: the code agent gets the checks run, not a review', async () => {
+  const t = pointed({ jobs: RED, failed: 1 });
+  await t.go();
+  assert.deepEqual(t.posted(), ['failure: checks failed (fix 1 of 3)']);
+  assert.equal(t.github.calls.find((c) => c.name === 'repos.createCommitStatus').params.target_url, 'https://run/3');
+  assert.deepEqual(t.dispatched(), [{ pull_request: 7, reason: 'ci', run_id: 3 }]);
+  assert.equal(t.core.outputs.number, '');
+  assert.deepEqual(t.core.notices, []);
+});
+
+test('the checks dispatch trusts the jobs over the count it carries', async () => {
+  const t = pointed({ jobs: RED, failed: 0 });
+  await t.go();
+  assert.deepEqual(t.posted(), ['failure: checks failed (fix 1 of 3)']);
+  assert.equal(t.dispatched().length, 1);
+  assert.equal(t.core.notices.length, 1);
+});
+
+test('the checks dispatch for a run on another commit, or an old head, does nothing', async () => {
+  for (const t of [
+    pointed({ sha: A }),
+    pointed({ run: { head_sha: A }, sha: A }),
+    pointed({ pr: { head: { sha: C, ref: 'issue-6', repo: { full_name: 'kubed-io/selenium-flow' } } } }),
+  ]) {
+    await t.go();
+    assert.deepEqual(t.posted(), []);
+    assert.deepEqual(t.dispatched(), []);
+    assert.equal(t.core.outputs.number, '');
+  }
+});
+
+test('the checks dispatch for a cancelled run, a push run, or one without the report does nothing', async () => {
+  for (const t of [
+    pointed({ run: { status: 'completed', conclusion: 'cancelled' } }),
+    pointed({ run: { event: 'push' } }),
+    pointed({ artifacts: 0 }),
+  ]) {
+    await t.go();
+    assert.deepEqual(t.posted(), []);
+    assert.equal(t.core.outputs.number, '');
+  }
+});
+
+test('the checks dispatch answers to the run\'s triggering actor, not its sender', async () => {
+  const t = pointed({ run: { triggering_actor: { id: 1 } } });
+  await t.go();
+  assert.deepEqual(t.posted(), []);
+  assert.equal(t.core.outputs.number, '');
+});
+
+test('the checks dispatch for a PR the agents did not build sets no status', async () => {
+  const t = pointed({ pr: { labels: [] } });
+  await t.go();
+  assert.deepEqual(t.posted(), []);
+  assert.equal(t.core.outputs.number, '');
+});
+
+test('the checks dispatch judges a head once, as a finished run does; asking again reviews it', async () => {
+  const statuses = { [B]: [mine('failure', 'changes requested')] };
+  const t = pointed({ statuses });
+  await t.go();
+  assert.deepEqual(t.posted(), []);
+
+  const again = setup({
+    statuses, eventName: 'repository_dispatch',
+    payload: { action: 'agent-review', client_payload: { pull_request: 7 }, sender: { id: DRK } },
+  });
+  await again.go();
+  assert.deepEqual(again.posted(), ['pending: reviewing (1 of 3)']);
+  assert.ok(!again.github.calls.some((c) => c.name.startsWith('actions.')));
+});
+
+test('the checks dispatch, green after red on the same head (a re-run), brings the review', async () => {
+  const t = pointed({ statuses: { [B]: [mine('failure', 'checks failed (fix 1 of 3)', 'https://run/2')] } });
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
+});
+
+test('the checks dispatch leaves a PR Copilot was asked to review to Copilot', async () => {
+  const t = pointed({ routes: askedCopilot });
+  await t.go();
+  assert.deepEqual(t.posted(), ['success: Copilot reviews this PR']);
+});

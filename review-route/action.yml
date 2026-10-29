@@ -1,7 +1,9 @@
 name: Review Route
 description: >
   Decides whether the review agent reviews a pull request's head, and says so with a commit
-  status on it: the PR's required check, and the memory of what was judged. Red checks send
+  status on it: the PR's required check, and the memory of what was judged. A checks run
+  wakes it when it ends (workflow_run) or from its own last job (an `agent-review` dispatch
+  with `reason: checks`); any other `agent-review` dispatch asks again. Red checks send
   the code agent an `agent-code` dispatch instead; a commit that only merges the base in, or
   only applies a passing review's own suggestions, keeps the last verdict. Runs no Claude.
 
@@ -45,8 +47,8 @@ inputs:
     default: plan approved
   checks_artifact:
     description: >
-      On workflow_run, the artifact the checks run uploads when it ran the checks; a run
-      without it is skipped.
+      The artifact the checks run uploads when it ran the checks; a run without it is
+      skipped.
     required: false
     default: checks-report
 
