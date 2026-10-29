@@ -62,7 +62,14 @@ async function run({ github, context, core }) {
     return;
   }
   if (env.MODE === 'failure') {
-    if (live) where.comment_id = (await settle({ github, context, env })).commentId;
+    if (live) {
+      // a lookup that fails still takes the spinner down where it was first posted
+      try {
+        where.comment_id = (await settle({ github, context, env })).commentId;
+      } catch (e) {
+        core.warning(`the placeholder was not looked up (${e.message}); the note goes on the first one`);
+      }
+    }
     await post(github, { ...where, body: failure({ prompt: env.PROMPT, runUrl: env.RUN_URL }) });
     return;
   }
@@ -72,7 +79,16 @@ async function run({ github, context, core }) {
   }
   let seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
   if (live) ({ commentId: where.comment_id, seen } = await settle({ github, context, env, seen }));
-  const { data } = await post(github, { ...where, body: reply({ prompt: env.PROMPT, header: headerOf(env), text: env.REPLY, runUrl: env.RUN_URL, seen }) });
+  const body = () => reply({ prompt: env.PROMPT, header: headerOf(env), text: env.REPLY, runUrl: env.RUN_URL, seen });
+  let data;
+  try {
+    ({ data } = await post(github, { ...where, body: body() }));
+  } catch (e) {
+    // n8n moved the placeholder between the lookup and the edit: once more
+    if (!live || e.status !== 404) throw e;
+    ({ commentId: where.comment_id, seen } = await settle({ github, context, env, seen: { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID } }));
+    ({ data } = await post(github, { ...where, body: body() }));
+  }
   // a cancel that lands after this must not overwrite the posted reply
   core.setOutput('posted', 'true');
   // not the placeholder's first id when n8n moved it, or none was left

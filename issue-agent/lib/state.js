@@ -43,8 +43,9 @@ function placeholderMarker(runId) {
   return `<!-- issue-agent-placeholder {"run_id": ${Number(runId)}} -->`;
 }
 
+// the first: it sits right after the tag, ahead of any quoted prompt
 function readPlaceholder(body) {
-  const found = [...(body || '').matchAll(PLACEHOLDER)].pop();
+  const found = [...(body || '').matchAll(PLACEHOLDER)][0];
   return found ? parse(found[1]) : null;
 }
 

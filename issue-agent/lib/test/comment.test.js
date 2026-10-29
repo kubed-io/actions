@@ -150,3 +150,26 @@ test('off: the placeholder, the answer and the failure note are today\'s, on the
     assert.ok(!github.calls.some((c) => c.name === 'issues.listComments'));
   }
 });
+
+test('live: a placeholder n8n moved between the lookup and the edit is looked up once more', async () => {
+  liveEnv('reply');
+  const MOVED_AGAIN = { ...MOVED, id: 62, created_at: '2026-10-29T10:07:00Z' };
+  let listed = 0;
+  const gone = Object.assign(new Error('Not Found'), { status: 404 });
+  const github = fake.github({
+    'issues.listComments': () => (listed++ ? [ASKED, MOVED_AGAIN] : [ASKED, MOVED]),
+    'issues.updateComment': (p) => (p.comment_id === 60 ? gone : { id: p.comment_id }),
+  });
+  const core = fake.core();
+  await comment.run({ github, context: fake.context({ runId: 7 }), core });
+  assert.deepEqual(github.calls.filter((c) => c.name === 'issues.updateComment').map((c) => c.params.comment_id), [60, 62]);
+  assert.equal(core.outputs.comment_id, '62');
+  assert.equal(core.outputs.posted, 'true');
+});
+
+test('live: a failure note whose lookup fails still replaces the saved placeholder', async () => {
+  liveEnv('failure');
+  const github = fake.github({ 'issues.listComments': new Error('boom'), 'issues.updateComment': { id: 55 } });
+  await comment.run({ github, context: fake.context({ runId: 7 }), core: fake.core() });
+  assert.equal(github.calls.find((c) => c.name === 'issues.updateComment').params.comment_id, 55);
+});

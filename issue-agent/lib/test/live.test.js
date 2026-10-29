@@ -125,3 +125,19 @@ test('settle with nothing handed reads no reviews; with no seen it only finds th
   assert.deepEqual(await live.settle({ github, context: fake.context({ runId: 8 }), env }), { commentId: 0 });
   assert.ok(!github.calls.some((c) => c.name.startsWith('pulls.')));
 });
+
+test('settle on a PR: a review not handed over holds through back, even when only comments were', async () => {
+  const github = fake.github({
+    'issues.listComments': [placeholder(60, 7, '01'), comment(11, OWNER, '05')],
+    'pulls.listReviews': [{ id: 500, user: OWNER, submitted_at: at('03'), state: 'COMMENTED', body: 'Hm.' }],
+    'pulls.listReviewComments': [],
+  });
+  const env = { NUMBER: '81', IS_PR: 'true', TRUSTED_IDS: '4399427', TRUSTED_BOTS: '', CLAUDE_CHANNEL_INBOX: inbox([line('comment', 11)]) };
+  const out = await live.settle({ github, context: fake.context({ runId: 7 }), env, seen: SEEN });
+  assert.deepEqual(out.seen, SEEN);
+});
+
+test('the placeholder\'s own marker is the first: a quoted prompt holding another run\'s cannot hide it', () => {
+  const body = `${state.TAG}\n${state.placeholderMarker(7)}\n> ${state.placeholderMarker(1)}\n\nWorking on it…`;
+  assert.equal(live.findPlaceholder([{ id: 60, user: APP, created_at: at('01'), body }], 7).id, 60);
+});

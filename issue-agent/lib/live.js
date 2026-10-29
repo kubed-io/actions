@@ -65,7 +65,8 @@ function advance(seen, got, messages, trust) {
 }
 
 // The placeholder's id now (0 when there is none), and with `seen` the marker the answer
-// carries. One listing of the comments; the reviews only when one was handed over.
+// carries. One listing of the comments; on a PR the reviews too once anything was handed
+// over, since a review not handed over holds `through` back like a comment does.
 async function settle({ github, context, env, seen }) {
   const { owner, repo } = context.repo;
   const number = Number(env.NUMBER);
@@ -75,7 +76,7 @@ async function settle({ github, context, env, seen }) {
   const got = handed(inboxPath(env));
   if (!got.length) return { commentId, seen };
   const messages = comments.map(fromComment);
-  if (env.IS_PR === 'true' && got.some((h) => h.kind === 'review')) {
+  if (env.IS_PR === 'true') {
     const at = { owner, repo, pull_number: number, per_page: 100 };
     const reviews = await github.paginate(github.rest.pulls.listReviews, at);
     const lines = await github.paginate(github.rest.pulls.listReviewComments, at);

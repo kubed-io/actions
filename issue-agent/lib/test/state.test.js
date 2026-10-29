@@ -37,6 +37,6 @@ test('the placeholder marker carries its run, in the contract\'s exact form, and
   assert.deepEqual(state.readPlaceholder(`${state.TAG}\n${state.placeholderMarker(7)}\nWorking on it…`), { run_id: 7 });
   assert.equal(state.readPlaceholder('Working on it…'), null);
   assert.equal(state.readPlaceholder('<!-- issue-agent-placeholder {nope} -->'), null);
-  // the last one wins, as with the seen marker
-  assert.deepEqual(state.readPlaceholder(`${state.placeholderMarker(6)}\n${state.placeholderMarker(7)}`), { run_id: 7 });
+  // the first one wins: it sits right after the tag, before any quoted prompt
+  assert.deepEqual(state.readPlaceholder(`${state.placeholderMarker(6)}\n${state.placeholderMarker(7)}`), { run_id: 6 });
 });
