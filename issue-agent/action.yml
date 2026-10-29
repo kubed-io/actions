@@ -66,8 +66,12 @@ inputs:
     description: Cap on agent replies under this session_key in this thread (0 = none).
     required: false
     default: "0"
-  mcp_config:
+  mcp:
     description: MCP servers, inline JSON or a file; ${VAR} is filled from env. Every server is allowed.
+    required: false
+    default: ""
+  mcp_config:
+    description: The old name of `mcp`, while the workflows move to it.
     required: false
     default: ""
   compact:
@@ -171,7 +175,7 @@ runs:
       AGENT: ${{ inputs.agent }}
       SCHEMA: ${{ inputs.schema }}
       APPEND_SYSTEM_PROMPT: ${{ inputs.append_system_prompt }}
-      MCP_CONFIG: ${{ inputs.mcp_config }}
+      MCP_CONFIG: ${{ inputs.mcp || inputs.mcp_config }}
       REVIEW: ${{ inputs.review }}
       THREADS: ${{ inputs.threads }}
       READY: ${{ inputs.ready }}

@@ -32,7 +32,7 @@ steps after it decide what to commit (`git/commit`), branch (`git/branch`) or op
     append_system_prompt: Plans go under docs/superpowers/plans/.
     header: "📄 [{{ output.plan_path }}]({{ link:output.plan_path }})"
     session_key: pr-${{ github.event.issue.number }}
-    mcp_config: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
+    mcp: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
 - uses: kubed-io/actions/git/commit@main
   with:
     token: ${{ steps.app.outputs.token }}
@@ -76,7 +76,7 @@ new-side line numbered).
 | `session_key` | `""` | Resumable session |
 | `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |
 | `opt_in_label`, `max_runs` | `""`, `0` | The gate |
-| `mcp_config` | `""` | Inline JSON or a file; `${VAR}` from env |
+| `mcp` | `""` | Inline JSON or a file; `${VAR}` from env |
 | `compact` | `""` | Compact a resumed session before the turn, steered by these instructions |
 | `model`, `max_turns`, `allowed_tools`, `disallowed_tools`, `permission_mode` | the agent's | Per-job overrides |
 | `claude_args` | `""` | Extra Claude Code flags |
