@@ -22,3 +22,4 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [review-route](review-route/) | Decides whether the review agent reviews a PR's head, as a commit status: red checks go to the code agent, a base merge or a passing review's applied suggestions keep the verdict; `review-route/verdict` sets the status from the review |
 | [app-token](app-token/) | Mints a kubed-io GitHub App token from GCP Secret Manager through Workload Identity Federation, exporting no GCP credential to the job |
 | [krm-setup](krm-setup/) | Installs the KRM toolchain (kubectl, kustomize, helm, krew, kompose, yq) and `kubed-krm` Python package |
+| [renovate](renovate/) | Runs Renovate with the shared kubed-io config: kustomize, Helm generator and manifest image versions on the repo's Dependency Dashboard |

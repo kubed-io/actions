@@ -1,0 +1,48 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-global-schema.json",
+  "globalExtends": [
+    "config:recommended"
+  ],
+  "onboarding": false,
+  "requireConfig": "optional",
+  "dependencyDashboardApproval": true,
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/charts/**",
+    "**/stuff/**",
+    "**/out.yaml"
+  ],
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/\\.ya?ml$/"
+    ]
+  },
+  "customManagers": [
+    {
+      "description": "kustomize HelmChartInflationGenerator files: top-level name, repo, version",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)[^/]*(inflate|generator|helm)[^/]*\\.ya?ml$/"
+      ],
+      "matchStringsStrategy": "combination",
+      "matchStrings": [
+        "(^|\\n)kind: HelmChartInflationGenerator",
+        "(^|\\n)name: (?<depName>\\S+)",
+        "(^|\\n)repo: (?<registryUrl>\\S+)",
+        "(^|\\n)version: (?<currentValue>\\S+)"
+      ],
+      "datasourceTemplate": "{{#if (containsString registryUrl 'oci://')}}docker{{else}}helm{{/if}}",
+      "packageNameTemplate": "{{#if (containsString registryUrl 'oci://')}}{{{replace 'oci://' '' registryUrl}}}/{{{depName}}}{{else}}{{{depName}}}{{/if}}",
+      "registryUrlTemplate": "{{#if (containsString registryUrl 'oci://')}}https://{{lookup (split registryUrl '/') 2}}{{else}}{{{registryUrl}}}{{/if}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "apiVersion lines are not versions to bump",
+      "matchDatasources": [
+        "kubernetes-api"
+      ],
+      "enabled": false
+    }
+  ]
+}

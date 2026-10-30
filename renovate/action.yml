@@ -1,0 +1,31 @@
+name: Renovate
+description: >
+  Runs Renovate with the kubed-io config: kustomize images, Helm inflation generators and
+  bare manifest images, reported on the repo's Dependency Dashboard issue. No PR opens
+  until its box is ticked there.
+
+inputs:
+  token:
+    description: GitHub token that can write contents, issues and pull requests (the kubed-io App's).
+    required: true
+  repositories:
+    description: Repositories to scan, comma separated; empty means the current one.
+    required: false
+    default: ""
+  log-level:
+    description: Renovate's LOG_LEVEL (debug, info, warn).
+    required: false
+    default: info
+
+runs:
+  using: composite
+  steps:
+
+  - name: Renovate
+    uses: renovatebot/github-action@v46
+    with:
+      token: ${{ inputs.token }}
+      configurationFile: ${{ github.action_path }}/config.json
+    env:
+      RENOVATE_REPOSITORIES: ${{ inputs.repositories || github.repository }}
+      LOG_LEVEL: ${{ inputs.log-level }}
