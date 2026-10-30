@@ -22,7 +22,7 @@ runs:
   steps:
 
   - name: Renovate
-    uses: renovatebot/github-action@v46
+    uses: renovatebot/github-action@v46.3.11  # full tags only, no v46
     with:
       token: ${{ inputs.token }}
       configurationFile: ${{ github.action_path }}/config.json
