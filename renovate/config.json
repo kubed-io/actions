@@ -6,6 +6,9 @@
   "onboarding": false,
   "requireConfig": "optional",
   "dependencyDashboardApproval": true,
+  "dependencyDashboardLabels": [
+    "dependency-dashboard"
+  ],
   "ignorePaths": [
     "**/node_modules/**",
     "**/charts/**",

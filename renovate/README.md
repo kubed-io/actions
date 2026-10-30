@@ -2,7 +2,7 @@
 
 Runs [Renovate](https://docs.renovatebot.com/) with the kubed-io config in [config.json](config.json).
 New versions land on the repo's **Dependency Dashboard** issue; a PR opens only when its box is ticked
-there. A repo needs no `renovate.json`.
+there. The dashboard carries the `dependency-dashboard` label. A repo needs no `renovate.json`.
 
 What it finds:
 
@@ -15,14 +15,33 @@ What it finds:
 
 ## Usage
 
+Runs on a tick in the dashboard, a push to main, weekly and on demand. Renovate edits the dashboard
+as a bot at the end of every run, so the `if` drops bot edits or each run would start the next.
+[kubed-io/grafana](https://github.com/kubed-io/grafana/blob/main/.github/workflows/renovate.yml) is
+the reference copy.
+
 ```yaml
 on:
+  issues:
+    types:
+    - edited
+  push:
+    branches:
+    - main
   schedule:
   - cron: 0 6 * * 1
   workflow_dispatch:
 
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
 jobs:
   renovate:
+    if: >-
+      github.event_name != 'issues'
+      || (contains(github.event.issue.labels.*.name, 'dependency-dashboard')
+      && github.event.sender.type != 'Bot')
     runs-on: ubuntu-26.04
     permissions:
       contents: read
