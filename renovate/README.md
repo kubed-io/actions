@@ -13,6 +13,15 @@ What it finds:
 
 `charts/` download caches are skipped.
 
+How it behaves:
+
+- A release is offered once it is 3 days old. Registries that give no release date (Grafana's
+  Docker Hub tags, `oci://` charts) are offered at once.
+- A dependency with no release in a year is marked abandoned on the dashboard.
+- Known vulnerabilities (OSV) are listed on the dashboard, and their fixes open a PR without a tick.
+- No hourly PR limit, so ticking several boxes opens them all in one run.
+- Kubernetes PRs carry a note: the build diff must be version lines only before `kubectl up`.
+
 ## Usage
 
 Runs on a tick in the dashboard, a push to main, weekly and on demand. Renovate edits the dashboard

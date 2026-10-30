@@ -9,6 +9,16 @@
   "dependencyDashboardLabels": [
     "dependency-dashboard"
   ],
+  "dependencyDashboardOSVVulnerabilitySummary": "unresolved",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "dependencyDashboardApproval": false,
+    "minimumReleaseAge": null
+  },
+  "minimumReleaseAge": "3 days",
+  "minimumReleaseAgeBehaviour": "timestamp-optional",
+  "abandonmentThreshold": "1 year",
+  "prHourlyLimit": 0,
   "ignorePaths": [
     "**/node_modules/**",
     "**/charts/**",
@@ -46,6 +56,17 @@
         "kubernetes-api"
       ],
       "enabled": false
+    },
+    {
+      "description": "Kubernetes pins: how to ship one",
+      "matchManagers": [
+        "kubernetes",
+        "kustomize",
+        "custom.regex"
+      ],
+      "prBodyNotes": [
+        "Before `kubectl up`: `kubectl build` before and after this change must differ only on version lines."
+      ]
     }
   ]
 }
