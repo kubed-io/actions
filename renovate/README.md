@@ -29,6 +29,13 @@ as a bot at the end of every run, so the `if` drops bot edits or each run would 
 [kubed-io/grafana](https://github.com/kubed-io/grafana/blob/main/.github/workflows/renovate.yml) is
 the reference copy.
 
+Each repo's weekly run gets its own day and hour, so the week spreads them out:
+
+| Repo | Cron | When (UTC) |
+|---|---|---|
+| grafana | `0 6 * * 1` | Monday 06:00 |
+| n8n | `0 7 * * 2` | Tuesday 07:00 |
+
 ```yaml
 on:
   issues:
@@ -38,7 +45,7 @@ on:
     branches:
     - main
   schedule:
-  - cron: 0 6 * * 1
+  - cron: 0 6 * * 1  # a day and hour no other repo has
   workflow_dispatch:
 
 concurrency:
