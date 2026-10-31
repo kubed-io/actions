@@ -17,6 +17,7 @@ jobs:
     uses: kubed-io/actions/.github/workflows/kubectl.yml@main
     with:
       cmd: build
+    secrets: inherit
     permissions:
       contents: read
       id-token: write
@@ -26,6 +27,7 @@ jobs:
     uses: kubed-io/actions/.github/workflows/kubectl.yml@main
     with:
       cmd: plan
+    secrets: inherit
     permissions:
       contents: read
       id-token: write

@@ -20,7 +20,7 @@ on:
         required: false
         default: ""
       environment:
-        description: The GitHub environment up runs in; build and plan run in none
+        description: The GitHub environment up runs in; empty means the caller's vars.DEPLOY_ENVIRONMENT
         type: string
         required: false
         default: ""
@@ -29,7 +29,8 @@ jobs:
   kubectl:
     name: Kubectl
     runs-on: ${{ inputs.runner || vars.DEFAULT_RUNNER }}
-    environment: ${{ inputs.cmd == 'up' && inputs.environment || '' }}
+    # build and plan run in none, so a PR's plan is not held to the environment's branch rule
+    environment: ${{ inputs.cmd == 'up' && (inputs.environment || vars.DEPLOY_ENVIRONMENT) || '' }}
     # one up at a time and a newer one waits; build and plan never wait
     concurrency:
       group: >-

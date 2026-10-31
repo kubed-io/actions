@@ -28,7 +28,9 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 ## Workflows
 
 The jobs a repo calls whole, in [.github/workflows/](.github/workflows/): GitHub calls reusable
-workflows from there only. Their one trigger is `workflow_call`, so none of them runs here.
+workflows from there only. Each is abstract: its one trigger is `workflow_call`, so it runs only
+from an app repo's caller file, never here. A caller passes `secrets: inherit`, so a workflow can
+use any secret the repo defines.
 
 | Workflow | Does |
 |---|---|
@@ -41,6 +43,7 @@ jobs:
     uses: kubed-io/actions/.github/workflows/kubectl.yml@main
     with:
       cmd: plan
+    secrets: inherit
     permissions:
       contents: read
       id-token: write
@@ -53,7 +56,7 @@ jobs:
 | `cmd` | — | `build`, `plan` or `up` |
 | `args` | `.` | The kustomization it runs on |
 | `runner` | the caller's `vars.DEFAULT_RUNNER` | A `runs-on` label |
-| `environment` | none | The GitHub environment `up` runs in |
+| `environment` | the caller's `vars.DEPLOY_ENVIRONMENT` | The GitHub environment `up` runs in |
 
 ## An app repo
 
@@ -66,7 +69,8 @@ Copy [.github/app/](.github/app/) into the repo's `.github/workflows/`, unchange
 | [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, on `DEFAULT_RUNNER` or GitHub's |
 | [renovate.yml](.github/app/renovate.yml) | Renovate on a dashboard tick, a merge, weekly and on demand |
 
-The repo needs these variables, and the environment they name:
+The workflows read their settings from the repo's variables, so every repo names them alike.
+An input of the same purpose overrides one. The repo needs:
 
 | Variable | Is |
 |---|---|
