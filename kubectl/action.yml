@@ -18,27 +18,21 @@ inputs:
   namespace:
     description: --namespace
     required: false
-    default: ""
   all-namespaces:
     description: true for --all-namespaces
     required: false
-    default: "false"
   selector:
     description: --selector, a label selector (app.kubernetes.io/name=n8n)
     required: false
-    default: ""
   output:
     description: --output (yaml, json, name, wide, jsonpath=…)
     required: false
-    default: ""
   context:
     description: --context, the kubeconfig context
     required: false
-    default: ""
   dry-run:
     description: --dry-run (server, client or none)
     required: false
-    default: ""
 
 outputs:
   output_file:
@@ -71,12 +65,14 @@ runs:
       KUBECTL_APPLYSET: "true"
     run: |
       read -ra CLI <<< "$CMD $ARGS"
-      [ -n "$NAMESPACE" ] && CLI+=(--namespace "$NAMESPACE")
       [ "$ALL_NAMESPACES" = true ] && CLI+=(--all-namespaces)
-      [ -n "$SELECTOR" ] && CLI+=(--selector "$SELECTOR")
-      [ -n "$OUTPUT" ] && CLI+=(--output "$OUTPUT")
-      [ -n "$CONTEXT" ] && CLI+=(--context "$CONTEXT")
-      [ -n "$DRY_RUN" ] && CLI+=(--dry-run="$DRY_RUN")
+      CLI+=(
+        ${NAMESPACE:+--namespace "$NAMESPACE"}
+        ${SELECTOR:+--selector "$SELECTOR"}
+        ${OUTPUT:+--output "$OUTPUT"}
+        ${CONTEXT:+--context "$CONTEXT"}
+        ${DRY_RUN:+--dry-run="$DRY_RUN"}
+      )
 
       OUT="$(mktemp -p "$RUNNER_TEMP" kubectl-out-XXXXXX.txt)"
       ERR="${OUT/kubectl-out-/kubectl-err-}"

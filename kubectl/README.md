@@ -31,7 +31,7 @@ The common flags are inputs of their own. They go after the command and its `arg
 | `args` | `.` | Its arguments, split on spaces (quotes are not honoured) |
 | `cwd` | `.` | The directory it runs in; the paths in `args` are relative to it |
 | `namespace` | — | `--namespace` |
-| `all-namespaces` | `false` | `true` for `--all-namespaces` |
+| `all-namespaces` | — | `true` for `--all-namespaces` |
 | `selector` | — | `--selector`, a label selector |
 | `output` | — | `--output`: `yaml`, `json`, `name`, `wide`, `jsonpath=…` |
 | `context` | — | `--context`, the kubeconfig context |

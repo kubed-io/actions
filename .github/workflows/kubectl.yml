@@ -23,12 +23,10 @@ on:
         description: A runs-on label; empty means the caller's vars.DEFAULT_RUNNER
         type: string
         required: false
-        default: ""
       environment:
         description: The GitHub environment up runs in; empty means the caller's vars.DEPLOY_ENVIRONMENT
         type: string
         required: false
-        default: ""
 
 jobs:
   kubectl:

@@ -12,15 +12,12 @@ inputs:
   title:
     description: The summary's heading; empty for none.
     required: false
-    default: ""
   file:
     description: One section's file. Its other fields are the inputs below; `sections` follow it.
     required: false
-    default: ""
   content:
     description: One section's text in place of `file`, such as a step output.
     required: false
-    default: ""
   type:
     description: yaml, names, diff, text or auto, for `file` or `content`.
     required: false
@@ -28,15 +25,12 @@ inputs:
   lang:
     description: The highlighting of a text block (json, shell, …).
     required: false
-    default: ""
   section-title:
     description: The heading over the `file` or `content` section.
     required: false
-    default: ""
   error-file:
     description: "`file`'s command's stderr, shown when it failed."
     required: false
-    default: ""
   outcome:
     description: "`file`'s command step's outcome; anything but success leads with the error."
     required: false
@@ -46,7 +40,6 @@ inputs:
       A YAML list of sections, one `key: value` per line (or the same as JSON). The keys are
       title, file, type, lang, error_file and outcome.
     required: false
-    default: ""
   write:
     description: false to leave the step summary alone and only output the markdown.
     required: false
