@@ -231,6 +231,10 @@ test('a failed section leads with its error', () => {
   assert.equal(md, '**Failed** (failure)\n\n```\nerror: secrets "x" is forbidden\n```\n');
 });
 
+test('a skipped section says so and nothing else', () => {
+  assert.equal(summary.render({ sections: [{ title: 'Plan', type: 'diff', file: '', outcome: 'skipped' }] }), '### Plan\n\nSkipped.\n');
+});
+
 test('run takes the single file first, then the sections, and writes the summary and the file', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'k8s-summary-'));
   fs.writeFileSync(path.join(dir, 'build.yaml'), BUILD);

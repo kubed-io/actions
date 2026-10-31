@@ -258,8 +258,9 @@ function section(s, budget) {
   const type = s.type || 'auto';
   if (!TYPES.includes(type)) throw new Error(`k8s-summary: type "${type}" is not one of ${TYPES.join(', ')}`);
   const output = s.content !== undefined ? s.content : read(s.file);
-  const failed = s.outcome && s.outcome !== 'success';
   const parts = s.title ? [`### ${esc(s.title)}`] : [];
+  if (s.outcome === 'skipped') return [...parts, 'Skipped.'].join('\n\n');
+  const failed = s.outcome && s.outcome !== 'success';
   if (failed) {
     const tail = read(s.error_file).trim().split('\n').slice(-ERR_TAIL).join('\n');
     parts.push(`**Failed** (${esc(s.outcome)})`);

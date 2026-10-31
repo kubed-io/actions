@@ -11,7 +11,8 @@ as many sections as the job has outputs: a PR's build and plan, an `up`, a query
 | `text` | anything else | the output in a block, highlighted as `lang` |
 | `auto` | any of the above | the view the content looks like (the default) |
 
-A section whose `outcome` is not `success` leads with the end of its `error_file`.
+A section whose `outcome` is `skipped` says so; any other but `success` leads with the end of
+its `error_file`.
 
 ## Usage
 
