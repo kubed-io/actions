@@ -21,7 +21,20 @@ The common flags are inputs of their own. They go after the command and its `arg
     namespace: flow
     selector: app.kubernetes.io/name=n8n
     output: yaml
+
+- id: image
+  uses: kubed-io/actions/kubectl@main
+  with:
+    cmd: get
+    args: deployment/n8n
+    namespace: flow
+    output: jsonpath={.spec.template.spec.containers[0].image}
+    capture: true
+- run: echo "${{ steps.image.outputs.stdout }}"
 ```
+
+Three steps: `Args` builds the command line, `Kubectl` runs it in `cwd`, and `Output` gives the
+stdout as an output, only with `capture`.
 
 ## Inputs
 
@@ -36,6 +49,7 @@ The common flags are inputs of their own. They go after the command and its `arg
 | `output` | — | `--output`: `yaml`, `json`, `name`, `wide`, `jsonpath=…` |
 | `context` | — | `--context`, the kubeconfig context |
 | `dry-run` | — | `--dry-run`: `server`, `client` or `none` |
+| `capture` | — | `true` to give the stdout as the `stdout` output too |
 
 ## Outputs
 
@@ -43,3 +57,4 @@ The common flags are inputs of their own. They go after the command and its `arg
 |---|---|
 | `output_file` | The command's stdout |
 | `error_file` | The command's stderr |
+| `stdout` | The stdout itself, when `capture` is `true`: for a short result like a jsonpath, as an output is held to 1 MB |
