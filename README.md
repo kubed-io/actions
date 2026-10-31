@@ -9,6 +9,7 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [build-image](build-image/) | Sets up Buildx and bakes a Docker Compose file, optionally pushing to Docker Hub |
 | [kluster-konnect](kluster-konnect/) | Authenticates to GCP, configures kubeconfig (in-cluster SA token or GCP Secret Manager), and optionally connects to OpenVPN |
 | [kubectl](kubectl/) | Runs a kubectl command and writes output to the step summary |
+| [kubectl/summary](kubectl/) | A kubectl command's output as the step summary: build as an accordion of kinds and resources, plan as a diff per resource, up as what changed |
 | [issue-agent](issue-agent/) | A Claude Code agent in an issue or PR as a real Claude Code session: its reply, its notes in the description, and on a PR its review comments. No git; it outputs its structured response for the steps after it |
 | [issue-agent/land](issue-agent/) | Lands an agent's turn: its commit message, the wiki, one signed commit, a note on the reply when something did not land, the PR ready when done |
 | [git/branch](git/) | Makes a branch through the GitHub API, or finds it; optionally linked to an issue's Development panel |

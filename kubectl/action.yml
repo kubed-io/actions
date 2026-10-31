@@ -32,26 +32,27 @@ runs:
     env:
       ARGS: ${{ steps.args.outputs.args }}
       KUBECTL_APPLYSET: "true"
+    # stderr kept apart, so a build stays YAML and a failure has its error for the summary
     run: |
       OUT="$RUNNER_TEMP/kubectl-out.txt"
-      kubectl $ARGS | tee "$OUT"
+      ERR="$RUNNER_TEMP/kubectl-err.txt"
       echo "output_file=$OUT" >> $GITHUB_OUTPUT
+      set +e
+      kubectl $ARGS 2> "$ERR" | tee "$OUT"
+      RC=${PIPESTATUS[0]}
+      cat "$ERR" >&2
+      exit $RC
 
   - name: Summary
-    id: summary
     if: always()
-    shell: bash
+    uses: actions/github-script@v9
     env:
       CMD: ${{ inputs.cmd }}
-    run: |
-      {
-        echo "## \`kubectl $CMD\`"
-        echo
-        if [ "$CMD" = "build" ]; then
-          echo '```yaml'
-        else
-          echo '```'
-        fi
-        cat "$RUNNER_TEMP/kubectl-out.txt"
-        echo '```'
-      } >> "$GITHUB_STEP_SUMMARY"
+      ARGS: ${{ inputs.args }}
+      OUTPUT_FILE: ${{ runner.temp }}/kubectl-out.txt
+      ERROR_FILE: ${{ runner.temp }}/kubectl-err.txt
+      OUTCOME: ${{ steps.kubectl.outcome }}
+      SUMMARY_JS: ${{ github.action_path }}/summary/lib/summary.js
+    with:
+      script: |
+        await require(process.env.SUMMARY_JS).run({ core });
