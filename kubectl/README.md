@@ -33,8 +33,9 @@ The common flags are inputs of their own. They go after the command and its `arg
 - run: echo "${{ steps.image.outputs.stdout }}"
 ```
 
-Three steps: `Args` builds the command line, `Kubectl` runs it in `cwd`, and `Output` gives the
-stdout as an output, only with `capture`.
+Three steps, each a script beside the action: `Args` ([args.sh](args.sh)) builds the command
+line, `Kubectl` ([run.sh](run.sh)) runs it in `cwd`, and `Output` ([output.sh](output.sh)) gives
+the stdout as an output, only with `capture`.
 
 ## Inputs
 

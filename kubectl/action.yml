@@ -52,9 +52,6 @@ runs:
   using: composite
   steps:
 
-  # The command line, one NUL-ended argument each, so a value with spaces stays whole.
-  # The flags go after the args: build, plan and up read their first argument as the
-  # app's directory. Each run gets its own files, so several in a job keep theirs.
   - name: Args
     id: args
     shell: bash
@@ -67,27 +64,8 @@ runs:
       OUTPUT: ${{ inputs.output }}
       CONTEXT: ${{ inputs.context }}
       DRY_RUN: ${{ inputs.dry-run }}
-    run: |
-      read -ra CLI <<< "$CMD $ARGS"
-      [ "$ALL_NAMESPACES" = true ] && CLI+=(--all-namespaces)
-      CLI+=(
-        ${NAMESPACE:+--namespace "$NAMESPACE"}
-        ${SELECTOR:+--selector "$SELECTOR"}
-        ${OUTPUT:+--output "$OUTPUT"}
-        ${CONTEXT:+--context "$CONTEXT"}
-        ${DRY_RUN:+--dry-run="$DRY_RUN"}
-      )
-      OUT="$(mktemp -p "$RUNNER_TEMP" kubectl-out-XXXXXX.txt)"
-      FILE="${OUT/kubectl-out-/kubectl-args-}"
-      printf '%s\0' "${CLI[@]}" > "$FILE"
-      {
-        echo "args_file=$FILE"
-        echo "output_file=$OUT"
-        echo "error_file=${OUT/kubectl-out-/kubectl-err-}"
-      } >> "$GITHUB_OUTPUT"
-      echo "kubectl ${CLI[*]}"
+    run: bash "$GITHUB_ACTION_PATH/args.sh"
 
-  # stderr goes apart, so a build stays YAML and a failure's error can be shown
   - name: Kubectl
     shell: bash
     working-directory: ${{ inputs.cwd }}
@@ -96,13 +74,7 @@ runs:
       OUT: ${{ steps.args.outputs.output_file }}
       ERR: ${{ steps.args.outputs.error_file }}
       KUBECTL_APPLYSET: "true"
-    run: |
-      mapfile -d '' CLI < "$ARGS_FILE"
-      set +e
-      kubectl "${CLI[@]}" 2> "$ERR" | tee "$OUT"
-      RC=${PIPESTATUS[0]}
-      cat "$ERR" >&2
-      exit $RC
+    run: bash "$GITHUB_ACTION_PATH/run.sh"
 
   - name: Output
     id: output
@@ -110,11 +82,4 @@ runs:
     shell: bash
     env:
       OUT: ${{ steps.args.outputs.output_file }}
-    run: |
-      MARK="EOF_$(cat /proc/sys/kernel/random/uuid)"
-      {
-        echo "stdout<<$MARK"
-        cat "$OUT"
-        [ -n "$(tail -c1 "$OUT")" ] && echo
-        echo "$MARK"
-      } >> "$GITHUB_OUTPUT"
+    run: bash "$GITHUB_ACTION_PATH/output.sh"
