@@ -1,0 +1,66 @@
+name: 🔍 Plan
+
+# The calling repo built and planned in one job, both results in one summary.
+on:
+  workflow_call:
+    inputs:
+      args:
+        description: The kustomization, relative to cwd
+        type: string
+        default: .
+      cwd:
+        description: The directory kubectl runs in, relative to the repo's root
+        type: string
+        default: .
+      runner:
+        description: A runs-on label; empty means the caller's vars.DEFAULT_RUNNER
+        type: string
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ${{ inputs.runner || vars.DEFAULT_RUNNER }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    - name: KRM Setup
+      if: runner.environment == 'github-hosted'
+      uses: kubed-io/actions/krm-setup@main
+
+    - name: Kluster Konnect
+      uses: kubed-io/actions/kluster-konnect@main
+      with:
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+        project: ${{ vars.GCP_PROJECT }}
+
+    - name: Build
+      id: build
+      uses: kubed-io/actions/kubectl@main
+      with:
+        cmd: build
+        args: ${{ inputs.args }}
+        cwd: ${{ inputs.cwd }}
+
+    - name: Plan
+      id: plan
+      uses: kubed-io/actions/kubectl@main
+      with:
+        cmd: plan
+        args: ${{ inputs.args }}
+        cwd: ${{ inputs.cwd }}
+
+    - name: Summary
+      uses: kubed-io/actions/k8s-summary@main
+      with:
+        sections: |
+          - title: Build
+            type: yaml
+            file: ${{ steps.build.outputs.output_file }}
+          - title: Plan
+            type: diff
+            file: ${{ steps.plan.outputs.output_file }}

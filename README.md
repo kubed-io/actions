@@ -35,6 +35,7 @@ use any secret the repo defines.
 | Workflow | Does |
 |---|---|
 | [kubectl.yml](.github/workflows/kubectl.yml) | `kubectl build`, `plan` or `up` of the calling repo, its output in the job summary. `up` runs in the environment given, one at a time |
+| [plan.yml](.github/workflows/plan.yml) | `kubectl build` and `kubectl plan` of the calling repo in one job, both in one summary |
 | [renovate.yml](.github/workflows/renovate.yml) | Renovate's run for the calling repo: new versions on its Dependency Dashboard, a PR when a box is ticked |
 
 ```yaml
@@ -66,7 +67,7 @@ Copy [.github/app/](.github/app/) into the repo's `.github/workflows/`, unchange
 | File | Runs |
 |---|---|
 | [deploy.yml](.github/app/deploy.yml) | `up` on a merge to main |
-| [pr.yml](.github/app/pr.yml) | `build` and `plan` on a PR |
+| [pr.yml](.github/app/pr.yml) | the build and the plan on a PR, in one summary |
 | [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, of the app or any kustomization in the repo, on `DEFAULT_RUNNER` or GitHub's |
 | [renovate.yml](.github/app/renovate.yml) | Renovate on a dashboard tick, a merge, weekly and on demand |
 

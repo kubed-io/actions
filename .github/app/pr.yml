@@ -1,6 +1,6 @@
 name: 🔀 PR
 
-# The PR's head built and planned, each a job summary.
+# The PR's head built and planned, both in one summary.
 on:
   pull_request:
     branches:
@@ -12,21 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build
-    uses: kubed-io/actions/.github/workflows/kubectl.yml@main
-    with:
-      cmd: build
-    secrets: inherit
-    permissions:
-      contents: read
-      id-token: write
-
   plan:
     name: Plan
-    uses: kubed-io/actions/.github/workflows/kubectl.yml@main
-    with:
-      cmd: plan
+    uses: kubed-io/actions/.github/workflows/plan.yml@main
     secrets: inherit
     permissions:
       contents: read
