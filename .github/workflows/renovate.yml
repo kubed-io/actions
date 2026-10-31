@@ -1,0 +1,38 @@
+name: 🐙 Renovate
+
+# New versions of everything the calling repo pins, on its Dependency Dashboard issue,
+# through kubed-io/actions/renovate.
+on:
+  workflow_call:
+
+jobs:
+  renovate:
+    name: Renovate
+    # Only the dashboard, and only a person's edit: Renovate rewrites the issue at the end
+    # of every run as the App, which would start the next.
+    if: >-
+      github.event_name != 'issues'
+      || (contains(github.event.issue.labels.*.name, 'dependency-dashboard')
+      && github.event.sender.type != 'Bot')
+    runs-on: ubuntu-26.04
+    # On the job, not the workflow: a skipped bot-edit run would otherwise take the one
+    # pending slot and cancel the real run waiting behind the active one.
+    concurrency:
+      group: renovate
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+
+    - name: App Token
+      id: app
+      uses: kubed-io/actions/app-token@main
+      with:
+        project: ${{ vars.GCP_PROJECT }}
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+
+    - name: Renovate
+      uses: kubed-io/actions/renovate@main
+      with:
+        token: ${{ steps.app.outputs.token }}

@@ -1,6 +1,6 @@
 # actions
 
-A collection of reusable GitHub Actions for kubed-io workflows.
+Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on them.
 
 ## Actions
 
@@ -24,3 +24,55 @@ A collection of reusable GitHub Actions for kubed-io workflows.
 | [app-token](app-token/) | Mints a kubed-io GitHub App token from GCP Secret Manager through Workload Identity Federation, exporting no GCP credential to the job |
 | [krm-setup](krm-setup/) | Installs the KRM toolchain (kubectl, kustomize, helm, krew, kompose, yq) and `kubed-krm` Python package |
 | [renovate](renovate/) | Runs Renovate with the shared kubed-io config: kustomize, Helm generator and manifest image versions on the repo's Dependency Dashboard |
+
+## Workflows
+
+The jobs a repo calls whole, in [.github/workflows/](.github/workflows/): GitHub calls reusable
+workflows from there only. Their one trigger is `workflow_call`, so none of them runs here.
+
+| Workflow | Does |
+|---|---|
+| [kubectl.yml](.github/workflows/kubectl.yml) | `kubectl build`, `plan` or `up` of the calling repo, its output in the job summary. `up` runs in the environment given, one at a time |
+| [renovate.yml](.github/workflows/renovate.yml) | Renovate's run for the calling repo: new versions on its Dependency Dashboard, a PR when a box is ticked |
+
+```yaml
+jobs:
+  plan:
+    uses: kubed-io/actions/.github/workflows/kubectl.yml@main
+    with:
+      cmd: plan
+    permissions:
+      contents: read
+      id-token: write
+```
+
+### kubectl.yml inputs
+
+| Input | Default | Description |
+|---|---|---|
+| `cmd` | — | `build`, `plan` or `up` |
+| `args` | `.` | The kustomization it runs on |
+| `runner` | the caller's `vars.DEFAULT_RUNNER` | A `runs-on` label |
+| `environment` | none | The GitHub environment `up` runs in |
+
+## An app repo
+
+Copy [.github/app/](.github/app/) into the repo's `.github/workflows/`, unchanged:
+
+| File | Runs |
+|---|---|
+| [deploy.yml](.github/app/deploy.yml) | `up` on a merge to main |
+| [pr.yml](.github/app/pr.yml) | `build` and `plan` on a PR |
+| [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, on `DEFAULT_RUNNER` or GitHub's |
+| [renovate.yml](.github/app/renovate.yml) | Renovate on a dashboard tick, a merge, weekly and on demand |
+
+The repo needs these variables, and the environment they name:
+
+| Variable | Is |
+|---|---|
+| `DEFAULT_RUNNER` | The `runs-on` label of the jobs |
+| `DEPLOY_ENVIRONMENT` | The environment `up` runs in; give it a deployment branch rule of `main` alone |
+| `GCP_PROJECT`, `GCP_WIF_PROVIDER` | What [kluster-konnect](kluster-konnect/) and [app-token](app-token/) sign in with |
+
+The files are the same in every repo but for the Renovate cron: give each repo a day and hour
+no other has, so the week spreads them out.

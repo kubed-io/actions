@@ -1,0 +1,35 @@
+name: ☸️ Kubectl
+
+# kubectl build, plan or up on demand, on the repo's DEFAULT_RUNNER or GitHub's.
+on:
+  workflow_dispatch:
+    inputs:
+      cmd:
+        description: kubectl build, plan or up
+        type: choice
+        required: true
+        default: build
+        options:
+        - build
+        - plan
+        - up
+      runner:
+        description: default (the repo's DEFAULT_RUNNER) or github (ubuntu-26.04)
+        type: choice
+        required: true
+        default: default
+        options:
+        - default
+        - github
+
+jobs:
+  kubectl:
+    name: Kubectl
+    uses: kubed-io/actions/.github/workflows/kubectl.yml@main
+    with:
+      cmd: ${{ inputs.cmd }}
+      runner: ${{ inputs.runner == 'github' && 'ubuntu-26.04' || '' }}
+      environment: ${{ vars.DEPLOY_ENVIRONMENT }}
+    permissions:
+      contents: read
+      id-token: write

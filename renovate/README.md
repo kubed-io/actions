@@ -24,8 +24,8 @@ How it behaves:
 
 ## Usage
 
-[kubed-io/workflows](https://github.com/kubed-io/workflows) runs it as a reusable workflow, with
-the triggers in each repo's caller file: a tick in the dashboard, a push to main, weekly and on
+[renovate.yml](../.github/workflows/renovate.yml) runs it as a reusable workflow, with the
+triggers in each repo's caller file: a tick in the dashboard, a push to main, weekly and on
 demand. Renovate edits the dashboard as a bot at the end of every run, so that workflow drops
 bot edits, or each run would start the next.
 

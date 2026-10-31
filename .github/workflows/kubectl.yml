@@ -1,0 +1,76 @@
+name: ☸️ Kubectl
+
+# kubectl build, plan or up of the calling repo, its output in the job summary. On GitHub's
+# runners it installs the krm tools first; a self-hosted runner is expected to have them.
+on:
+  workflow_call:
+    inputs:
+      cmd:
+        description: kubectl build, plan or up
+        type: string
+        required: true
+      args:
+        description: The kustomization it runs on
+        type: string
+        required: false
+        default: .
+      runner:
+        description: A runs-on label; empty means the caller's vars.DEFAULT_RUNNER
+        type: string
+        required: false
+        default: ""
+      environment:
+        description: The GitHub environment up runs in; build and plan run in none
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  kubectl:
+    name: Kubectl
+    runs-on: ${{ inputs.runner || vars.DEFAULT_RUNNER }}
+    environment: ${{ inputs.cmd == 'up' && inputs.environment || '' }}
+    # one up at a time and a newer one waits; build and plan never wait
+    concurrency:
+      group: >-
+        ${{ inputs.cmd == 'up' && 'kubectl-up'
+        || format('kubectl-{0}-{1}', inputs.cmd, github.run_id) }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CMD: ${{ inputs.cmd }}
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+
+    - name: KRM Setup
+      if: runner.environment == 'github-hosted'
+      uses: kubed-io/actions/krm-setup@main
+
+    - name: Kluster Konnect
+      if: env.CMD != 'build'
+      uses: kubed-io/actions/kluster-konnect@main
+      with:
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+        project: ${{ vars.GCP_PROJECT }}
+
+    - name: Kubectl
+      id: kubectl
+      uses: kubed-io/actions/kubectl@main
+      with:
+        cmd: ${{ env.CMD }}
+        args: ${{ inputs.args }}
+
+    # build is manifests, plan a diff, up the names it applied
+    - name: Summary
+      if: always()
+      uses: kubed-io/actions/k8s-summary@main
+      with:
+        title: kubectl ${{ env.CMD }}${{ inputs.args != '.' && format(' {0}', inputs.args) || '' }}
+        type: ${{ env.CMD == 'build' && 'yaml' || env.CMD == 'plan' && 'diff' || 'names' }}
+        file: ${{ steps.kubectl.outputs.output_file }}
+        error-file: ${{ steps.kubectl.outputs.error_file }}
+        outcome: ${{ steps.kubectl.outcome }}

@@ -1,0 +1,31 @@
+name: 🔀 PR
+
+# The PR's head built and planned, each a job summary.
+on:
+  pull_request:
+    branches:
+    - main
+
+# a new push to the PR replaces the run still going
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    uses: kubed-io/actions/.github/workflows/kubectl.yml@main
+    with:
+      cmd: build
+    permissions:
+      contents: read
+      id-token: write
+
+  plan:
+    name: Plan
+    uses: kubed-io/actions/.github/workflows/kubectl.yml@main
+    with:
+      cmd: plan
+    permissions:
+      contents: read
+      id-token: write
