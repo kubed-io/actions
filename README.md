@@ -67,7 +67,7 @@ Copy [.github/app/](.github/app/) into the repo's `.github/workflows/`, unchange
 | File | Runs |
 |---|---|
 | [deploy.yml](.github/app/deploy.yml) | `up` on a merge to main |
-| [pr.yml](.github/app/pr.yml) | the build and the plan on a PR, in one summary |
+| [plan.yml](.github/app/plan.yml) | the build and the plan on a PR, in one summary; a repo's own `pr.yml` stays free for its PR chores |
 | [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, of the app or any kustomization in the repo, on `DEFAULT_RUNNER` or GitHub's |
 | [renovate.yml](.github/app/renovate.yml) | Renovate on a dashboard tick, a merge, weekly and on demand |
 
