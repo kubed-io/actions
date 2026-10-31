@@ -48,10 +48,6 @@ on:
   - cron: 0 6 * * 1  # a day and hour no other repo has
   workflow_dispatch:
 
-concurrency:
-  group: renovate
-  cancel-in-progress: false
-
 jobs:
   renovate:
     if: >-
@@ -59,6 +55,10 @@ jobs:
       || (contains(github.event.issue.labels.*.name, 'dependency-dashboard')
       && github.event.sender.type != 'Bot')
     runs-on: ubuntu-26.04
+    # on the job: a skipped bot-edit run must not take the pending slot
+    concurrency:
+      group: renovate
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
