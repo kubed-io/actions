@@ -54,7 +54,8 @@ jobs:
 | Input | Default | Description |
 |---|---|---|
 | `cmd` | — | `build`, `plan` or `up` |
-| `args` | `.` | The kustomization it runs on |
+| `args` | `.` | The kustomization it runs on, relative to `cwd` |
+| `cwd` | `.` | The directory kubectl runs in, relative to the repo's root |
 | `runner` | the caller's `vars.DEFAULT_RUNNER` | A `runs-on` label |
 | `environment` | the caller's `vars.DEPLOY_ENVIRONMENT` | The GitHub environment `up` runs in |
 

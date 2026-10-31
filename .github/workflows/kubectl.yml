@@ -10,7 +10,12 @@ on:
         type: string
         required: true
       args:
-        description: The kustomization it runs on
+        description: The kustomization it runs on, relative to cwd
+        type: string
+        required: false
+        default: .
+      cwd:
+        description: The directory kubectl runs in, relative to the repo's root
         type: string
         required: false
         default: .
@@ -64,13 +69,16 @@ jobs:
       with:
         cmd: ${{ env.CMD }}
         args: ${{ inputs.args }}
+        cwd: ${{ inputs.cwd }}
 
     # build is manifests, plan a diff, up the names it applied
     - name: Summary
       if: always()
       uses: kubed-io/actions/k8s-summary@main
       with:
-        title: kubectl ${{ env.CMD }}${{ inputs.args != '.' && format(' {0}', inputs.args) || '' }}
+        title: >-
+          kubectl ${{ env.CMD }}${{ inputs.args != '.' && format(' {0}', inputs.args) || '' }}${{
+          inputs.cwd != '.' && format(' in {0}', inputs.cwd) || '' }}
         type: ${{ env.CMD == 'build' && 'yaml' || env.CMD == 'plan' && 'diff' || 'names' }}
         file: ${{ steps.kubectl.outputs.output_file }}
         error-file: ${{ steps.kubectl.outputs.error_file }}

@@ -1,16 +1,45 @@
 name: Kubectl
-description: Runs a kubectl command, its stdout and stderr each kept in a file for the steps after it.
+description: |
+  Runs a kubectl command in a working directory, its stdout and stderr each kept in a file for the
+  steps after it. The common flags are inputs of their own; `args` takes the rest.
+
 inputs:
   cmd:
-    description: kubectl subcommand to run (e.g. build, up)
+    description: The kubectl command (get, apply, build, plan, up, …).
     required: true
   args:
-    description: Arguments passed after the command
+    description: The command's arguments, after it and before the flags below; split on spaces.
+    required: false
+    default: .
+  cwd:
+    description: The directory kubectl runs in, so the paths in `args` are relative to it.
     required: false
     default: .
   namespace:
-    description: Target namespace (-n)
+    description: --namespace
     required: false
+    default: ""
+  all-namespaces:
+    description: true for --all-namespaces
+    required: false
+    default: "false"
+  selector:
+    description: --selector, a label selector (app.kubernetes.io/name=n8n)
+    required: false
+    default: ""
+  output:
+    description: --output (yaml, json, name, wide, jsonpath=…)
+    required: false
+    default: ""
+  context:
+    description: --context, the kubeconfig context
+    required: false
+    default: ""
+  dry-run:
+    description: --dry-run (server, client or none)
+    required: false
+    default: ""
+
 outputs:
   output_file:
     description: The command's stdout, a file of its own for each run.
@@ -18,36 +47,44 @@ outputs:
   error_file:
     description: The command's stderr, beside it.
     value: ${{ steps.kubectl.outputs.error_file }}
+
 runs:
   using: composite
   steps:
 
-  - name: Build Args
-    id: args
-    shell: bash
-    run: |
-      ARGS="${{ inputs.cmd }}"
-      if [ -n "${{ inputs.namespace }}" ]; then
-        ARGS="$ARGS --namespace=${{ inputs.namespace }}"
-      fi
-      ARGS="$ARGS ${{ inputs.args }}"
-      echo "args=$ARGS" >> $GITHUB_OUTPUT
-
+  # The flags go after the arguments: build, plan and up read their first argument as
+  # the app's directory. Each run gets its own files, so several in a job keep theirs;
+  # stderr goes apart, so a build stays YAML and a failure's error can be shown.
   - name: Kubectl
     id: kubectl
     shell: bash
+    working-directory: ${{ inputs.cwd }}
     env:
-      ARGS: ${{ steps.args.outputs.args }}
+      CMD: ${{ inputs.cmd }}
+      ARGS: ${{ inputs.args }}
+      NAMESPACE: ${{ inputs.namespace }}
+      ALL_NAMESPACES: ${{ inputs.all-namespaces }}
+      SELECTOR: ${{ inputs.selector }}
+      OUTPUT: ${{ inputs.output }}
+      CONTEXT: ${{ inputs.context }}
+      DRY_RUN: ${{ inputs.dry-run }}
       KUBECTL_APPLYSET: "true"
-    # each run its own files, so several in a job keep theirs; stderr apart, so a
-    # build stays YAML and a failure's error can be shown
     run: |
+      read -ra CLI <<< "$CMD $ARGS"
+      [ -n "$NAMESPACE" ] && CLI+=(--namespace "$NAMESPACE")
+      [ "$ALL_NAMESPACES" = true ] && CLI+=(--all-namespaces)
+      [ -n "$SELECTOR" ] && CLI+=(--selector "$SELECTOR")
+      [ -n "$OUTPUT" ] && CLI+=(--output "$OUTPUT")
+      [ -n "$CONTEXT" ] && CLI+=(--context "$CONTEXT")
+      [ -n "$DRY_RUN" ] && CLI+=(--dry-run="$DRY_RUN")
+
       OUT="$(mktemp -p "$RUNNER_TEMP" kubectl-out-XXXXXX.txt)"
       ERR="${OUT/kubectl-out-/kubectl-err-}"
-      echo "output_file=$OUT" >> $GITHUB_OUTPUT
-      echo "error_file=$ERR" >> $GITHUB_OUTPUT
+      echo "output_file=$OUT" >> "$GITHUB_OUTPUT"
+      echo "error_file=$ERR" >> "$GITHUB_OUTPUT"
+      echo "kubectl ${CLI[*]}"
       set +e
-      kubectl $ARGS 2> "$ERR" | tee "$OUT"
+      kubectl "${CLI[@]}" 2> "$ERR" | tee "$OUT"
       RC=${PIPESTATUS[0]}
       cat "$ERR" >&2
       exit $RC
