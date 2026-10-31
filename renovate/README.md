@@ -24,53 +24,20 @@ How it behaves:
 
 ## Usage
 
-Runs on a tick in the dashboard, a push to main, weekly and on demand. Renovate edits the dashboard
-as a bot at the end of every run, so the `if` drops bot edits or each run would start the next.
-[kubed-io/grafana](https://github.com/kubed-io/grafana/blob/main/.github/workflows/renovate.yml) is
-the reference copy.
-
-Each repo's weekly run gets its own day and hour, so the week spreads them out:
-
-| Repo | Cron | When (UTC) |
-|---|---|---|
-| grafana | `0 6 * * 1` | Monday 06:00 |
-| n8n | `0 7 * * 2` | Tuesday 07:00 |
+[kubed-io/workflows](https://github.com/kubed-io/workflows) runs it as a reusable workflow, with
+the triggers in each repo's caller file: a tick in the dashboard, a push to main, weekly and on
+demand. Renovate edits the dashboard as a bot at the end of every run, so that workflow drops
+bot edits, or each run would start the next.
 
 ```yaml
-on:
-  issues:
-    types:
-    - edited
-  push:
-    branches:
-    - main
-  schedule:
-  - cron: 0 6 * * 1  # a day and hour no other repo has
-  workflow_dispatch:
-
-jobs:
-  renovate:
-    if: >-
-      github.event_name != 'issues'
-      || (contains(github.event.issue.labels.*.name, 'dependency-dashboard')
-      && github.event.sender.type != 'Bot')
-    runs-on: ubuntu-26.04
-    # on the job: a skipped bot-edit run must not take the pending slot
-    concurrency:
-      group: renovate
-      cancel-in-progress: false
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-    - id: app
-      uses: kubed-io/actions/app-token@main
-      with:
-        project: ${{ vars.GCP_PROJECT }}
-        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-    - uses: kubed-io/actions/renovate@main
-      with:
-        token: ${{ steps.app.outputs.token }}
+- id: app
+  uses: kubed-io/actions/app-token@main
+  with:
+    project: ${{ vars.GCP_PROJECT }}
+    workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+- uses: kubed-io/actions/renovate@main
+  with:
+    token: ${{ steps.app.outputs.token }}
 ```
 
 ## Inputs
