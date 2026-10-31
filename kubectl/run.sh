@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the command line args.sh wrote, in the step's working directory. stderr goes apart,
+# Runs the command line the Args step wrote, in the step's working directory. stderr goes apart,
 # so a build stays YAML and a failure's error can be shown; the exit code is kubectl's.
 set -o pipefail
 

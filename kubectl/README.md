@@ -33,16 +33,15 @@ The common flags are inputs of their own. They go after the command and its `arg
 - run: echo "${{ steps.image.outputs.stdout }}"
 ```
 
-Three steps, each a script beside the action: `Args` ([args.sh](args.sh)) builds the command
-line, `Kubectl` ([run.sh](run.sh)) runs it in `cwd`, and `Output` ([output.sh](output.sh)) gives
-the stdout as an output, only with `capture`.
+Three steps: `Args` builds the command line ([lib/kubectl.js](lib/kubectl.js)), `Kubectl` runs it
+in `cwd` ([run.sh](run.sh)), and `Output` gives the stdout as an output, only with `capture`.
 
 ## Inputs
 
 | Input | Default | Description |
 |---|---|---|
 | `cmd` | — | The kubectl command (`get`, `apply`, `build`, `plan`, `up`, …) |
-| `args` | `.` | Its arguments, split on spaces (quotes are not honoured) |
+| `args` | `.` | Its arguments, split on spaces, a quoted part kept whole |
 | `cwd` | `.` | The directory it runs in; the paths in `args` are relative to it |
 | `namespace` | — | `--namespace` |
 | `all-namespaces` | — | `true` for `--all-namespaces` |

@@ -8,7 +8,9 @@ inputs:
     description: The kubectl command (get, apply, build, plan, up, …).
     required: true
   args:
-    description: The command's arguments, after it and before the flags below; split on spaces.
+    description: |
+      The command's arguments, after it and before the flags below; split on spaces, a quoted
+      part kept whole.
     required: false
     default: .
   cwd:
@@ -54,7 +56,7 @@ runs:
 
   - name: Args
     id: args
-    shell: bash
+    uses: actions/github-script@v9
     env:
       CMD: ${{ inputs.cmd }}
       ARGS: ${{ inputs.args }}
@@ -64,7 +66,9 @@ runs:
       OUTPUT: ${{ inputs.output }}
       CONTEXT: ${{ inputs.context }}
       DRY_RUN: ${{ inputs.dry-run }}
-    run: bash "$GITHUB_ACTION_PATH/args.sh"
+      KUBECTL_JS: ${{ github.action_path }}/lib/kubectl.js
+    with:
+      script: await require(process.env.KUBECTL_JS).args({ core });
 
   - name: Kubectl
     shell: bash
@@ -74,12 +78,14 @@ runs:
       OUT: ${{ steps.args.outputs.output_file }}
       ERR: ${{ steps.args.outputs.error_file }}
       KUBECTL_APPLYSET: "true"
-    run: bash "$GITHUB_ACTION_PATH/run.sh"
+    run: $GITHUB_ACTION_PATH/run.sh
 
   - name: Output
     id: output
     if: inputs.capture == 'true'
-    shell: bash
+    uses: actions/github-script@v9
     env:
       OUT: ${{ steps.args.outputs.output_file }}
-    run: bash "$GITHUB_ACTION_PATH/output.sh"
+      KUBECTL_JS: ${{ github.action_path }}/lib/kubectl.js
+    with:
+      script: await require(process.env.KUBECTL_JS).capture({ core });
