@@ -67,7 +67,7 @@ Copy [.github/app/](.github/app/) into the repo's `.github/workflows/`, unchange
 |---|---|
 | [deploy.yml](.github/app/deploy.yml) | `up` on a merge to main |
 | [pr.yml](.github/app/pr.yml) | `build` and `plan` on a PR |
-| [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, on `DEFAULT_RUNNER` or GitHub's |
+| [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, of the app or any kustomization in the repo, on `DEFAULT_RUNNER` or GitHub's |
 | [renovate.yml](.github/app/renovate.yml) | Renovate on a dashboard tick, a merge, weekly and on demand |
 
 The workflows read their settings from the repo's variables, so every repo names them alike.

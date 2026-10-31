@@ -1,6 +1,7 @@
 name: ☸️ Kubectl
 
-# kubectl build, plan or up on demand, on the repo's DEFAULT_RUNNER or GitHub's.
+# kubectl build, plan or up on demand, on the repo's DEFAULT_RUNNER or GitHub's, of the app or
+# any kustomization in the repo.
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +14,16 @@ on:
         - build
         - plan
         - up
+      args:
+        description: The kustomization, relative to cwd
+        type: string
+        required: true
+        default: .
+      cwd:
+        description: The directory kubectl runs in, relative to the repo's root
+        type: string
+        required: true
+        default: .
       runner:
         description: default (the repo's DEFAULT_RUNNER) or github (ubuntu-26.04)
         type: choice
@@ -28,6 +39,8 @@ jobs:
     uses: kubed-io/actions/.github/workflows/kubectl.yml@main
     with:
       cmd: ${{ inputs.cmd }}
+      args: ${{ inputs.args }}
+      cwd: ${{ inputs.cwd }}
       runner: ${{ inputs.runner == 'github' && 'ubuntu-26.04' || '' }}
     secrets: inherit
     permissions:
