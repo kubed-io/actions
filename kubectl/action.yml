@@ -1,5 +1,5 @@
 name: Kubectl
-description: Runs a kubectl command and writes the output to the job step summary.
+description: Runs a kubectl command, its stdout and stderr each kept in a file for the steps after it.
 inputs:
   cmd:
     description: kubectl subcommand to run (e.g. build, up)
@@ -11,6 +11,13 @@ inputs:
   namespace:
     description: Target namespace (-n)
     required: false
+outputs:
+  output_file:
+    description: The command's stdout, a file of its own for each run.
+    value: ${{ steps.kubectl.outputs.output_file }}
+  error_file:
+    description: The command's stderr, beside it.
+    value: ${{ steps.kubectl.outputs.error_file }}
 runs:
   using: composite
   steps:
@@ -32,27 +39,15 @@ runs:
     env:
       ARGS: ${{ steps.args.outputs.args }}
       KUBECTL_APPLYSET: "true"
-    # stderr kept apart, so a build stays YAML and a failure has its error for the summary
+    # each run its own files, so several in a job keep theirs; stderr apart, so a
+    # build stays YAML and a failure's error can be shown
     run: |
-      OUT="$RUNNER_TEMP/kubectl-out.txt"
-      ERR="$RUNNER_TEMP/kubectl-err.txt"
+      OUT="$(mktemp -p "$RUNNER_TEMP" kubectl-out-XXXXXX.txt)"
+      ERR="${OUT/kubectl-out-/kubectl-err-}"
       echo "output_file=$OUT" >> $GITHUB_OUTPUT
+      echo "error_file=$ERR" >> $GITHUB_OUTPUT
       set +e
       kubectl $ARGS 2> "$ERR" | tee "$OUT"
       RC=${PIPESTATUS[0]}
       cat "$ERR" >&2
       exit $RC
-
-  - name: Summary
-    if: always()
-    uses: actions/github-script@v9
-    env:
-      CMD: ${{ inputs.cmd }}
-      ARGS: ${{ inputs.args }}
-      OUTPUT_FILE: ${{ runner.temp }}/kubectl-out.txt
-      ERROR_FILE: ${{ runner.temp }}/kubectl-err.txt
-      OUTCOME: ${{ steps.kubectl.outcome }}
-      SUMMARY_JS: ${{ github.action_path }}/summary/lib/summary.js
-    with:
-      script: |
-        await require(process.env.SUMMARY_JS).run({ core });
