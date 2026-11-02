@@ -50,3 +50,6 @@ runs:
       name: ${{ inputs.artifact }}
       path: ${{ runner.temp }}/checks-report
       retention-days: ${{ inputs.retention_days }}
+      # re-running the failed jobs runs this one again in the same run, whose first report
+      # already has the name
+      overwrite: true
