@@ -37,6 +37,9 @@ use any secret the repo defines.
 | [kubectl.yml](.github/workflows/kubectl.yml) | `kubectl build`, `plan` or `up` of the calling repo, its output in the job summary. `up` runs in the environment given, one at a time |
 | [plan.yml](.github/workflows/plan.yml) | `kubectl build` and `kubectl plan` of the calling repo in one job, both in one summary |
 | [renovate.yml](.github/workflows/renovate.yml) | Renovate's run for the calling repo: new versions on its Dependency Dashboard, a PR when a box is ticked |
+| [agent-issue.yml](.github/workflows/agent-issue.yml) | The spec agent on an issue, and the hand-off to a draft PR and its plan. Called on the `agent-issue` dispatch |
+| [agent-pr.yml](.github/workflows/agent-pr.yml) | The plan and code agents on an agents' PR. Called on the `agent-code` and `agent-route` dispatches |
+| [agent-review.yml](.github/workflows/agent-review.yml) | The review agent and its `Agent review` status. Called on the `agent-review` dispatch |
 
 ```yaml
 jobs:
@@ -49,6 +52,19 @@ jobs:
       contents: read
       id-token: write
 ```
+
+### The agent workflows
+
+Their jobs on the `claude` runner run for a `repository_dispatch` only, which always runs the
+caller on the default branch: the runner group lists these files, so no branch's caller reaches
+it. The caller grants the jobs' permissions, the union of the jobs' own.
+
+| Input | Of | Description |
+|---|---|---|
+| `wiki` | agent-issue, agent-pr | The wiki submodule's path. `docs` when the specs live in the wiki, which lands first and docs/ is its pointer; `wiki` when docs/ is in the repo |
+
+A repo's own setup for the code agent, past Python, is a composite action at
+`.github/actions/agent-setup/`; agent-pr.yml runs it when the checkout has one.
 
 ### kubectl.yml inputs
 
