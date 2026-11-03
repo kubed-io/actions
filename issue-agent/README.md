@@ -32,7 +32,6 @@ steps after it decide what to commit (`git/commit`), branch (`git/branch`) or op
     append_system_prompt: Plans go under docs/superpowers/plans/.
     header: "📄 [{{ output.plan_path }}]({{ link:output.plan_path }})"
     session_key: pr-${{ github.event.issue.number }}
-    mcp: ${{ env.CLAUDE_MCP_PROFILES }}/docs.json
 - uses: kubed-io/actions/git/commit@main
   with:
     token: ${{ steps.app.outputs.token }}
@@ -42,6 +41,17 @@ steps after it decide what to commit (`git/commit`), branch (`git/branch`) or op
 The `agent` is a Claude Code agent file (frontmatter and body). It is loaded with
 `--agents` from wherever the workflow put it, and its body replaces Claude Code's default
 system prompt. Then the action's contract and `append_system_prompt` are appended.
+
+On the claude runner, a role's agent comes from a plugin instead, and its `settings` say
+which (kubed-io/claude-control's `kubed-runner`). Each role's settings sit beside its schema:
+
+```yaml
+    settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json   # turns kubed-runner on, agent kubed-runner:plan
+    schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
+```
+
+The plugin brings the agent's MCP servers, and each agent's `tools` list is what it may use.
+Leave `--strict-mcp-config` out of `claude_args`: it drops a plugin's servers.
 
 ## What the agent returns
 
@@ -71,6 +81,7 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 | `number` | the event's | For a run started off the thread |
 | `agent` | `""` | A Claude Code agent file, or a name Claude Code knows |
 | `schema` | `""` | The role's output schema, inline or a path; becomes `output` |
+| `settings` | `""` | Claude Code settings, inline or a path: a role's plugin and agent; merged with the live hooks |
 | `append_system_prompt` | `""` | This job's extras, inline or a path |
 | `prompt` | `""` | The event's turn, for an event with no words |
 | `prompt_when` | `quiet` | `quiet`: only when nothing new; `always`: every run, quoted above the reply |
@@ -95,8 +106,8 @@ works, and it can answer them at once. The run loads the runner's agent-flow cha
 (`$CLAUDE_MCP_PROFILES/channel.json`, merged into the one MCP file) and its `PostToolBatch` and
 `Stop` hooks (`--settings`), and allows `mcp__agent-flow__reply`. It needs
 `AGENT_FLOW_N8N_TOKEN` in the job's env and `AGENT_FLOW_CALLBACK_URL` on the runner; without
-them, or the profile, it warns and runs as off. A `--settings` in `claude_args` replaces the
-hooks.
+them, or the profile, it warns and runs as off. The hooks are merged into the `settings`
+input's file, so the run has one `--settings`; another in `claude_args` replaces them.
 
 The placeholder carries `<!-- issue-agent-placeholder {"run_id": N} -->`, since n8n reposts it
 under each in-flight reply: the answer, the failure note and the review find it by that. The

@@ -18,6 +18,13 @@ inputs:
     description: A Claude Code agent file (frontmatter and body), loaded with --agents and run with --agent; or the name of one Claude Code already knows.
     required: false
     default: ""
+  settings:
+    description: >
+      Claude Code settings for the turn, inline JSON or a path: a role's settings on the claude
+      runner, such as the plugin to turn on and the agent to run (`agent`). With
+      live_messages they are merged with the channel's hooks into one --settings file.
+    required: false
+    default: ""
   schema:
     description: The role's output schema, inline JSON or a path. It becomes the `output` field beside the action's own.
     required: false
@@ -181,6 +188,7 @@ runs:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       AGENT: ${{ inputs.agent }}
       SCHEMA: ${{ inputs.schema }}
+      SETTINGS: ${{ inputs.settings }}
       APPEND_SYSTEM_PROMPT: ${{ inputs.append_system_prompt }}
       MCP_CONFIG: ${{ inputs.mcp }}
       REVIEW: ${{ inputs.review }}

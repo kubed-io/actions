@@ -123,7 +123,7 @@ function scene({ pr = false, draft = false } = {}) {
     AGENT: '.issue/roles/claude/agents/plan.md', SCHEMA: '.issue/roles/claude/agents/plan.schema.json',
     APPEND_SYSTEM_PROMPT: 'In this job, plans go under docs/.', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}', KB_URL: 'https://kb',
     REVIEW: 'true', THREADS: '', READY: 'true', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
-    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '',
+    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '', SETTINGS: '',
   });
   for (const name of ['AGENT_FLOW_N8N_TOKEN', 'AGENT_FLOW_CALLBACK_URL', 'CLAUDE_MCP_PROFILES']) delete process.env[name];
   const github = fake.github({
@@ -261,4 +261,36 @@ test('on without the token, the callback URL or the channel profile: a warning, 
     assert.equal(core.notices.length, 1);
     assert.match(core.notices[0], /live_messages/);
   }
+});
+
+// a role's settings on the claude runner: the plugin to turn on and the agent to run
+const ROLE = { agent: 'kubed-runner:plan', enabledPlugins: { 'kubed-runner@kubed-control': true }, disableClaudeAiConnectors: true };
+
+test('mergeSettings: the job\'s settings, with the channel\'s hooks added after its own', () => {
+  const own = [{ hooks: [{ type: 'command', command: 'own' }] }];
+  const merged = setup.mergeSettings({ ...ROLE, hooks: { Stop: own } }, setup.hookSettings());
+  assert.equal(merged.agent, 'kubed-runner:plan');
+  assert.deepEqual(merged.hooks.Stop, [...own, ...setup.hookSettings().hooks.Stop]);
+  assert.deepEqual(merged.hooks.PostToolBatch, setup.hookSettings().hooks.PostToolBatch);
+  assert.deepEqual(setup.mergeSettings(ROLE, null), ROLE);
+  assert.deepEqual(setup.mergeSettings(null, setup.hookSettings()), setup.hookSettings());
+  assert.equal(setup.mergeSettings(null, null), null);
+});
+
+test('settings, a file: passed as the one --settings file, unchanged', async () => {
+  const { ws, tmp, github } = scene();
+  fs.writeFileSync(path.join(ws, 'role-settings.json'), JSON.stringify(ROLE));
+  Object.assign(process.env, { SETTINGS: 'role-settings.json', AGENT: '' });
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  const file = /--settings '([^']*)'/.exec(core.outputs.args)[1];
+  assert.equal(file, path.join(tmp, 'issue-agent-settings.json'));
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), ROLE);
+  assert.ok(!core.outputs.args.includes('--agent'));
+});
+
+test('settings with live messages: one file, the role\'s keys and the channel\'s hooks', async () => {
+  const { tmp } = await runWith({ LIVE_MESSAGES: 'true', SETTINGS: JSON.stringify(ROLE) });
+  const merged = JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-settings.json'), 'utf8'));
+  assert.deepEqual(merged, { ...ROLE, ...setup.hookSettings() });
 });

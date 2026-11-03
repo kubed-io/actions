@@ -1,7 +1,8 @@
 // Everything claude-code-action is given besides the turn: the agent (a Claude Code agent
-// file, loaded through --agents), the appended system prompt (the contract, the job's own
-// text, a guide to the repo's rule files), the envelope schema, MCP servers, per-job
-// overrides, the session, and with live_messages the agent-flow channel and its hooks.
+// file, loaded through --agents, or a name), the appended system prompt (the contract, the
+// job's own text, a guide to the repo's rule files), the envelope schema, MCP servers, the
+// job's settings, per-job overrides, the session, and with live_messages the agent-flow
+// channel and its hooks.
 
 const fs = require('fs');
 const path = require('path');
@@ -164,6 +165,17 @@ function hookSettings(command = CHANNEL_HOOK) {
   return { hooks: { PostToolBatch: hook, Stop: hook } };
 }
 
+// The job's settings with the channel's hooks added: one file, since a second --settings
+// isn't promised to merge. Hooks for one event from both are kept, the job's first.
+function mergeSettings(job, hooks) {
+  if (!hooks) return job;
+  const merged = { ...job, hooks: { ...(job?.hooks || {}) } };
+  for (const [event, groups] of Object.entries(hooks.hooks)) {
+    merged.hooks[event] = [...(merged.hooks[event] || []), ...groups];
+  }
+  return merged;
+}
+
 // the channel's profile when live_messages is on and the runner can carry it, else null
 function channelOf(env, core) {
   if (env.LIVE_MESSAGES !== 'true') return null;
@@ -276,10 +288,12 @@ async function run({ github, context, core }) {
     mcpFile = path.join(env.RUNNER_TEMP, 'issue-agent-mcp.json');
     fs.writeFileSync(mcpFile, JSON.stringify(config));
   }
+  const settingsText = fileOr(env.SETTINGS);
+  const settings = mergeSettings(settingsText ? JSON.parse(settingsText) : null, channel ? hookSettings() : null);
   let settingsFile = '';
-  if (channel) {
+  if (settings) {
     settingsFile = path.join(env.RUNNER_TEMP, 'issue-agent-settings.json');
-    fs.writeFileSync(settingsFile, JSON.stringify(hookSettings()));
+    fs.writeFileSync(settingsFile, JSON.stringify(settings));
   }
 
   // uuid5(repo + key) is the session id, so the same key resumes the same session
@@ -311,4 +325,4 @@ async function run({ github, context, core }) {
   core.info(args);
 }
 
-module.exports = { uuid5, q, guide, agentsFallback, parseAgent, toAgent, envelope, hookSettings, flags, run };
+module.exports = { uuid5, q, guide, agentsFallback, parseAgent, toAgent, envelope, hookSettings, mergeSettings, flags, run };
