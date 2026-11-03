@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const parts = require('../../comment/lib/parts');
 
 // the turn that finishes the plan marks its commit, so its push wakes nothing
 const DONE = 'Agent: done';
@@ -20,13 +21,14 @@ function message({ core, env = process.env }) {
 }
 
 // The reply was posted before the commit: it says what the commit left out, or that it
-// failed, so it never claims work the branch does not have
+// failed, so it never claims work the branch does not have. Inside comment/start and
+// comment/end (`PARTS`) the comment is not written yet: the note goes to comment/end.
 async function note({ github, context, env = process.env }) {
   const id = Number(env.COMMENT_ID);
+  const pair = env.PARTS === 'true';
   const ignored = JSON.parse(env.IGNORED || '[]');
   const failed = env.FAILED === 'true';
-  if (!id || (!failed && !ignored.length)) return;
-  const { data: comment } = await github.rest.issues.getComment({ ...context.repo, comment_id: id });
+  if ((!id && !pair) || (!failed && !ignored.length)) return;
   const conflicts = JSON.parse(env.CONFLICTS || '[]');
   const why = conflicts.length
     ? `This run's commit was refused: the branch moved and changed ${conflicts.map((p) => `\`${p}\``).join(', ')} too, so nothing above is on the branch.`
@@ -35,6 +37,11 @@ async function note({ github, context, env = process.env }) {
   const body = failed
     ? `> [!CAUTION]\n> **${why}**${kept} See [the run](${env.RUN_URL}).`
     : `> [!WARNING]\n> **Not committed:** ${ignored.map((p) => `\`${p}\``).join(', ')}. This job's token can't write workflow files, so they need a commit by hand.`;
+  if (pair) {
+    parts.addPart(parts.dirOf(env, env.NUMBER), 'land', body);
+    return;
+  }
+  const { data: comment } = await github.rest.issues.getComment({ ...context.repo, comment_id: id });
   await github.rest.issues.updateComment({ ...context.repo, comment_id: id, body: `${comment.body}\n\n${body}` });
 }
 

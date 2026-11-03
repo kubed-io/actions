@@ -97,6 +97,8 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 | `show_full_output` | `false` | Keep false in public repos |
 | `scratch_dir` | `.issue` | Thread files; gitignore it |
 | `keep_scratch` | `true` | Keep `{scratch_dir}/scratch/` from turn to turn |
+| `scratch_cache` | `true` | Restore and save it here; `false` when the workflow does, around the job |
+| `comment_id` | `""` | comment/start's: answer in its comment, see below |
 | `live_messages` | `false` | n8n's pushes reach the running turn (claude runner); see below |
 
 ## Live messages
@@ -114,10 +116,38 @@ under each in-flight reply: the answer, the failure note and the review find it 
 answer's seen marker covers the comments and reviews the hook handed over, but never one older
 that it did not, so the comment's own queued run finds nothing new and none is lost.
 
+## Inside comment/start and comment/end
+
+Given [comment/start](../comment/)'s `comment_id`, the thread comment is the pair's: the agent
+posts no placeholder, reply or failure note. Its reply goes to comment/end as a part, with its
+seen marker; a review keeps only its line comments; and its `comment_id` output is where the
+comment is when it ends, since n8n may have moved it. Two runs in one job answer in one
+comment, and a second turn of the same session starts after the first's answer.
+
+Two runs share one scratchpad cache key, so the workflow keeps it instead, once around the
+job, and saves it even when a turn failed:
+
+```yaml
+- uses: actions/cache/restore@v6
+  with:
+    path: .issue/scratch
+    key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.NUMBER }}-${{ github.run_id }}-${{ github.run_attempt }}
+    restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.NUMBER }}-
+# ... comment/start, issue-agent with scratch_cache: false, twice, land, comment/end ...
+- if: always()
+  uses: actions/cache/save@v6
+  with:
+    path: .issue/scratch
+    key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.NUMBER }}-${{ github.run_id }}-${{ github.run_attempt }}
+```
+
+Without `comment_id` it posts and edits its own comment, as before; that goes when every
+caller uses comment/start.
+
 ## Outputs
 
 `structured` (the whole response, JSON), `output` (the role's part, JSON), `reply`,
-`number`, `comment_id`, `review_id`, `head_sha`, `reviewed_sha`, `session_id`, `conclusion`.
+`number`, `comment_id` (with comment/start, where its comment is now), `review_id`, `head_sha`, `reviewed_sha`, `session_id`, `conclusion`.
 `reviewed_sha` is the commit the review is on: the checkout's when the turn ended, past
 `head_sha` when a push was brought in during it, and then line comments are checked against
 that commit's diff.
@@ -150,7 +180,10 @@ kept for the next turn when `number` is given. When the agent is done, it marks
     number: ${{ steps.agent.outputs.number }}
 ```
 
-Inputs: `token`, `app_slug`, `branch`, `output`, `comment_id`, `files` and `ignore` (as
+Inside comment/start and comment/end, `parts: true` (with `number`) makes the note a part
+of the comment instead of an edit of it.
+
+Inputs: `token`, `app_slug`, `branch`, `output`, `comment_id`, `parts`, `files` and `ignore` (as
 git/commit's), `wiki` (the submodule, `docs`; empty for none), `pull_request` (empty never
 marks one ready), `number`, `scratch_dir` and `keep_scratch` (as issue-agent's: whose
 scratchpad keeps what did not land). Outputs: `message`, `done`, `sha`, `ignored`.

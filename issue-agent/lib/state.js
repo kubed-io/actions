@@ -38,6 +38,17 @@ function readSeen(body) {
   return found ? parse(found[1]) : null;
 }
 
+// One session's marker. comment/end appends one per session that answered, together at the
+// end, so only that trailing group (markers with nothing but space between) counts: a marker
+// in the text before it never does. A comment with one marker reads as readSeen's.
+function readSeenFor(body, key) {
+  const found = [...(body || '').matchAll(SEEN)];
+  let i = found.length - 1;
+  while (i > 0 && !body.slice(found[i - 1].index + found[i - 1][0].length, found[i].index).trim()) i -= 1;
+  const group = found.slice(Math.max(i, 0)).map((m) => parse(m[1])).filter((s) => s?.key === key);
+  return group.length ? group[group.length - 1] : null;
+}
+
 // the contract's exact text, `{"run_id": N}`, which n8n copies when it moves the placeholder
 function placeholderMarker(runId) {
   return `<!-- issue-agent-placeholder {"run_id": ${Number(runId)}} -->`;
@@ -53,4 +64,4 @@ function isAgent(body) {
   return (body || '').includes(TAG);
 }
 
-module.exports = { TAG, seenMarker, readSeen, placeholderMarker, readPlaceholder, isAgent };
+module.exports = { TAG, seenMarker, readSeen, readSeenFor, placeholderMarker, readPlaceholder, isAgent };

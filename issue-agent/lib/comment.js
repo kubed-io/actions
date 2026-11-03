@@ -1,12 +1,16 @@
 // Every comment the action posts: the "Working on it…" placeholder, the reply it becomes,
 // and the note that replaces it when the run does not finish. On a live turn n8n may have
 // moved the placeholder, so the reply and the note find it by its run (live.js).
+//
+// Inside comment/start and comment/end the comment is theirs: the answer goes to comment/end
+// as a part (`part`), and the run ends by saying where the comment is now (`where`).
 
 const fs = require('fs');
 const path = require('path');
 const { TAG, seenMarker, placeholderMarker } = require('./state');
 const { fillHeader, wikisOf, linkTo } = require('./header');
 const { settle } = require('./live');
+const parts = require('../../comment/lib/parts');
 
 const SPINNER = '<img src="https://github.com/user-attachments/assets/5ac382c7-e004-429b-8e35-7feb3e8f9c6f" width="14px" height="14px" style="vertical-align: middle; margin-left: 4px;" />';
 
@@ -23,14 +27,21 @@ function placeholder({ prompt, runUrl, runId }) {
   return `${TAG}\n${marker}${quote(prompt)}Working on it… ${SPINNER}\n\n<sub>[Follow the run](${runUrl})</sub>`;
 }
 
-function reply({ prompt, header, text, runUrl, seen }) {
+// the answer itself: a reply's, or a part of the comment comment/end writes
+function answer({ prompt, header, text }) {
   const head = header ? `${header}\n\n` : '';
-  const tail = seen && seen.through ? `\n${seenMarker(seen)}` : '';
-  return `${TAG}\n${head}${quote(prompt)}${text.trim()}\n\n<sub>[Run](${runUrl})</sub>${tail}`;
+  return `${head}${quote(prompt)}${text.trim()}`;
 }
 
-function failure({ prompt, runUrl }) {
-  return `${TAG}\n${quote(prompt)}⚠️ I didn't finish this one. [See the run](${runUrl}) for what went wrong.`;
+function reply({ prompt, header, text, runUrl, seen }) {
+  const tail = seen && seen.through ? `\n${seenMarker(seen)}` : '';
+  return `${TAG}\n${answer({ prompt, header, text })}\n\n<sub>[Run](${runUrl})</sub>${tail}`;
+}
+
+// `text`: what the steps that finished had already said
+function failure({ prompt, runUrl, text }) {
+  const said = (text || '').trim() ? `${text.trim()}\n\n` : '';
+  return `${TAG}\n${quote(prompt)}${said}⚠️ I didn't finish this one. [See the run](${runUrl}) for what went wrong.`;
 }
 
 // the workflow's template, filled from this run and the role's output
@@ -80,11 +91,29 @@ async function run({ github, context, core }) {
     await post(github, { ...where, body: failure({ prompt: env.PROMPT, runUrl: env.RUN_URL }) });
     return;
   }
+  if (env.MODE === 'where') {
+    // n8n reposts the placeholder under each in-flight reply: the steps after need it now
+    let id = Number(env.COMMENT_ID) || 0;
+    try {
+      id = (await settle({ github, context, env })).commentId || id;
+    } catch (e) {
+      core.warning(`the placeholder was not looked up (${e.message}); the comment is comment/start's`);
+    }
+    core.setOutput('comment_id', String(id));
+    return;
+  }
   if (!(env.REPLY || '').trim()) {
     core.setFailed('the agent wrote no reply');
     return;
   }
   let seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
+  if (env.MODE === 'part') {
+    if (live) ({ seen } = await settle({ github, context, env, seen }));
+    const dir = parts.dirOf(env, env.NUMBER);
+    parts.addPart(dir, 'issue-agent', answer({ prompt: env.PROMPT, header: headerOf(env), text: env.REPLY }));
+    parts.addSeen(dir, seen);
+    return;
+  }
   if (live) ({ commentId: where.comment_id, seen } = await settle({ github, context, env, seen }));
   const body = () => reply({ prompt: env.PROMPT, header: headerOf(env), text: env.REPLY, runUrl: env.RUN_URL, seen });
   let data;
@@ -102,4 +131,4 @@ async function run({ github, context, core }) {
   if (live) core.setOutput('comment_id', String(data.id));
 }
 
-module.exports = { placeholder, reply, failure, headerOf, run };
+module.exports = { placeholder, answer, reply, failure, headerOf, run };

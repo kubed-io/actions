@@ -121,6 +121,19 @@ inputs:
       PR, in this repository's Actions cache.
     required: false
     default: "true"
+  scratch_cache:
+    description: >
+      Restore and save the scratchpad here. `false` when the workflow does it, once around the
+      job: two runs in one job share one cache key.
+    required: false
+    default: "true"
+  comment_id:
+    description: >
+      comment/start's `comment_id`: the thread comment is comment/start's and comment/end's.
+      The answer goes to comment/end as a part, and nothing is acknowledged, replied or
+      reported here.
+    required: false
+    default: ""
   live_messages:
     description: >
       On the claude runner, n8n's pushes reach the running turn: the agent-flow channel and its
@@ -142,8 +155,10 @@ outputs:
     description: The issue or PR, empty for a one-off.
     value: ${{ steps.gather.outputs.number }}
   comment_id:
-    description: The comment the reply is in (empty when it went as a review).
-    value: ${{ steps.review.outputs.posted != 'true' && (steps.reply.outputs.comment_id || steps.ack.outputs.comment_id) || '' }}
+    description: >
+      The comment the reply is in (empty when it went as a review). With `comment_id` given,
+      where comment/start's comment is now: n8n may have moved it.
+    value: ${{ steps.where.outputs.comment_id || (steps.review.outputs.posted != 'true' && (steps.reply.outputs.comment_id || steps.ack.outputs.comment_id) || '') }}
   review_id:
     description: The review the reply is the body of, when it had line comments.
     value: ${{ steps.review.outputs.review_id }}
@@ -220,6 +235,7 @@ runs:
       SESSION_KEY: ${{ inputs.session_key }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       RESUMED: ${{ steps.setup.outputs.resumed }}
+      COMMENT_ID: ${{ inputs.comment_id }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -228,17 +244,19 @@ runs:
   # the agent's folder as the last turn of this thread left it: the newest entry by prefix
   - name: Restore the Scratchpad
     id: scratch
-    if: inputs.keep_scratch == 'true' && steps.gather.outputs.number != '' && steps.gather.outputs.prompt != ''
+    if: inputs.keep_scratch == 'true' && inputs.scratch_cache == 'true' && steps.gather.outputs.number != '' && steps.gather.outputs.prompt != ''
     uses: actions/cache/restore@v6
     with:
       path: ${{ inputs.scratch_dir }}/scratch
       key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ steps.gather.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
       restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ steps.gather.outputs.number }}-
 
-  # the reply's comment goes up first, as a spinner and a link to this run
+  # The reply's comment goes up first, as a spinner and a link to this run. Acknowledge,
+  # Reply and Report Failure are for callers without comment/start; they go when every
+  # caller uses it.
   - name: Acknowledge
     id: ack
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != ''
+    if: inputs.comment_id == '' && steps.gather.outputs.prompt != '' && steps.gather.outputs.number != ''
     uses: actions/github-script@v9
     env:
       MODE: ack
@@ -326,6 +344,7 @@ runs:
     uses: actions/github-script@v9
     env:
       LIVE: ${{ steps.setup.outputs.live }}
+      PAIR: ${{ inputs.comment_id != '' }}
       IS_PR: ${{ steps.gather.outputs.is_pr }}
       TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
       TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
@@ -350,7 +369,7 @@ runs:
 
   - name: Reply
     id: reply
-    if: steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && steps.review.outputs.posted != 'true'
+    if: inputs.comment_id == '' && steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && steps.review.outputs.posted != 'true'
     uses: actions/github-script@v9
     env:
       MODE: reply
@@ -360,6 +379,32 @@ runs:
       TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
       NUMBER: ${{ steps.gather.outputs.number }}
       COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
+      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
+      PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
+      REPLY: ${{ steps.read.outputs.reply }}
+      HEADER: ${{ inputs.header }}
+      SESSION_KEY: ${{ inputs.session_key }}
+      SESSION_ID: ${{ steps.setup.outputs.session_id }}
+      THROUGH: ${{ steps.gather.outputs.through }}
+      THROUGH_ID: ${{ steps.gather.outputs.through_id }}
+      BLOB: ${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.gather.outputs.head }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
+
+  # inside comment/start and comment/end: the answer is a part, written by comment/end
+  - name: Hand the Answer On
+    if: inputs.comment_id != '' && steps.gather.outputs.prompt != '' && steps.gather.outputs.number != ''
+    uses: actions/github-script@v9
+    env:
+      MODE: part
+      LIVE: ${{ steps.setup.outputs.live }}
+      IS_PR: ${{ steps.gather.outputs.is_pr }}
+      TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
+      TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
+      NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       REPLY: ${{ steps.read.outputs.reply }}
@@ -398,6 +443,20 @@ runs:
       COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
       PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
+
+  # the steps after this run end on the comment where it is now, whatever happened here
+  - name: Where the Comment Is
+    id: where
+    if: always() && inputs.comment_id != ''
+    uses: actions/github-script@v9
+    env:
+      MODE: where
+      NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
+      COMMENT_ID: ${{ inputs.comment_id }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |

@@ -11,6 +11,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [kubectl](kubectl/) | Runs a kubectl command, its stdout and stderr in files of their own for the steps after it |
 | [k8s-summary](k8s-summary/) | Kubernetes resources and their diffs in the step summary: manifests as accordions by kind, plan and diff output as a diff per resource, up and apply output counted |
 | [issue-agent](issue-agent/) | A Claude Code agent in an issue or PR as a real Claude Code session: its reply, its notes in the description, and on a PR its review comments. No git; it outputs its structured response for the steps after it |
+| [comment/start](comment/), [comment/end](comment/) | One thread comment for a job: the spinner first, every step's part, written once at the end; the failure note when the end never comes |
 | [issue-agent/land](issue-agent/) | Lands an agent's turn: its commit message, the wiki, one signed commit, a note on the reply when something did not land, the PR ready when done |
 | [git/branch](git/) | Makes a branch through the GitHub API, or finds it; optionally linked to an issue's Development panel |
 | [git/commit](git/) | Commits the checkout's changes to a branch through `createCommitOnBranch`, so every commit is GitHub-signed |

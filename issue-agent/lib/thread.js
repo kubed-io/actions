@@ -6,10 +6,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { isAgent, readSeen } = require('./state');
+const { isAgent, readSeenFor, readPlaceholder } = require('./state');
 const { readBlock, stripBlocks, unwrap } = require('./notes');
 const { wroteLast, lastEdit } = require('./trusted');
 const { list, gql } = require('./util');
+const commentParts = require('../../comment/lib/parts');
 
 // a deleted account arrives as `user: null`; it is a ghost, never trusted
 const GHOST = { login: 'ghost', id: null, type: 'User' };
@@ -71,10 +72,17 @@ function lastSeen(messages, key) {
   let seen = null;
   for (const m of messages) {
     if (m.kind !== 'agent') continue;
-    const s = readSeen(m.body);
-    if (s && s.key === key && s.through && (!seen || s.through > seen.through)) seen = { ...s, answered: m.at };
+    const s = readSeenFor(m.body, key);
+    if (s && s.through && (!seen || s.through > seen.through)) seen = { ...s, answered: m.at };
   }
   return seen;
+}
+
+// Inside comment/start and comment/end: an earlier turn of this job answered in the comment
+// comment/end has not written yet, so its seen marker is still in the parts directory.
+function pendingSeen(seen, dir, key) {
+  const s = commentParts.seenOf(dir).find((x) => x.key === key);
+  return s && s.through && (!seen || s.through > seen.through) ? s : seen;
 }
 
 function unseen(messages, seen, trust) {
@@ -346,7 +354,10 @@ async function run({ github, context, core }) {
   }
 
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: number });
-  const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+  let comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: number, per_page: 100 });
+  // inside comment/start and comment/end, this run's "Working on it…" is no message
+  const pair = env.COMMENT_ID ? commentParts.dirOf(env, number) : '';
+  if (pair) comments = comments.filter((c) => !(c.user?.type === 'Bot' && isAgent(c.body) && readPlaceholder(c.body)?.run_id === context.runId));
   let messages = [fromIssue(issue), ...comments.map(fromComment)];
   let pr = { head: '', sha: '', draft: false };
   if (issue.pull_request) {
@@ -361,7 +372,8 @@ async function run({ github, context, core }) {
   }
   messages = sortByTime(messages);
 
-  const seen = lastSeen(messages, env.SESSION_KEY);
+  let seen = lastSeen(messages, env.SESSION_KEY);
+  if (pair) seen = pendingSeen(seen, pair, env.SESSION_KEY);
   const t = turn({ messages, trust, seen, number, scratch, fresh: env.RESUMED !== 'true' && !!seen, ...prompts(env) });
   const shown = (t ? t.before : messages).filter((m) => m.kind === 'agent' || isOpening(m) || isTrusted(m.user, trust));
   const omitted = messages.filter((m) => m.kind !== 'agent' && !isOpening(m) && !isTrusted(m.user, trust)).length;
@@ -378,6 +390,6 @@ async function run({ github, context, core }) {
 }
 
 module.exports = {
-  isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, unseen, turn,
+  isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, pendingSeen, unseen, turn,
   content, brief, strip, specLines, partOf, contextFile, prFile, reviewsFile, issuesFile, diffFiles, prompts, run,
 };

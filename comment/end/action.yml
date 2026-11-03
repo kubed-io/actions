@@ -1,0 +1,26 @@
+name: Comment · End
+description: >
+  Writes the comment comment/start opened, once: the parts the steps between left, in the
+  order they ran, with a seen marker for each session that answered. No part, no comment:
+  the placeholder goes. Found by this run's marker, wherever n8n moved it.
+
+inputs:
+  github_token:
+    description: Token for the thread; comment/start's.
+    required: true
+  number:
+    description: The issue or PR; comment/start's.
+    required: false
+    default: ${{ github.event.issue.number || github.event.pull_request.number }}
+  comment_id:
+    description: The last issue-agent's `comment_id`, when the comment carries no run marker; comment/start's otherwise.
+    required: false
+    default: ""
+
+outputs:
+  comment_id:
+    description: The comment the answer is in; empty when no step said anything.
+
+runs:
+  using: node24
+  main: main.js

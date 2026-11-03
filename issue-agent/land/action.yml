@@ -3,10 +3,11 @@ description: >
   Lands an issue-agent turn on its branch: the commit message from the agent's output
   (`commit_message`, and `done`, which adds `Agent: done`), the wiki submodule pushed with
   git, then one signed commit through the API with the wiki's pointer. When the commit fails
-  or leaves files out, the turn's reply says so. A commit that fails (the branch moved and
-  changed a file it has, say) keeps the working tree's changes in the scratchpad,
-  `{scratch_dir}/scratch/unlanded/`, for the next turn. When the agent is done, the PR is
-  marked ready. Nothing is committed when the output has no commit message.
+  or leaves files out, the turn's reply says so, or with `parts` comment/end's comment. A
+  commit that fails (the branch moved and changed a file it has, say) keeps the working
+  tree's changes in the scratchpad, `{scratch_dir}/scratch/unlanded/`, for the next turn.
+  When the agent is done, the PR is marked ready. Nothing is committed when the output has
+  no commit message.
 
 inputs:
   token:
@@ -25,6 +26,12 @@ inputs:
     description: issue-agent's `comment_id`, the reply that must not claim what did not land.
     required: false
     default: ""
+  parts:
+    description: >
+      `true` between comment/start and comment/end: what did not land goes to comment/end as
+      a part, by `number`, instead of onto `comment_id`.
+    required: false
+    default: "false"
   files:
     description: git/commit's `files`; every change when empty.
     required: false
@@ -129,12 +136,14 @@ runs:
 
   - name: Say What Was Left Out
     if: >-
-      always() && inputs.comment_id != '' &&
+      always() && (inputs.comment_id != '' || inputs.parts == 'true') &&
       (steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' ||
         (steps.commit.outputs.ignored != '' && steps.commit.outputs.ignored != '[]'))
     uses: actions/github-script@v9
     env:
       COMMENT_ID: ${{ inputs.comment_id }}
+      PARTS: ${{ inputs.parts }}
+      NUMBER: ${{ inputs.number }}
       IGNORED: ${{ steps.commit.outputs.ignored }}
       FAILED: ${{ steps.wiki.outcome == 'failure' || steps.commit.outcome == 'failure' }}
       CONFLICTS: ${{ steps.commit.outputs.conflicts }}

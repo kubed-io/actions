@@ -1,0 +1,43 @@
+name: Comment · Start
+description: >
+  Opens a job's one thread comment: issue-agent's "Working on it…" with a link to the run,
+  posted before anything else runs. The steps after it add to the answer and comment/end
+  writes it, once. If comment/end never does, the end of the job turns the comment into the
+  failure note, keeping what the steps that finished had said.
+
+inputs:
+  github_token:
+    description: Token for the thread; the App's, as issue-agent's.
+    required: true
+  number:
+    description: The issue or PR; defaults to the event's.
+    required: false
+    default: ${{ github.event.issue.number || github.event.pull_request.number }}
+  prompt:
+    description: >
+      Quoted above "Working on it…" and the failure note, as issue-agent's `prompt` with
+      `prompt_when: always`.
+    required: false
+    default: ""
+  live:
+    description: >
+      Mark the comment with this run (`<!-- issue-agent-placeholder -->`), so it is found
+      wherever n8n moves it while an agent with live_messages works. `false` never moves.
+    required: false
+    default: "true"
+  run_url:
+    description: The run link on the comment; this run's when empty.
+    required: false
+    default: ""
+
+outputs:
+  comment_id:
+    description: The comment's id now. n8n may move it; issue-agent's `comment_id` is where it is after each turn.
+  number:
+    description: The issue or PR.
+
+runs:
+  using: node24
+  main: main.js
+  post: post.js
+  post-if: always()

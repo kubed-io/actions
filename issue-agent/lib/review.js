@@ -10,9 +10,13 @@
 // The review is of the commit the checkout is at when the agent ends: a push brought in
 // during the turn moved it past the head Gather read, so the review goes on that commit,
 // with the lines of its own diff.
+//
+// Inside comment/start and comment/end (`PAIR`) the answer is that comment's: the review
+// holds only the line comments, and the placeholder stays for comment/end.
 
 const fs = require('fs');
 const { reply, headerOf } = require('./comment');
+const { TAG } = require('./state');
 const { settle } = require('./live');
 const { diffFiles } = require('./thread');
 const { compareFiles } = require('../../git/lib/util');
@@ -94,11 +98,14 @@ async function run({ github, context, core, exec }) {
   if (!comments.length || !(env.REPLY || '').trim()) return;
   if (sha !== env.HEAD_SHA) core.info(`the checkout moved from ${env.HEAD_SHA} to ${sha} during the turn: the review is on ${sha}`);
   const lineMap = await lineMapFor({ github, core, owner, repo, env, sha });
+  const pair = env.PAIR === 'true';
   let seen = { key: env.SESSION_KEY, through: env.THROUGH, id: env.THROUGH_ID };
   // on a live turn the placeholder is wherever n8n last moved it
-  let placeholderId = Number(env.COMMENT_ID) || 0;
-  if (env.LIVE === 'true') ({ commentId: placeholderId, seen } = await settle({ github, context, env, seen }));
-  const bodyFor = (outside) => reply({ prompt: env.PROMPT, header: headerOf(env), text: `${env.REPLY.trim()}${outsideSection(outside)}`, runUrl: env.RUN_URL, seen });
+  let placeholderId = pair ? 0 : Number(env.COMMENT_ID) || 0;
+  if (env.LIVE === 'true' && !pair) ({ commentId: placeholderId, seen } = await settle({ github, context, env, seen }));
+  const bodyFor = pair
+    ? (outside) => `${TAG}\nLine comments on this turn's answer in the thread.${outsideSection(outside)}\n\n<sub>[Run](${env.RUN_URL})</sub>`
+    : (outside) => reply({ prompt: env.PROMPT, header: headerOf(env), text: `${env.REPLY.trim()}${outsideSection(outside)}`, runUrl: env.RUN_URL, seen });
   const at = { owner, repo, pull_number: Number(env.NUMBER), commit_id: sha, event: 'COMMENT' };
 
   const { inline, outside } = split(comments, lineMap);

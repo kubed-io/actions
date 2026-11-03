@@ -4,7 +4,7 @@
 // template applies its labels for whoever files it, so a label proves nothing on its own.
 // max_runs: a cap on the agent's replies under one session key in one thread.
 
-const { TAG, readSeen, isAgent } = require('./state');
+const { TAG, readSeenFor, isAgent } = require('./state');
 const { list } = require('./util');
 
 const CAP = '<!-- issue-agent-cap -->';
@@ -21,7 +21,7 @@ function lastLabeledBy(events, label) {
 }
 
 // only the agent's own comments count: a stranger in a public repo can paste markers
-const isOwnRun = (c, key) => isAgent(c.body) && c.user?.type === 'Bot' && readSeen(c.body)?.key === key;
+const isOwnRun = (c, key) => isAgent(c.body) && c.user?.type === 'Bot' && !!readSeenFor(c.body, key);
 
 function runsSoFar(comments, key) {
   return comments.filter((c) => isOwnRun(c, key)).length;
