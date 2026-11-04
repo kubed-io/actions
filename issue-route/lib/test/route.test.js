@@ -52,7 +52,7 @@ async function both(s) {
   return native;
 }
 
-const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet' };
+const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true' };
 
 test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
@@ -117,18 +117,27 @@ test('enhancement is not needed: a Feature with agent alone is a spec turn', asy
 
 test("a Bug's agent label is the debug agent's first turn: debug-report leading the post, no writes", async () => {
   assert.deepEqual(await both({ label: 'agent', labels: [], type: 'Bug' }),
-    { ...SPEC, stage: 'spec', role: 'debug', label: 'agent', writes: 'false', prompt: `${P}debug-report`, prompt_when: 'lead', takeover: 'true' });
+    { ...SPEC, stage: 'spec', role: 'debug', label: 'agent', writes: 'false', prompt: `${P}debug-report`, prompt_when: 'lead', takeover: 'true', plan: 'false' });
 });
 
 test("the owner's comment on a Bug is a debug turn in their words", async () => {
   assert.deepEqual(await both({ type: 'Bug' }),
-    { ...SPEC, stage: 'spec', role: 'debug', label: '', writes: 'false', prompt: '', takeover: 'false' });
+    { ...SPEC, stage: 'spec', role: 'debug', label: '', writes: 'false', prompt: '', takeover: 'false', plan: 'false' });
 });
 
-test('a Bug has no spec and no hand-off: the spec and spec approved labels are nothing', async () => {
+test('a Bug has no spec: the spec label is nothing, and never writes', async () => {
   assert.equal((await both({ label: 'spec', type: 'Bug' })).stage, 'none');
-  assert.equal((await both({ label: 'spec approved', type: 'Bug' })).stage, 'none');
   assert.equal((await both({ labels: [...OPTED_IN, 'spec'], type: 'Bug' })).writes, 'false');
+});
+
+test("spec approved on a Bug hands its report off to a fix, with no plan turn", async () => {
+  const out = await both({ label: 'spec approved', type: 'Bug' });
+  assert.deepEqual([out.stage, out.role, out.change, out.plan], ['handoff', 'debug', 'own', 'false']);
+});
+
+test('a Bug with needs plan gets the plan turn, as a Feature does', async () => {
+  assert.equal((await both({ label: 'spec approved', labels: [...OPTED_IN, 'needs plan'], type: 'Bug' })).plan, 'true');
+  assert.equal((await both({ label: 'spec approved' })).plan, 'true');
 });
 
 test('a pull request is not a work item, spec approved included', async () => {

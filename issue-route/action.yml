@@ -36,6 +36,11 @@ outputs:
       On a hand-off: `sub` for a sub-issue's change into its family's branch, `parent` for a
       parent's change once its `agent` sub-issues are closed, `own` otherwise.
     value: ${{ steps.route.outputs.change }}
+  plan:
+    description: >-
+      `true` when the change starts with a plan turn: a Feature's always, a Bug's only with
+      `needs plan`.
+    value: ${{ steps.route.outputs.plan }}
   title:
     description: Its title.
     value: ${{ steps.route.outputs.title }}

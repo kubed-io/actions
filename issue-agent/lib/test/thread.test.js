@@ -88,6 +88,7 @@ test('Spec lines and Part of', () => {
   const body = 'Spec: [docs/superpowers/specs/a-design.md](https://x)\nSpec: docs/b.md\n\nCloses #3\nPart of #4, Part of #5';
   assert.deepEqual(thread.specLines(body), ['docs/superpowers/specs/a-design.md', 'docs/b.md']);
   assert.deepEqual(thread.partOf(body), [4, 5]);
+  assert.deepEqual(thread.closes(`${body}\nFixes #6, resolved #7`), [3, 6, 7]);
 });
 
 test('strip removes markers and the run link from an agent comment', () => {
@@ -142,6 +143,25 @@ test('run on a PR writes the context, PR, reviews and issues files', async () =>
   assert.deepEqual(JSON.parse(read('diff.json')), { 'docs/superpowers/specs/2026-10-08-rec-design.md': [1, 2] });
   assert.ok(read('diff.md').includes('    1 +# Rec'));
   assert.equal(core.outputs.head_sha, 'abc123');
+});
+
+test("a sub-issue's change, which GitHub links to nothing, still reads its own issue first, then the family's", async () => {
+  const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'thread-'));
+  const body = 'Closes #12\n\nPart of #3: merges into issue-3.';
+  const pr = { number: 40, title: 'Fix', body, user: OWNER, created_at: '2026-10-08T15:00:00Z', labels: [], pull_request: {} };
+  const github = fake.github({
+    'issues.get': ({ issue_number: n }) => (n === 40 ? pr : { ...ISSUE, number: n, title: n === 3 ? 'Family' : 'The bug' }),
+    'graphql:issueOrPullRequest': { repository: { issueOrPullRequest: {} } },
+    'issues.listComments': [],
+    'pulls.get': { number: 40, title: 'Fix', body, draft: true, labels: [], head: { ref: 'issue-12', sha: 'abc', repo: { full_name: 'kubed-io/selenium-flow' } }, base: { ref: 'issue-3' } },
+    'pulls.listFiles': [], 'pulls.listReviews': [], 'pulls.listReviewComments': [],
+    'graphql:closingIssuesReferences': { repository: { pullRequest: { closingIssuesReferences: { nodes: [] }, reviewThreads: { nodes: [] } } } },
+  });
+  Object.assign(process.env, { GITHUB_WORKSPACE: ws, NUMBER: '40', PROMPT: '', TRUSTED_IDS: '4399427', TRUSTED_BOTS: '', SESSION_KEY: 'pr-40', SCRATCH_DIR: '.issue', RESUMED: 'false' });
+  await thread.run({ github, context: fake.context(), core: fake.core() });
+  const issues = fs.readFileSync(path.join(ws, '.issue', 'issues.md'), 'utf8');
+  assert.ok(issues.indexOf('## #12: The bug') > -1);
+  assert.ok(issues.indexOf('## #12: The bug') < issues.indexOf('## #3: Family'));
 });
 
 test('the opening post is the author\'s words, without the agent\'s notes in the body', () => {
