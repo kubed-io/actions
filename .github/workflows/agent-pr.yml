@@ -170,7 +170,7 @@ jobs:
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot]
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot]
         session_key: pr-${{ needs.route.outputs.number }}
         live_messages: true
 
@@ -343,7 +343,7 @@ jobs:
           files are the record.' || '' }}
         max_runs: 40
         # the review agent posts as github-actions[bot]: its threads count
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot],41898282,github-actions
         session_key: pr-${{ needs.route.outputs.number }}
         live_messages: true
 

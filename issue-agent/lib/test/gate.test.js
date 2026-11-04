@@ -75,3 +75,36 @@ test('the cap note is posted once, and not again after later comments', async ()
   assert.equal(core.outputs.allowed, 'false');
   assert.equal(github.calls.filter((c) => c.name === 'issues.createComment').length, 0);
 });
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const parts = require('../../../comment/lib/parts');
+
+test("a refused turn the thread is waiting on says why, in comment/start's comment", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
+  env({ RUNNER_TEMP: tmp });
+  parts.open(parts.dirOf(process.env, 12), { comment_id: 7, number: 12 });
+  const core = fake.core();
+  await gate.run({ github: fake.github({ 'issues.listEventsForTimeline': [labeled(235398881, 'kubed-io[bot]')] }), context: fake.context(), core });
+  assert.equal(core.outputs.allowed, 'false');
+  const [said] = parts.partsOf(parts.dirOf(process.env, 12));
+  assert.match(said, /didn't run: `agent was last added by @kubed-io\[bot\], not a trusted user`/);
+});
+
+test('with no comment/start, a refusal leaves nothing', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-'));
+  env({ RUNNER_TEMP: tmp });
+  await gate.run({ github: fake.github({ 'issues.listEventsForTimeline': [labeled(1, 'someone')] }), context: fake.context(), core: fake.core() });
+  assert.deepEqual(parts.partsOf(parts.dirOf(process.env, 12)), []);
+});
+
+test("the App's label counts when its bot's id is trusted, never its login", async () => {
+  const events = [labeled(235398881, 'kubed-io[bot]')];
+  for (const [ids, allowed] of [['4399427,235398881', 'true'], ['4399427,kubed-io[bot]', 'false']]) {
+    env({ TRUSTED_IDS: ids, RUNNER_TEMP: fs.mkdtempSync(path.join(os.tmpdir(), 'gate-')) });
+    const core = fake.core();
+    await gate.run({ github: fake.github({ 'issues.listEventsForTimeline': events }), context: fake.context(), core });
+    assert.equal(core.outputs.allowed, allowed, ids);
+  }
+});

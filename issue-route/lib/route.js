@@ -6,12 +6,18 @@
 // approved` is the hand-off. A Feature's turns are the spec agent's; a Bug's are the debug
 // agent's, which reports and never writes. Anything else is nothing.
 //
+// A sub-issue is part of its family's conversation: the turn takes the family's session and
+// queue (its top issue's number, `family`), and a sub-issue's first turn opens with the
+// sub-issue prompt (a Bug's, with debug-report).
+//
 // It answers the native events (`issues` labeled, `issue_comment` created) and n8n's
 // `agent-issue` dispatch, the same for the same situation. The issue is read live; a
 // dispatch's payload is a pointer, so the comment's author and the labeler are read back
 // from GitHub.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
+const { familyOf } = require('../../issue-agent/lib/family');
+const { isAgent } = require('../../issue-agent/lib/state');
 
 // the issue types the flow takes, and the agent each one gets
 const ROLES = { Feature: 'spec', Bug: 'debug' };
@@ -88,20 +94,34 @@ async function run({ github, context, core, env = process.env }) {
   });
   core.setOutput('stage', stage);
   core.setOutput('number', String(number));
+  // a turn's family, and whether this is a sub-issue's first: nothing the agent wrote on it yet
+  let family = number;
+  let first = false;
+  if (stage !== 'none') {
+    family = await familyOf(github, context.repo, number);
+    if (family !== number) {
+      const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: number, per_page: 100 });
+      first = !comments.some((c) => c.user?.type === 'Bot' && String(c.user?.id) === cfg.app && isAgent(c.body));
+    }
+  }
+  core.setOutput('family', String(family));
   core.setOutput('label', label);
   core.setOutput('title', issue.title || '');
   core.setOutput('role', ROLES[type] || '');
   // the `spec` label gives a Feature's agent a branch, and files that are committed
   core.setOutput('writes', String(type === 'Feature' && labels.includes('spec')));
   // a label's turn is a kb prompt: the `spec` label's spec-draft, and a Bug's first, on
-  // `agent`, debug-report, which leads the opening post; a comment is answered in its own
-  // words
-  const prompt = label === 'spec' ? 'spec-draft' : type === 'Bug' && label === 'agent' ? 'debug-report' : '';
+  // `agent`, debug-report, which leads the opening post; a sub-issue's first turn leads with
+  // sub-issue; a comment is answered in its own words
+  const opening = type === 'Bug' ? 'debug-report' : 'sub-issue';
+  const prompt = label === 'spec' ? 'spec-draft'
+    : first ? opening
+      : type === 'Bug' && label === 'agent' ? 'debug-report' : '';
   core.setOutput('prompt', prompt ? `${cfg.prompts}${prompt}` : '');
-  core.setOutput('prompt_when', prompt === 'debug-report' ? 'lead' : 'quiet');
+  core.setOutput('prompt_when', ['debug-report', 'sub-issue'].includes(prompt) ? 'lead' : 'quiet');
   // a label takes the issue over; a comment waits its turn
   core.setOutput('takeover', String(labelled));
-  core.info(`#${number}: ${stage}${why ? ` (${why})` : ''}`);
+  core.info(`#${number}: ${stage}${why ? ` (${why})` : ''}${family !== number ? `, family #${family}${first ? ', first turn' : ''}` : ''}`);
 }
 
 module.exports = { run, stageOf };

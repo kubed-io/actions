@@ -28,6 +28,9 @@ outputs:
   number:
     description: The issue.
     value: ${{ steps.route.outputs.number }}
+  family:
+    description: The family's top issue, the issue itself when it has no parent; its session and queue are the turn's.
+    value: ${{ steps.route.outputs.family }}
   title:
     description: Its title.
     value: ${{ steps.route.outputs.title }}
@@ -41,10 +44,13 @@ outputs:
     description: "`true` when a Feature has the `spec` label: a branch, and files that are committed."
     value: ${{ steps.route.outputs.writes }}
   prompt:
-    description: The turn's prompt, `spec-draft` for the `spec` label and `debug-report` for a Bug's `agent` label; else empty.
+    description: >-
+      The turn's prompt: `spec-draft` for the `spec` label; on a sub-issue's first turn,
+      `sub-issue`, or `debug-report` for a Bug; `debug-report` for a Bug's `agent` label; else
+      empty.
     value: ${{ steps.route.outputs.prompt }}
   prompt_when:
-    description: "`lead` for `debug-report`, which leads the opening post into the turn; else `quiet`."
+    description: "`lead` for `debug-report` and `sub-issue`, which lead the thread's unseen posts into the turn; else `quiet`."
     value: ${{ steps.route.outputs.prompt_when }}
   takeover:
     description: "`true` for a label, which takes the issue over; a comment waits its turn."

@@ -169,7 +169,7 @@ jobs:
         review: "true"
         threads: "false"
         # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},kubed-io[bot],41898282,github-actions
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot],41898282,github-actions
         session_key: review-${{ needs.route.outputs.number }}
 
     # the verdict is the check: only `looks good` passes it
