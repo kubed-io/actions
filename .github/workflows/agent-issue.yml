@@ -55,7 +55,9 @@ jobs:
       number: ${{ steps.route.outputs.number }}
       label: ${{ steps.route.outputs.label }}
       writes: ${{ steps.route.outputs.writes }}
+      role: ${{ steps.route.outputs.role }}
       prompt: ${{ steps.route.outputs.prompt }}
+      prompt_when: ${{ steps.route.outputs.prompt_when }}
       takeover: ${{ steps.route.outputs.takeover }}
       title: ${{ steps.route.outputs.title }}
     steps:
@@ -130,6 +132,7 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         live: true
+        prompt: ${{ needs.route.outputs.prompt_when == 'always' && needs.route.outputs.prompt || '' }}
 
     - name: Spec Agent
       id: agent
@@ -139,13 +142,15 @@ jobs:
         scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        settings: ${{ env.CLAUDE_AGENTS }}/spec/settings.json
-        schema: ${{ env.CLAUDE_AGENTS }}/spec/schema.json
+        # a Feature's turn is the spec agent's, a Bug's the debug agent's
+        settings: ${{ env.CLAUDE_AGENTS }}/${{ needs.route.outputs.role }}/settings.json
+        schema: ${{ env.CLAUDE_AGENTS }}/${{ needs.route.outputs.role }}/schema.json
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
         opt_in_label: agent
-        # the `spec` label's turn is a kb prompt (superpowers library)
+        # a label's turn is a kb prompt (superpowers library)
         prompt: ${{ needs.route.outputs.prompt }}
+        prompt_when: ${{ needs.route.outputs.prompt_when }}
         session_key: issue-${{ needs.route.outputs.number }}
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}

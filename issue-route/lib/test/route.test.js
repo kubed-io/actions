@@ -8,19 +8,19 @@ const APP = 235398881;
 const P = '/mcp__superpowers__superpowers_';
 const ENV = { OWNER_ID: String(DRK), APP_ID: String(APP), PROMPTS: P };
 const ISSUE_URL = 'https://api.github.com/repos/kubed-io/selenium-flow/issues/5';
-const OPTED_IN = ['enhancement', 'agent'];
+const OPTED_IN = ['agent'];
 
 // A situation on issue #5, as GitHub sends it natively or as n8n's `agent-issue` dispatch.
 // `label` is the label just added (none: a comment); `labels` what the issue has now;
 // `by` who did it, `gone` takes it off again before the route reads it. GitHub answers
 // the dispatch's read-backs with the same truth.
-function situation({ label, labels = OPTED_IN, by = DRK, pr = false, events, got, gone = false }) {
+function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false }) {
   const all = label && !gone && !labels.includes(label) ? [...labels, label] : labels;
   const github = fake.github({
-    'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(pr ? { pull_request: { url: 'x' } } : {}) },
+    'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
     'issues.getComment': got ?? { id: 31, user: { id: by }, issue_url: ISSUE_URL },
     'issues.listEvents': events ?? [
-      { event: 'labeled', actor: { id: DRK }, label: { name: 'enhancement' } },
+      { event: 'labeled', actor: { id: DRK }, label: { name: 'agent' } },
       ...(label ? [{ event: 'labeled', actor: { id: by }, label: { name: label } }] : []),
     ],
   });
@@ -47,9 +47,9 @@ async function both(s) {
   return native;
 }
 
-const SPEC = { number: '5', title: 'Flows remember the window' };
+const SPEC = { number: '5', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet' };
 
-test("the owner's comment on an opted-in issue is a spec turn in their words, queued", async () => {
+test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
 });
 
@@ -58,7 +58,7 @@ test("the owner's comment with the spec label on writes", async () => {
 });
 
 test('the agent label opts the issue in: a spec turn that takes the issue over', async () => {
-  assert.deepEqual(await both({ label: 'agent', labels: ['enhancement'] }),
+  assert.deepEqual(await both({ label: 'agent', labels: [] }),
     { ...SPEC, stage: 'spec', label: 'agent', writes: 'false', prompt: '', takeover: 'true' });
 });
 
@@ -74,7 +74,7 @@ test('spec approved by the owner hands off to the plan, taking the issue over', 
 
 test('spec approved by anyone else, or on an issue not opted in, is nothing', async () => {
   assert.equal((await both({ label: 'spec approved', by: 12345 })).stage, 'none');
-  assert.equal((await both({ label: 'spec approved', labels: ['enhancement'] })).stage, 'none');
+  assert.equal((await both({ label: 'spec approved', labels: [] })).stage, 'none');
 });
 
 test("the App's own comments, and anyone else's, are nothing", async () => {
@@ -83,7 +83,7 @@ test("the App's own comments, and anyone else's, are nothing", async () => {
 });
 
 test('the agent or spec label by anyone else is nothing', async () => {
-  assert.equal((await both({ label: 'agent', by: 12345, labels: ['enhancement'] })).stage, 'none');
+  assert.equal((await both({ label: 'agent', by: 12345, labels: [] })).stage, 'none');
   assert.equal((await both({ label: 'spec', by: APP })).stage, 'none');
 });
 
@@ -98,10 +98,32 @@ test('after spec approved, a comment or a spec label is nothing: the change carr
   assert.equal((await both({ label: 'spec', labels: done })).stage, 'none');
 });
 
-test('an issue without enhancement and agent is not the agents\'', async () => {
+test('an issue without agent, or not a Feature or Bug, is not the agents\'', async () => {
+  assert.equal((await both({ labels: [] })).stage, 'none');
   assert.equal((await both({ labels: ['enhancement'] })).stage, 'none');
-  assert.equal((await both({ labels: ['agent'] })).stage, 'none');
-  assert.equal((await both({ label: 'agent', labels: [] })).stage, 'none');
+  assert.equal((await both({ type: 'Task' })).stage, 'none');
+  assert.equal((await both({ type: '' })).stage, 'none');
+  assert.equal((await both({ label: 'agent', labels: [], type: '' })).stage, 'none');
+});
+
+test('enhancement is not needed: a Feature with agent alone is a spec turn', async () => {
+  assert.equal((await both({ labels: ['agent'] })).stage, 'spec');
+});
+
+test("a Bug's agent label is the debug agent's first turn: debug-report, sent always, no writes", async () => {
+  assert.deepEqual(await both({ label: 'agent', labels: [], type: 'Bug' }),
+    { ...SPEC, stage: 'spec', role: 'debug', label: 'agent', writes: 'false', prompt: `${P}debug-report`, prompt_when: 'always', takeover: 'true' });
+});
+
+test("the owner's comment on a Bug is a debug turn in their words", async () => {
+  assert.deepEqual(await both({ type: 'Bug' }),
+    { ...SPEC, stage: 'spec', role: 'debug', label: '', writes: 'false', prompt: '', takeover: 'false' });
+});
+
+test('a Bug has no spec and no hand-off: the spec and spec approved labels are nothing', async () => {
+  assert.equal((await both({ label: 'spec', type: 'Bug' })).stage, 'none');
+  assert.equal((await both({ label: 'spec approved', type: 'Bug' })).stage, 'none');
+  assert.equal((await both({ labels: [...OPTED_IN, 'spec'], type: 'Bug' })).writes, 'false');
 });
 
 test('a pull request is not a work item, spec approved included', async () => {

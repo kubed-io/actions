@@ -1,9 +1,10 @@
 // Decides what an event on a work item (an issue) is for the agents: a spec turn, the
 // hand-off to a plan, or nothing.
 //
-// On an issue with `enhancement` and `agent`, the owner's comment, or their `agent` or
-// `spec` label, is a spec turn, until `spec approved`. The owner's `spec approved` on an
-// opted-in issue is the hand-off. Anything else is nothing.
+// On a Feature or Bug issue with `agent`, the owner's comment or their `agent` label is a
+// turn; on a Feature, their `spec` label too, until `spec approved`, and their `spec
+// approved` is the hand-off. A Feature's turns are the spec agent's; a Bug's are the debug
+// agent's, which reports and never writes. Anything else is nothing.
 //
 // It answers the native events (`issues` labeled, `issue_comment` created) and n8n's
 // `agent-issue` dispatch, the same for the same situation. The issue is read live; a
@@ -12,7 +13,8 @@
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 
-const OPT_IN = ['enhancement', 'agent'];
+// the issue types the flow takes, and the agent each one gets
+const ROLES = { Feature: 'spec', Bug: 'debug' };
 const TURNS = ['agent', 'spec'];
 const APPROVED = 'spec approved';
 
@@ -21,7 +23,7 @@ function settings(env) {
 }
 
 // The stage an event is for, and why when it is nothing
-function stageOf({ comment, label, labels, isPR, byOwner, byApp }) {
+function stageOf({ comment, label, labels, type, isPR, byOwner, byApp }) {
   const none = (why) => ({ stage: 'none', why });
   const has = (name) => labels.includes(name);
   if (isPR) return none('a pull request, not a work item');
@@ -29,8 +31,9 @@ function stageOf({ comment, label, labels, isPR, byOwner, byApp }) {
   if (!comment && label !== APPROVED && !TURNS.includes(label)) return none(`the ${label} label wakes nothing`);
   if (!byOwner) return none(byApp ? "the App's own" : 'not the owner');
   if (!has('agent')) return none('not opted in');
+  if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
+  if (type === 'Bug' && (label === APPROVED || label === 'spec')) return none(`a Bug has no ${label === 'spec' ? 'spec' : 'hand-off'}`);
   if (label === APPROVED) return { stage: 'handoff' };
-  if (!has('enhancement')) return none('not an enhancement');
   if (has(APPROVED)) return none(`after ${APPROVED}: the change carries on`);
   return { stage: 'spec' };
 }
@@ -76,8 +79,9 @@ async function run({ github, context, core, env = process.env }) {
   }
 
   const labels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+  const type = issue.type?.name || '';
   const { stage, why } = stageOf({
-    comment, label, labels,
+    comment, label, labels, type,
     isPR: !!issue.pull_request,
     byOwner: actor === cfg.owner,
     byApp: actor === cfg.app,
@@ -86,10 +90,15 @@ async function run({ github, context, core, env = process.env }) {
   core.setOutput('number', String(number));
   core.setOutput('label', label);
   core.setOutput('title', issue.title || '');
-  // the `spec` label gives the agent a branch, and files that are committed
-  core.setOutput('writes', String(labels.includes('spec')));
-  // the `spec` label's turn is a kb prompt; a comment is answered in its own words
-  core.setOutput('prompt', label === 'spec' ? `${cfg.prompts}spec-draft` : '');
+  core.setOutput('role', ROLES[type] || '');
+  // the `spec` label gives a Feature's agent a branch, and files that are committed
+  core.setOutput('writes', String(type === 'Feature' && labels.includes('spec')));
+  // a label's turn is a kb prompt: the `spec` label's spec-draft, and a Bug's first, on
+  // `agent`, debug-report, sent even though the opening post is still unanswered; a comment
+  // is answered in its own words
+  const prompt = label === 'spec' ? 'spec-draft' : type === 'Bug' && label === 'agent' ? 'debug-report' : '';
+  core.setOutput('prompt', prompt ? `${cfg.prompts}${prompt}` : '');
+  core.setOutput('prompt_when', prompt === 'debug-report' ? 'always' : 'quiet');
   // a label takes the issue over; a comment waits its turn
   core.setOutput('takeover', String(labelled));
   core.info(`#${number}: ${stage}${why ? ` (${why})` : ''}`);
