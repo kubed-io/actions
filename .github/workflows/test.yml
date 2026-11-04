@@ -26,3 +26,34 @@ jobs:
 
     - name: Test
       run: node --test 'issue-agent/lib/test/*.test.js' 'git/lib/test/*.test.js' 'pr-checks/lib/test/*.test.js' 'review-route/lib/test/*.test.js' 'pr-route/lib/test/*.test.js' 'issue-route/lib/test/*.test.js' 'k8s-summary/lib/test/*.test.js' 'kubectl/lib/test/*.test.js' 'comment/lib/test/*.test.js' 'issue-template/lib/test/*.test.js'
+
+  # issue-template on a real runner: kubed-io/.github's forms, by type and as a catalog
+  issue-template:
+    name: Issue Template
+    runs-on: ubuntu-26.04
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: By Type
+      id: bug
+      uses: ./issue-template
+      with:
+        type: Bug
+
+    - name: As a Catalog
+      id: catalog
+      uses: ./issue-template
+
+    - name: Check
+      env:
+        BUG: ${{ steps.bug.outputs.schema }}
+        TEMPLATE: ${{ steps.bug.outputs.template }}
+        CATALOG: ${{ steps.catalog.outputs.schema }}
+      run: |
+        test "$TEMPLATE" = bug
+        jq -e '.required | index("what-happened")' "$BUG"
+        jq -e '.properties.sub_issues.items.properties.type.enum == ["Feature","Bug"]' "$CATALOG"
