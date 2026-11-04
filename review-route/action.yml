@@ -5,13 +5,15 @@ description: >
   wakes it when it ends (workflow_run) or from its own last job (an `agent-review` dispatch
   with `reason: checks`); any other `agent-review` dispatch asks again. Red checks send
   the code agent an `agent-code` dispatch instead; a commit that only merges the base in, or
-  only applies a passing review's own suggestions, keeps the last verdict. Runs no Claude.
+  only applies a passing review's own suggestions, keeps the last verdict. On a change the
+  owner asked Copilot to review, Copilot's review of the head (an `agent-review` dispatch
+  with `reason: copilot`) is the verdict instead. Runs no Claude.
 
 inputs:
   github_token:
     description: >
-      A token that may read pull requests, actions and statuses, write statuses, and
-      dispatch (contents write). Its bot's statuses are the memory, so the review job must
+      A token that may read actions, write pull requests (asking Copilot, hiding its error
+      reviews) and statuses, and dispatch (contents write). Its bot's statuses are the memory, so the review job must
       set its verdict with the same identity.
     required: false
     default: ${{ github.token }}

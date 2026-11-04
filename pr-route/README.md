@@ -8,9 +8,9 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | The owner's comment or review | `plan` | `code` |
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
-| Copilot's review | | `code` |
-| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `copilot` (Copilot's hand-back) → review-came-in, after the route job waits for Copilot's review |
-| An `agent-route` dispatch | routes like the review, push, comment or `plan approved` label it carries, the owner's only; Copilot's review is `code` only for the head, with line comments, out of draft, `prompt` review-came-in |
+| Copilot's review | `copilot`, with `review_id`: review-route reads it | `copilot` |
+| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `copilot` (Copilot asked for changes, by review-route) → review-came-in |
+| An `agent-route` dispatch | routes like the review, push, comment or `plan approved` label it carries, the owner's only, and Copilot's, read back from the review |
 | Anything else (the App's own thread replies, a push out of draft) | `none` | `none` |
 
 The prompts are kb prompts sent as slash commands (`prompts` + name), so the methodology's
