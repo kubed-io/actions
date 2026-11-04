@@ -44,8 +44,9 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
 // so the methodology's own text drives the turn
 function promptOf({ dispatched, reason, labelled, pushed, copilotTurn }, prefix) {
   const turn = (name) => `${prefix}${name}`;
-  // copilot: Copilot's hand-back, sent as its review run ends; a review to answer
-  const reasons = { review: turn('review-came-in'), copilot: turn('review-came-in'), ci: turn('checks-failed') };
+  // copilot: Copilot's hand-back, sent as its review run ends; a review to answer; fix: a
+  // Bug's change with no plan, started by its hand-off, built from the approved report
+  const reasons = { review: turn('review-came-in'), copilot: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved') };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (copilotTurn) return turn('review-came-in');
   if (labelled) return turn('plan-approved');

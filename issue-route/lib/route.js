@@ -4,7 +4,8 @@
 // On a Feature or Bug issue with `agent`, the owner's comment or their `agent` label is a
 // turn; on a Feature, their `spec` label too, until `spec approved`, and their `spec
 // approved` is the hand-off. A Feature's turns are the spec agent's; a Bug's are the debug
-// agent's, which reports and never writes. Anything else is nothing.
+// agent's, which reports and never writes, and its `spec approved` hands the report off to
+// a fix. Anything else is nothing.
 //
 // A sub-issue is part of its family's conversation: the turn takes the family's session and
 // queue (its top issue's number, `family`), and a sub-issue's first turn opens with the
@@ -13,6 +14,9 @@
 // `spec approved` on a sub-issue opens its change into the family's branch, issue-<family>;
 // on a parent whose `agent` sub-issues are all closed, the parent's change, which starts
 // at review (spec 2026-11-03 R-B3, R-B8).
+//
+// A Bug's change skips the plan unless the issue has `needs plan`, which the debug agent adds
+// for a nasty one and Dr K may add or take off (spec 2026-10-28 R-G15, R-G16).
 //
 // It answers the native events (`issues` labeled, `issue_comment` created) and n8n's
 // `agent-issue` dispatch, the same for the same situation. The issue is read live; a
@@ -27,6 +31,7 @@ const { isAgent } = require('../../issue-agent/lib/state');
 const ROLES = { Feature: 'spec', Bug: 'debug' };
 const TURNS = ['agent', 'spec'];
 const APPROVED = 'spec approved';
+const NEEDS_PLAN = 'needs plan';
 
 function settings(env) {
   return { owner: env.OWNER_ID, app: env.APP_ID, prompts: env.PROMPTS };
@@ -42,7 +47,7 @@ function stageOf({ comment, label, labels, type, isPR, byOwner, byApp }) {
   if (!byOwner) return none(byApp ? "the App's own" : 'not the owner');
   if (!has('agent')) return none('not opted in');
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
-  if (type === 'Bug' && (label === APPROVED || label === 'spec')) return none(`a Bug has no ${label === 'spec' ? 'spec' : 'hand-off'}`);
+  if (type === 'Bug' && label === 'spec') return none('a Bug has no spec');
   if (label === APPROVED) return { stage: 'handoff' };
   if (has(APPROVED)) return none(`after ${APPROVED}: the change carries on`);
   return { stage: 'spec' };
@@ -125,6 +130,8 @@ async function run({ github, context, core, env = process.env }) {
     }
   }
   core.setOutput('change', change);
+  // whether the change starts with a plan turn: a Bug's only when it needs one
+  core.setOutput('plan', String(type !== 'Bug' || labels.includes(NEEDS_PLAN)));
   core.setOutput('label', label);
   core.setOutput('title', issue.title || '');
   core.setOutput('role', ROLES[type] || '');

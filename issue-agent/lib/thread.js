@@ -198,6 +198,12 @@ function partOf(body) {
   return [...(body || '').matchAll(/\bPart of #(\d+)/gi)].map((m) => Number(m[1]));
 }
 
+// GitHub links `Closes #N` only on a PR into the default branch; a sub-issue's change goes
+// into its family's branch, so its own issue is read from the body
+function closes(body) {
+  return [...(body || '').matchAll(/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?) #(\d+)/gi)].map((m) => Number(m[1]));
+}
+
 function authorOf(a) {
   if (!a) return GHOST;
   return { login: a.login, id: a.databaseId ?? null, type: a.__typename === 'Bot' ? 'Bot' : 'User' };
@@ -325,7 +331,7 @@ async function pullFiles(github, { owner, repo, number, trust, dir }) {
     .filter((r) => r.submitted_at)
     .map((r) => fromReview(r, reviewComments.filter((c) => c.pull_request_review_id === r.id)))
     .filter((r) => r.kind === 'agent' || isTrusted(r.user, trust));
-  const numbers = [...new Set([...node.closingIssuesReferences.nodes.map((n) => n.number), ...partOf(pr.body)])];
+  const numbers = [...new Set([...closes(pr.body), ...node.closingIssuesReferences.nodes.map((n) => n.number), ...partOf(pr.body)])];
   const linked = [];
   for (const n of numbers) {
     const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: n });
@@ -405,5 +411,5 @@ async function run({ github, context, core }) {
 
 module.exports = {
   isTrusted, fromIssue, fromComment, fromReview, sortByTime, lastSeen, pendingSeen, unseen, turn,
-  content, brief, strip, specLines, partOf, contextFile, prFile, reviewsFile, issuesFile, diffFiles, prompts, run,
+  content, brief, strip, specLines, partOf, closes, contextFile, prFile, reviewsFile, issuesFile, diffFiles, prompts, run,
 };

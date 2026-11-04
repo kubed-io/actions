@@ -7,6 +7,10 @@ name: 🧭 Agent · Issue
 # turn. `spec approved` opens the draft PR from that branch, or from a new one with an
 # empty commit, and starts the plan on it.
 #
+# On a Bug the debug agent reports instead, and `spec approved` hands the report to a fix:
+# the PR opens labelled `bug` and `plan approved`, and the code starts on it at once. Only
+# with `needs plan`, which the debug agent adds for a nasty bug, does a plan come first.
+#
 # n8n decides when this runs: it drops the noise and sends what is a turn as an
 # `agent-issue` dispatch, a pointer the route job reads back from GitHub (spec §8.4).
 #
@@ -55,6 +59,7 @@ jobs:
       number: ${{ steps.route.outputs.number }}
       family: ${{ steps.route.outputs.family }}
       change: ${{ steps.route.outputs.change }}
+      plan: ${{ steps.route.outputs.plan }}
       label: ${{ steps.route.outputs.label }}
       writes: ${{ steps.route.outputs.writes }}
       role: ${{ steps.route.outputs.role }}
@@ -181,6 +186,15 @@ jobs:
         files: docs
         wiki: ${{ inputs.wiki }}
 
+    # the debug agent judged the fix nasty enough for a plan: the label says so on the issue,
+    # and Dr K may take it off. The agent adds it, never removes it
+    - name: Needs a Plan
+      if: needs.route.outputs.role == 'debug' && fromJSON(steps.agent.outputs.output || '{}').plan == true
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+      run: gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/labels" -f "labels[]=needs plan" --silent
+
     - name: Answer
       if: steps.comment.outputs.comment_id != ''
       uses: kubed-io/actions/comment/end@main
@@ -216,10 +230,14 @@ jobs:
       # a sub-issue's change goes into its family's branch; any other into the default branch
       BASE: ${{ needs.route.outputs.change == 'sub' && format('issue-{0}', needs.route.outputs.family) || github.event.repository.default_branch }}
       CHANGE: ${{ needs.route.outputs.change }}
+      # a Bug's change is a fix: labelled `bug`, and with no plan turn unless it needs one
+      FIX: ${{ needs.route.outputs.role == 'debug' }}
+      PLAN: ${{ needs.route.outputs.plan }}
     outputs:
       pull_request: ${{ steps.pr.outputs.number }}
       branch: ${{ env.BRANCH }}
       change: ${{ env.CHANGE }}
+      plan: ${{ env.PLAN }}
     steps:
 
     - name: App Token
@@ -324,17 +342,34 @@ jobs:
         base: ${{ env.BASE }}
         title: ${{ needs.route.outputs.title }}
         draft: ${{ env.CHANGE != 'parent' }}
-        # the agents' PR: the label wakes the review agent, and switches the agents off
-        labels: ${{ env.CHANGE == 'parent' && 'agent,plan approved' || 'agent' }}
+        # the agents' PR: the label wakes the review agent, and switches the agents off. A
+        # fix with no plan is approved already: Dr K approved its report
+        labels: >-
+          ${{ env.CHANGE == 'parent' && 'agent,plan approved' ||
+          env.FIX == 'true' && env.PLAN != 'true' && 'agent,bug,plan approved' ||
+          env.FIX == 'true' && 'agent,bug' || 'agent' }}
         body: |
           Closes #${{ needs.route.outputs.number }}
 
           ${{ env.CHANGE == 'sub' && format('Part of #{0}: merges into {1}.', needs.route.outputs.family, env.BASE) || env.CHANGE == 'parent' && 'The family''s work, each part merged here from its own sub-issue''s change.' || format('Starts from #{0}''s notes.', needs.route.outputs.number) }}
 
+    # a fix with no plan starts at the code: the code agent's own event, its first turn
+    # built from the report (pr-route's `fix` reason)
+    - name: Start the Fix
+      if: env.FIX == 'true' && env.PLAN != 'true' && steps.pr.outputs.number != ''
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        PR: ${{ steps.pr.outputs.number }}
+      run: |
+        gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-code \
+          -F "client_payload[pull_request]=${PR}" -f "client_payload[reason]=fix"
+
   plan:
     name: Plan
     needs: handoff
-    if: github.event_name == 'repository_dispatch' && needs.handoff.outputs.pull_request != '' && needs.handoff.outputs.change != 'parent'
+    if: >-
+      github.event_name == 'repository_dispatch' && needs.handoff.outputs.pull_request != '' &&
+        needs.handoff.outputs.change != 'parent' && needs.handoff.outputs.plan == 'true'
     runs-on: claude
     environment: claude
     # the PR's group, shared with agent-pr.yml

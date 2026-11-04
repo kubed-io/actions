@@ -82,6 +82,12 @@ test('failed checks are a code turn, its prompt the whole turn, with the run for
   assert.equal(t.core.outputs.run_id, '42');
 });
 
+test("a Bug's fix dispatch is the first code turn, built from the report by fix-approved", async () => {
+  const t = setup(dispatch('fix'));
+  assert.deepEqual(await outcome(t), ['code', `${P}fix-approved`, 'always']);
+  assert.equal(t.core.outputs.takeover, 'false');
+});
+
 test('a review dispatch carries no run; an unknown reason says what woke it', async () => {
   const t = setup(dispatch('review', { review_id: 9 }));
   assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
