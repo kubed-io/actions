@@ -50,7 +50,8 @@ function build({ core, env = process.env }) {
     schema = form.catalog(forms, types);
     if (!schema) return core.setFailed(`no form of type ${types.join(' or ')} among ${forms.map((f) => f.file).join(', ')}`);
   }
-  const file = path.join(path.dirname(dir), 'schema.json');
+  // named by what it holds, so two calls in one job keep both
+  const file = path.join(path.dirname(dir), `${chosen ? chosen.file : 'catalog'}.schema.json`);
   fs.writeFileSync(file, JSON.stringify(schema, null, 2));
   core.setOutput('schema', file);
   core.setOutput('template', chosen ? chosen.file.replace(/\.ya?ml$/, '') : '');

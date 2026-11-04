@@ -32,6 +32,14 @@ test('build by type: the form, its schema file and what filing needs', () => {
   assert.ok('problem' in s.properties);
 });
 
+test('two builds in one job keep both schemas', () => {
+  const dir = forms();
+  const a = fake.core(); run.build({ core: a, env: { FORMS_DIR: dir, TYPE: 'Bug', TEMPLATE: '', TYPES: 'Feature,Bug' } });
+  const b = fake.core(); run.build({ core: b, env: { FORMS_DIR: dir, TYPE: '', TEMPLATE: '', TYPES: 'Feature,Bug' } });
+  assert.notEqual(a.outputs.schema, b.outputs.schema);
+  assert.ok('what-happened' in JSON.parse(fs.readFileSync(a.outputs.schema, 'utf8')).properties);
+});
+
 test('build with neither: the catalog', () => {
   const core = fake.core();
   run.build({ core, env: { FORMS_DIR: forms(), TYPE: '', TEMPLATE: '', TYPES: 'Feature,Bug' } });
