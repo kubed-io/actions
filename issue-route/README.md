@@ -11,7 +11,7 @@ never writes.
 |---|---|---|
 | The owner's comment, on an `agent` Feature or Bug | `spec` | `none` |
 | The owner's `agent` label, on a Feature | `spec`, `takeover` | `none` |
-| The owner's `agent` label, on a Bug | `spec`, `prompt` debug-report (`always`), `takeover` | |
+| The owner's `agent` label, on a Bug | `spec`, `prompt` debug-report (`lead`), `takeover` | |
 | The owner's `spec` label, on an opted-in Feature | `spec`, `prompt` spec-draft, `writes`, `takeover` | `none` |
 | The owner's `spec approved` label, on an `agent` Feature | `handoff`, `takeover` | |
 | Anything else (another type or none, the App's own comments, anyone else, any other label, `spec` or `spec approved` on a Bug, a PR) | `none` | `none` |

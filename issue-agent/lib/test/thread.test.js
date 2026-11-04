@@ -250,6 +250,20 @@ test('prompt_when: quiet makes the prompt a nudge, always makes it the turn', ()
   assert.deepEqual(thread.prompts({ PROMPT: 'go', PROMPT_WHEN: 'always' }), { prompt: 'go' });
   assert.deepEqual(thread.prompts({ PROMPT: 'go', PROMPT_WHEN: 'quiet' }), { nudge: 'go' });
   assert.deepEqual(thread.prompts({ PROMPT: 'go' }), { nudge: 'go' });
+  assert.deepEqual(thread.prompts({ PROMPT: 'go', PROMPT_WHEN: 'lead' }), { lead: 'go' });
+});
+
+test('a lead prompt goes first, and the unseen messages after it are answered and seen', () => {
+  const opening = messages(ISSUE);
+  const t = turnOf(opening, { lead: '/debug-report' });
+  assert.ok(t.text.startsWith('/debug-report\n\n---\n\n'));
+  assert.equal(t.through, opening[opening.length - 1].at);
+  assert.equal(t.id, String(opening[opening.length - 1].id));
+  // nothing new: it is the turn on its own, like a nudge
+  const answered = messages(ISSUE, answer(1, '2026-10-08T13:05:00Z', '2026-10-08T13:00:00Z'));
+  const quiet = turnOf(answered, { lead: '/debug-report' });
+  assert.ok(quiet.text.startsWith('/debug-report\n\n—\n#12'));
+  assert.equal(quiet.through, '2026-10-08T13:00:00Z');
 });
 
 test('an untrusted opening is labelled in context.md and issues.md too', () => {

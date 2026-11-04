@@ -66,6 +66,8 @@ jobs:
       id: route
       uses: kubed-io/actions/issue-route@main
       with:
+        # the kubed-runner plugin's superpowers server: its prompts' slash names
+        prompts: /mcp__plugin_kubed-runner_superpowers__superpowers_
         owner: "4399427"
         app: "235398881"
 

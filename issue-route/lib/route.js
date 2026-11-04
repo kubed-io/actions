@@ -94,11 +94,11 @@ async function run({ github, context, core, env = process.env }) {
   // the `spec` label gives a Feature's agent a branch, and files that are committed
   core.setOutput('writes', String(type === 'Feature' && labels.includes('spec')));
   // a label's turn is a kb prompt: the `spec` label's spec-draft, and a Bug's first, on
-  // `agent`, debug-report, sent even though the opening post is still unanswered; a comment
-  // is answered in its own words
+  // `agent`, debug-report, which leads the opening post; a comment is answered in its own
+  // words
   const prompt = label === 'spec' ? 'spec-draft' : type === 'Bug' && label === 'agent' ? 'debug-report' : '';
   core.setOutput('prompt', prompt ? `${cfg.prompts}${prompt}` : '');
-  core.setOutput('prompt_when', prompt === 'debug-report' ? 'always' : 'quiet');
+  core.setOutput('prompt_when', prompt === 'debug-report' ? 'lead' : 'quiet');
   // a label takes the issue over; a comment waits its turn
   core.setOutput('takeover', String(labelled));
   core.info(`#${number}: ${stage}${why ? ` (${why})` : ''}`);

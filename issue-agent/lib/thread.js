@@ -145,7 +145,7 @@ function note({ number, login, at, scratch, edited, fresh, dispatch }) {
   return `—\n${parts.join(' · ')}`;
 }
 
-function turn({ messages, trust, seen, number, scratch, fresh, prompt, nudge }) {
+function turn({ messages, trust, seen, number, scratch, fresh, prompt, nudge, lead }) {
   const edited = editedSince(messages, seen, trust);
   if (prompt && prompt.trim()) {
     return {
@@ -156,6 +156,19 @@ function turn({ messages, trust, seen, number, scratch, fresh, prompt, nudge }) 
     };
   }
   const todo = unseen(messages, seen, trust);
+  // a prompt that leads the turn: its words first, then the thread's unseen messages, which
+  // the turn answers (a Bug's first turn: debug-report, then the opening post)
+  if (lead && lead.trim() && todo.length) {
+    const last = todo[todo.length - 1];
+    const body = todo.map((m) => render(m, trust)).join('\n\n---\n\n');
+    return {
+      text: `${lead.trim()}\n\n---\n\n${body}\n\n${note({ number, login: last.user.login, at: last.at, scratch, edited, fresh })}`,
+      through: last.at,
+      id: String(last.id),
+      before: messages.filter((m) => m.at < todo[0].at),
+    };
+  }
+  if (lead && lead.trim()) nudge = lead;
   // an event with no words (a label, a push) still needs a turn: the workflow says what it means
   if (!todo.length && nudge && nudge.trim()) {
     return { text: `${nudge.trim()}\n\n${note({ number, scratch, edited, fresh })}`, through: seen?.through || '', id: seen?.id || '', before: messages };
@@ -334,7 +347,8 @@ async function pullFiles(github, { owner, repo, number, trust, dir }) {
 // prompt_when: always makes the event's prompt the turn; quiet, the default, makes it the
 // turn only when the thread has nothing new (an event with no words: a label, a push)
 function prompts(env) {
-  return env.PROMPT_WHEN === 'always' ? { prompt: env.PROMPT } : { nudge: env.PROMPT };
+  if (env.PROMPT_WHEN === 'always') return { prompt: env.PROMPT };
+  return env.PROMPT_WHEN === 'lead' ? { lead: env.PROMPT } : { nudge: env.PROMPT };
 }
 
 async function run({ github, context, core }) {

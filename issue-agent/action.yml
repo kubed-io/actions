@@ -38,7 +38,7 @@ inputs:
     required: false
     default: ""
   prompt_when:
-    description: "`quiet`: the prompt is the turn only when the thread has nothing new. `always`: every run, quoted above the reply."
+    description: "`quiet`: the prompt is the turn only when the thread has nothing new. `always`: every run, quoted above the reply. `lead`: every run, followed by the thread's unseen messages, which the turn answers."
     required: false
     default: quiet
   header:

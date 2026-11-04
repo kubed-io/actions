@@ -110,9 +110,9 @@ test('enhancement is not needed: a Feature with agent alone is a spec turn', asy
   assert.equal((await both({ labels: ['agent'] })).stage, 'spec');
 });
 
-test("a Bug's agent label is the debug agent's first turn: debug-report, sent always, no writes", async () => {
+test("a Bug's agent label is the debug agent's first turn: debug-report leading the post, no writes", async () => {
   assert.deepEqual(await both({ label: 'agent', labels: [], type: 'Bug' }),
-    { ...SPEC, stage: 'spec', role: 'debug', label: 'agent', writes: 'false', prompt: `${P}debug-report`, prompt_when: 'always', takeover: 'true' });
+    { ...SPEC, stage: 'spec', role: 'debug', label: 'agent', writes: 'false', prompt: `${P}debug-report`, prompt_when: 'lead', takeover: 'true' });
 });
 
 test("the owner's comment on a Bug is a debug turn in their words", async () => {
