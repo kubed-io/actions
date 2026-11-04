@@ -10,6 +10,10 @@
 // queue (its top issue's number, `family`), and a sub-issue's first turn opens with the
 // sub-issue prompt (a Bug's, with debug-report).
 //
+// `spec approved` on a sub-issue opens its change into the family's branch, issue-<family>;
+// on a parent whose `agent` sub-issues are all closed, the parent's change, which starts
+// at review (spec 2026-11-03 R-B3, R-B8).
+//
 // It answers the native events (`issues` labeled, `issue_comment` created) and n8n's
 // `agent-issue` dispatch, the same for the same situation. The issue is read live; a
 // dispatch's payload is a pointer, so the comment's author and the labeler are read back
@@ -105,6 +109,22 @@ async function run({ github, context, core, env = process.env }) {
     }
   }
   core.setOutput('family', String(family));
+  // what `spec approved` opens: a sub-issue's change into its family's branch, a parent's
+  // change once its sub-issues are closed, or a change of its own
+  let change = 'own';
+  if (stage === 'handoff') {
+    if (family !== number) change = 'sub';
+    else if (issue.sub_issues_summary?.total) {
+      const { data: subs } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 });
+      const open = (subs || []).filter((i) => i.state === 'open' && (i.labels || []).some((l) => (l.name || l) === 'agent'));
+      if (open.length) {
+        core.setOutput('stage', 'none');
+        return core.info(`#${number}: none (sub-issues still open: ${open.map((i) => `#${i.number}`).join(', ')})`);
+      }
+      change = 'parent';
+    }
+  }
+  core.setOutput('change', change);
   core.setOutput('label', label);
   core.setOutput('title', issue.title || '');
   core.setOutput('role', ROLES[type] || '');
