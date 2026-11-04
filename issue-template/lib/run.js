@@ -54,6 +54,8 @@ function build({ core, env = process.env }) {
   const file = path.join(path.dirname(dir), `${chosen ? chosen.file : 'catalog'}.schema.json`);
   fs.writeFileSync(file, JSON.stringify(schema, null, 2));
   core.setOutput('schema', file);
+  // the form itself, for filing what the agent fills against it (file/)
+  core.setOutput('form', chosen ? path.join(dir, `${chosen.file}.json`) : '');
   core.setOutput('template', chosen ? chosen.file.replace(/\.ya?ml$/, '') : '');
   core.setOutput('type', chosen?.form.type || '');
   core.setOutput('title_prefix', chosen?.form.title || '');

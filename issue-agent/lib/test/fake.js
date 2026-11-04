@@ -19,6 +19,7 @@ function github(routes = {}) {
     calls,
     rest,
     paginate: async (fn, params) => (await fn(params)).data,
+    request: async (route, params) => ({ data: answer(route, params) }),
     graphql: async (query, vars) => {
       const key = Object.keys(routes).find((k) => k.startsWith('graphql:') && query.includes(k.slice(8)));
       return answer(key || 'graphql', vars);

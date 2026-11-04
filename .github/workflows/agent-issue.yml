@@ -399,3 +399,137 @@ jobs:
       with:
         path: .issue/scratch
         key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.handoff.outputs.pull_request }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # Dr K ticked a suggested sub-issue (n8n's `sub-issue-accepted`): read the tick back from
+  # GitHub, and the item from the proposal itself
+  accept:
+    name: Accept
+    if: >-
+      github.event_name == 'repository_dispatch' && github.event.action == 'sub-issue-accepted' &&
+        github.event.sender.id == 235398881
+    runs-on: ubuntu-26.04
+    permissions:
+      issues: read
+    outputs:
+      ok: ${{ steps.tick.outputs.ok }}
+      number: ${{ steps.tick.outputs.number }}
+      parent: ${{ steps.tick.outputs.parent }}
+      type: ${{ steps.tick.outputs.type }}
+      title: ${{ steps.tick.outputs.title }}
+    steps:
+
+    - name: Read the Tick
+      id: tick
+      uses: kubed-io/actions/issue-agent/proposal@main
+      with:
+        github_token: ${{ github.token }}
+        owner: "4399427"
+        app: "235398881"
+
+  # the agent writes the sub-issue whole, against its type's form, in the family's session;
+  # the job files it under the parent (spec 2026-11-03 R-M11)
+  make-sub-issue:
+    name: Make the Sub-issue
+    needs: accept
+    if: github.event_name == 'repository_dispatch' && needs.accept.outputs.ok == 'true'
+    runs-on: claude
+    environment: claude
+    # one issue turn at a time in the family
+    concurrency:
+      group: agent-issue-${{ needs.accept.outputs.parent }}
+      cancel-in-progress: false
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write
+    env:
+      AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
+    steps:
+
+    - name: App Token
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: read
+        permission-issues: write
+
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        submodules: true
+        persist-credentials: false
+
+    # the form for the item's type, as the turn's output schema
+    - name: Form
+      id: form
+      uses: kubed-io/actions/issue-template@main
+      with:
+        type: ${{ needs.accept.outputs.type }}
+
+    # the scratchpad, once around the job: two agent runs in one job share a cache key
+    - name: Restore the Scratchpad
+      id: scratch
+      uses: actions/cache/restore@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.accept.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.accept.outputs.number }}-
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.accept.outputs.number }}
+        live: true
+
+    - name: Sub-issue Agent
+      id: agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        scratch_cache: false
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.accept.outputs.number }}
+        settings: ${{ env.CLAUDE_AGENTS }}/spec/settings.json
+        schema: ${{ steps.form.outputs.schema }}
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
+        opt_in_label: agent
+        prompt: "/mcp__plugin_kubed-runner_superpowers__superpowers_make-sub-issue ${{ needs.accept.outputs.type }}: ${{ needs.accept.outputs.title }}"
+        prompt_when: always
+        # the family's one conversation (R-F2)
+        session_key: issue-${{ needs.accept.outputs.parent }}
+        allowed_tools: Read,Glob,Grep
+        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
+        live_messages: true
+
+    # create, link under the parent, then `agent`, and a "Filed #N" line in the answer
+    - name: File the Sub-issue
+      id: file
+      uses: kubed-io/actions/issue-template/file@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        form: ${{ steps.form.outputs.form }}
+        output: ${{ steps.agent.outputs.output }}
+        parent: ${{ needs.accept.outputs.parent }}
+        labels: agent
+        number: ${{ needs.accept.outputs.number }}
+
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.accept.outputs.number }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
+    - name: Save the Scratchpad
+      if: always() && steps.scratch.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.accept.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}

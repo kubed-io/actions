@@ -36,6 +36,9 @@ outputs:
   template:
     description: The chosen form's file stem; empty for a catalog.
     value: ${{ steps.build.outputs.template }}
+  form:
+    description: The chosen form, as JSON (a file), for issue-template/file.
+    value: ${{ steps.build.outputs.form }}
   type:
     description: Its issue type.
     value: ${{ steps.build.outputs.type }}

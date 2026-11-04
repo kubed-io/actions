@@ -4,6 +4,7 @@
 // structured output never came, so a failure still says something.
 
 const fs = require('fs');
+const { render } = require('./proposal');
 const path = require('path');
 
 function extractReply(messages) {
@@ -51,7 +52,10 @@ async function run({ core }) {
   const messages = file && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
   const { turns, cost, denials } = stats(messages);
   const structured = structuredOf(messages);
-  const text = pick(extractReply(messages), structured);
+  // the sub-issues it suggests close the reply, as boxes Dr K ticks (proposal.js)
+  const proposed = render(structured?.output?.sub_issues);
+  const said = pick(extractReply(messages), structured);
+  const text = proposed && said.trim() ? `${said.trimEnd()}\n\n${proposed}` : said;
   let structuredFile = '';
   if (structured !== null) {
     structuredFile = path.join(process.env.RUNNER_TEMP, 'issue-agent-structured.json');

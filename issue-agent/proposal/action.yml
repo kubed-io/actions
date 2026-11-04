@@ -1,0 +1,52 @@
+name: Issue Agent · Proposal
+description: >
+  Reads a `sub-issue-accepted` dispatch back from GitHub: the proposal comment is the App's, on
+  the thread the pointer names, and the box is ticked now. Outputs the item from the comment's
+  marker, and the issue to file it under (the thread, or its parent when the thread is a
+  sub-issue). `ok` is false, and nothing else is set, when any check fails.
+
+inputs:
+  github_token:
+    description: A token that may read issues.
+    required: true
+  owner:
+    description: The owner's user id; only their tick files.
+    required: true
+  app:
+    description: The App's bot's user id; only its proposals count.
+    required: true
+
+outputs:
+  ok:
+    description: "`true` when the tick stands."
+    value: ${{ steps.read.outputs.ok }}
+  number:
+    description: The thread the proposal is on.
+    value: ${{ steps.read.outputs.number }}
+  parent:
+    description: The issue to file it under.
+    value: ${{ steps.read.outputs.parent }}
+  type:
+    description: The item's issue type.
+    value: ${{ steps.read.outputs.type }}
+  title:
+    description: Its title.
+    value: ${{ steps.read.outputs.title }}
+  why:
+    description: Why it is its own issue.
+    value: ${{ steps.read.outputs.why }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Read the Tick
+    id: read
+    uses: actions/github-script@v9
+    env:
+      OWNER_ID: ${{ inputs.owner }}
+      APP_ID: ${{ inputs.app }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/accept.js`).run({ github, context, core });

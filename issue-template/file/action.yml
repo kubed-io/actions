@@ -1,0 +1,60 @@
+name: Issue Template · File
+description: >
+  Files what an agent filled against an issue form (issue-template's `form`), as GitHub files the
+  submitted form: the form's title prefix, `### <label>` sections, its labels and its issue type.
+  Then links it under `parent` and adds `labels`. A sub-issue of the same title under the same
+  parent is taken as already filed.
+
+inputs:
+  github_token:
+    description: A token that may write issues; the App's, so the labels wake workflows.
+    required: true
+  form:
+    description: issue-template's `form`.
+    required: true
+  output:
+    description: What the agent filled, as JSON (issue-agent's `output`).
+    required: true
+  parent:
+    description: The issue to file it under; empty for none.
+    required: false
+    default: ""
+  labels:
+    description: Labels added after it is linked, comma-separated.
+    required: false
+    default: ""
+  number:
+    description: >
+      The thread between comment/start and comment/end; a "Filed #N" line goes to comment/end as
+      a part. Empty for none.
+    required: false
+    default: ""
+
+outputs:
+  number:
+    description: The issue's number.
+    value: ${{ steps.file.outputs.number }}
+  url:
+    description: Its URL.
+    value: ${{ steps.file.outputs.url }}
+  created:
+    description: "`false` when the parent already had it."
+    value: ${{ steps.file.outputs.created }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: File
+    id: file
+    uses: actions/github-script@v9
+    env:
+      FORM: ${{ inputs.form }}
+      OUTPUT: ${{ inputs.output }}
+      PARENT: ${{ inputs.parent }}
+      LABELS: ${{ inputs.labels }}
+      NUMBER: ${{ inputs.number }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/file.js`).run({ github, context, core });
