@@ -130,11 +130,34 @@ jobs:
       with:
         number: ${{ needs.route.outputs.number }}
 
+    # the scratchpad, once around the job: two agent runs in one job share a cache key
+    - name: Restore the Scratchpad
+      id: scratch
+      if: steps.still.outputs.wanted == 'true'
+      uses: actions/cache/restore@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      if: steps.still.outputs.wanted == 'true'
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        live: false
+        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_review
+
     - name: Review Agent
       if: steps.still.outputs.wanted == 'true'
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        scratch_cache: false
         github_token: ${{ github.token }}
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.CLAUDE_AGENTS }}/review/settings.json
@@ -177,3 +200,19 @@ jobs:
         gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-code \
           -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=review" \
           -f "client_payload[review_id]=${REVIEW_ID}"
+
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
+    - name: Save the Scratchpad
+      if: always() && steps.scratch.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}

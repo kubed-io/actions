@@ -113,10 +113,30 @@ jobs:
         submodules: true
         persist-credentials: false
 
+    # the scratchpad, once around the job: two agent runs in one job share a cache key
+    - name: Restore the Scratchpad
+      id: scratch
+      uses: actions/cache/restore@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        live: true
+
     - name: Spec Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.CLAUDE_AGENTS }}/spec/settings.json
@@ -137,6 +157,8 @@ jobs:
       if: env.WRITES == 'true'
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        parts: true
+        keep_scratch: false
         number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
@@ -145,6 +167,22 @@ jobs:
         comment_id: ${{ steps.agent.outputs.comment_id }}
         files: docs
         wiki: ${{ inputs.wiki }}
+
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
+    - name: Save the Scratchpad
+      if: always() && steps.scratch.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   handoff:
     name: Hand Off
@@ -283,10 +321,31 @@ jobs:
         submodules: true
         persist-credentials: false
 
+    # the scratchpad, once around the job: two agent runs in one job share a cache key
+    - name: Restore the Scratchpad
+      id: scratch
+      uses: actions/cache/restore@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.handoff.outputs.pull_request }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.handoff.outputs.pull_request }}-
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.handoff.outputs.pull_request }}
+        live: true
+        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_spec-approved
+
     - name: Plan Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
         settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json
@@ -307,6 +366,8 @@ jobs:
     - name: Land the Plan
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        parts: true
+        keep_scratch: false
         number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
@@ -315,3 +376,19 @@ jobs:
         comment_id: ${{ steps.agent.outputs.comment_id }}
         files: docs
         wiki: ${{ inputs.wiki }}
+
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.handoff.outputs.pull_request }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
+    - name: Save the Scratchpad
+      if: always() && steps.scratch.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.handoff.outputs.pull_request }}-${{ github.run_id }}-${{ github.run_attempt }}

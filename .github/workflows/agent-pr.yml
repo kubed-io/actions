@@ -150,11 +150,33 @@ jobs:
         submodules: true
         persist-credentials: false
 
+    # the scratchpad, once around the job: two agent runs in one job share a cache key
+    - name: Restore the Scratchpad
+      id: scratch
+      if: steps.still.outputs.stage == 'plan'
+      uses: actions/cache/restore@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      if: steps.still.outputs.stage == 'plan'
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        live: true
+
     - name: Plan Agent
       if: steps.still.outputs.stage == 'plan'
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json
@@ -172,6 +194,8 @@ jobs:
       if: steps.still.outputs.stage == 'plan'
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        parts: true
+        keep_scratch: false
         number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
@@ -180,6 +204,22 @@ jobs:
         comment_id: ${{ steps.agent.outputs.comment_id }}
         files: docs
         wiki: ${{ inputs.wiki }}
+
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
+    - name: Save the Scratchpad
+      if: always() && steps.scratch.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   code:
     name: Code
@@ -272,11 +312,34 @@ jobs:
       with:
         number: ${{ needs.route.outputs.number }}
 
+    # the scratchpad, once around the job: two agent runs in one job share a cache key
+    - name: Restore the Scratchpad
+      id: scratch
+      if: steps.still.outputs.stage == 'code'
+      uses: actions/cache/restore@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      if: steps.still.outputs.stage == 'code'
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        live: true
+        prompt: ${{ needs.route.outputs.prompt_when == 'always' && needs.route.outputs.prompt || '' }}
+
     - name: Code Agent
       if: steps.still.outputs.stage == 'code'
       id: agent
       uses: kubed-io/actions/issue-agent@main
       with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.CLAUDE_AGENTS }}/code/settings.json
@@ -305,6 +368,8 @@ jobs:
       id: land
       uses: kubed-io/actions/issue-agent/land@main
       with:
+        parts: true
+        keep_scratch: false
         number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
         app_slug: ${{ steps.app.outputs.app-slug }}
@@ -318,6 +383,14 @@ jobs:
 
     # the agent judged the failed checks not this branch's: their failed jobs run once more;
     # green brings the review, red again is Dr K's call
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
     - name: Re-run the Checks
       if: steps.still.outputs.stage == 'code' && needs.route.outputs.run_id != '' && fromJSON(steps.agent.outputs.output || '{}').rerun == true
       uses: kubed-io/actions/pr-checks/rerun@main
@@ -338,3 +411,11 @@ jobs:
           deviations recorded, and anything a review fix needs. Drop the step-by-step
           implementation: the code, the plan and your notes are the record.
       run: '"$CLAUDE" -p "/compact $INSTRUCTIONS" --resume "$SESSION_ID" --strict-mcp-config --output-format json > /dev/null'
+
+    - name: Save the Scratchpad
+      if: always() && steps.scratch.outcome == 'success'
+      continue-on-error: true
+      uses: actions/cache/save@v6
+      with:
+        path: .issue/scratch
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
