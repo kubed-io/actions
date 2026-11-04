@@ -11,6 +11,10 @@ A sub-issue is part of its family: `family` is its top issue, whose session and 
 turn takes. Its first turn, until the App has answered on it, opens with the `sub-issue`
 prompt (`lead`), or `debug-report` on a Bug.
 
+`change` says what a hand-off opens: `sub`, a sub-issue's change into its family's branch
+`issue-<family>`; `parent`, the parent's change into the default branch, once every `agent`
+sub-issue is closed (while one is open, `spec approved` is `none`); `own` otherwise.
+
 | Event | Before `spec approved` | After it |
 |---|---|---|
 | The owner's comment, on an `agent` Feature or Bug | `spec` | `none` |
@@ -41,5 +45,5 @@ may cause each. The token needs `issues: read`.
 | `app` | | The App's bot's user id |
 | `prompts` | `/mcp__superpowers__superpowers_` | |
 
-Outputs: `stage` (`spec`, `handoff`, `none`), `number`, `family`, `title`, `label`, `role`,
+Outputs: `stage` (`spec`, `handoff`, `none`), `number`, `family`, `change`, `title`, `label`, `role`,
 `writes`, `prompt`, `prompt_when`, `takeover`.

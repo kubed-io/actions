@@ -54,6 +54,7 @@ jobs:
       stage: ${{ steps.route.outputs.stage }}
       number: ${{ steps.route.outputs.number }}
       family: ${{ steps.route.outputs.family }}
+      change: ${{ steps.route.outputs.change }}
       label: ${{ steps.route.outputs.label }}
       writes: ${{ steps.route.outputs.writes }}
       role: ${{ steps.route.outputs.role }}
@@ -202,19 +203,23 @@ jobs:
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'handoff'
     runs-on: claude
     environment: claude
-    # the approval takes the family over from a spec turn still running
+    # it touches no session, so it runs in a lock of its own, never in the family's
     concurrency:
-      group: agent-issue-${{ needs.route.outputs.family }}
-      cancel-in-progress: true
+      group: agent-handoff-${{ needs.route.outputs.number }}
+      cancel-in-progress: false
     timeout-minutes: 10
     permissions:
       contents: read
     env:
       BRANCH: issue-${{ needs.route.outputs.number }}
       DEFAULT: ${{ github.event.repository.default_branch }}
+      # a sub-issue's change goes into its family's branch; any other into the default branch
+      BASE: ${{ needs.route.outputs.change == 'sub' && format('issue-{0}', needs.route.outputs.family) || github.event.repository.default_branch }}
+      CHANGE: ${{ needs.route.outputs.change }}
     outputs:
       pull_request: ${{ steps.pr.outputs.number }}
       branch: ${{ env.BRANCH }}
+      change: ${{ env.CHANGE }}
     steps:
 
     - name: App Token
@@ -227,39 +232,60 @@ jobs:
         permission-pull-requests: write
         permission-issues: write
 
-    # found when the `spec` label made it; made, linked to the issue, when not
+    # a sub-issue's family branch: made from the default branch by whichever hand-off needs it
+    # first, and kept fresh from it
+    - name: Family Branch
+      if: env.CHANGE == 'sub'
+      uses: kubed-io/actions/git/branch@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ env.BASE }}
+        issue: ${{ needs.route.outputs.family }}
+
+    - name: Family Fresh from the Default Branch
+      if: env.CHANGE == 'sub'
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+      run: |
+        [ "$(gh api "repos/${GITHUB_REPOSITORY}/compare/${DEFAULT}...${BASE}" --jq .behind_by)" = 0 ] && exit 0
+        gh api "repos/${GITHUB_REPOSITORY}/merges" -f base="$BASE" -f head="$DEFAULT" \
+          -f commit_message="Merge ${DEFAULT} into ${BASE}" --silent \
+          || echo "::warning::${DEFAULT} could not be merged into ${BASE}; the family branch stays as it is"
+
+    # found when the `spec` label made it; made from the base, linked to the issue, when not
     - name: Branch
       uses: kubed-io/actions/git/branch@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
+        base: ${{ env.BASE }}
         issue: ${{ needs.route.outputs.number }}
 
-    # the plan starts from the default branch as it is today. When docs/ is the wiki, a spec
-    # branch holds only wiki pointer commits, so it starts over there and the commit below
-    # points docs at the wiki, which has the spec; merging would conflict on that pointer.
-    # Anything else on the branch gets the default branch merged in.
-    - name: Fresh from the Default Branch
+    # the plan starts from the base as it is today. When docs/ is the wiki, a spec branch
+    # holds only wiki pointer commits, so it starts over there and the commit below points
+    # docs at the wiki, which has the spec; merging would conflict on that pointer. Anything
+    # else on the branch gets the base merged in.
+    - name: Fresh from the Base
       env:
         GH_TOKEN: ${{ steps.app.outputs.token }}
         DOCS_WIKI: ${{ inputs.wiki == 'docs' }}
       run: |
-        compare="repos/${GITHUB_REPOSITORY}/compare/${DEFAULT}...${BRANCH}"
+        compare="repos/${GITHUB_REPOSITORY}/compare/${BASE}...${BRANCH}"
         [ "$(gh api "$compare" --jq .behind_by)" = 0 ] && exit 0
         if [ "$DOCS_WIKI" = true ] && [ "$(gh api "$compare" --jq '[.files[].filename] | unique | join(",")')" = docs ]; then
           gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH}" \
-            -f sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${DEFAULT}" --jq .sha)" -F force=true --silent
-        elif ! gh api "repos/${GITHUB_REPOSITORY}/merges" -f base="$BRANCH" -f head="$DEFAULT" \
-            -f commit_message="Merge ${DEFAULT} into ${BRANCH}" --silent; then
-          echo "::warning::${DEFAULT} could not be merged into ${BRANCH}; the plan starts from the branch as it is"
+            -f sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${BASE}" --jq .sha)" -F force=true --silent
+        elif ! gh api "repos/${GITHUB_REPOSITORY}/merges" -f base="$BRANCH" -f head="$BASE" \
+            -f commit_message="Merge ${BASE} into ${BRANCH}" --silent; then
+          echo "::warning::${BASE} could not be merged into ${BRANCH}; the plan starts from the branch as it is"
         fi
 
     # GitHub opens no PR on a branch with nothing beyond its base
-    - name: Ahead of the Default Branch
+    - name: Ahead of the Base
       id: ahead
       env:
         GH_TOKEN: ${{ steps.app.outputs.token }}
-      run: echo "by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${DEFAULT}...${BRANCH}" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
+      run: echo "by=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${BASE}...${BRANCH}" --jq .ahead_by)" >> "$GITHUB_OUTPUT"
 
     - name: Checkout
       if: steps.ahead.outputs.by == '0'
@@ -284,24 +310,31 @@ jobs:
         files: docs
         allow_empty: true
 
+    # A parent's change is the family's work, already planned, coded and reviewed in its
+    # sub-issues' changes: it opens ready, with `plan approved` from the App (which wakes no
+    # code turn), so its checks run and the review agent reviews it whole. A sub-issue's
+    # change merges into the family's branch, where `Closes` closes nothing: the merge's
+    # close is by hand.
     - name: Pull Request
       id: pr
       uses: kubed-io/actions/git/pr@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
+        base: ${{ env.BASE }}
         title: ${{ needs.route.outputs.title }}
+        draft: ${{ env.CHANGE != 'parent' }}
         # the agents' PR: the label wakes the review agent, and switches the agents off
-        labels: agent
+        labels: ${{ env.CHANGE == 'parent' && 'agent,plan approved' || 'agent' }}
         body: |
           Closes #${{ needs.route.outputs.number }}
 
-          Starts from #${{ needs.route.outputs.number }}'s notes.
+          ${{ env.CHANGE == 'sub' && format('Part of #{0}: merges into {1}.', needs.route.outputs.family, env.BASE) || env.CHANGE == 'parent' && 'The family''s work, each part merged here from its own sub-issue''s change.' || format('Starts from #{0}''s notes.', needs.route.outputs.number) }}
 
   plan:
     name: Plan
     needs: handoff
-    if: github.event_name == 'repository_dispatch' && needs.handoff.outputs.pull_request != ''
+    if: github.event_name == 'repository_dispatch' && needs.handoff.outputs.pull_request != '' && needs.handoff.outputs.change != 'parent'
     runs-on: claude
     environment: claude
     # the PR's group, shared with agent-pr.yml

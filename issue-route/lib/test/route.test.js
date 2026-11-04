@@ -16,11 +16,12 @@ const OPTED_IN = ['agent'];
 // the dispatch's read-backs with the same truth.
 const PARENT = 'GET /repos/{owner}/{repo}/issues/{issue_number}/parent';
 // `parent`: #5's parent, whose own parent is none; `comments`: #5's comments
-function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [] }) {
+function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [], subs }) {
   const all = label && !gone && !labels.includes(label) ? [...labels, label] : labels;
   const github = fake.github({
-    'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
+    'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(subs ? { sub_issues_summary: { total: subs.length } } : {}), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
     'issues.getComment': got ?? { id: 31, user: { id: by }, issue_url: ISSUE_URL },
+    'GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues': subs || [],
     [PARENT]: ({ issue_number: n }) => (n === 5 && parent ? { number: parent } : fake.notFound()),
     'issues.listComments': comments,
     'issues.listEvents': events ?? [
@@ -51,7 +52,7 @@ async function both(s) {
   return native;
 }
 
-const SPEC = { number: '5', family: '5', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet' };
+const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet' };
 
 test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
@@ -222,4 +223,22 @@ test('a family is found from any depth, and a loop ends it', async () => {
   assert.equal(await familyOf(deep, { owner: 'o', repo: 'r' }, 9), 3);
   const loop = fake.github({ [PARENT]: ({ issue_number: n }) => ({ number: n === 9 ? 7 : 9 }) });
   assert.equal(await familyOf(loop, { owner: 'o', repo: 'r' }, 9), 7);
+});
+
+const APPROVE = { label: 'spec approved', labels: [...OPTED_IN, 'spec'] };
+const sub = (number, state, labels = ['agent']) => ({ number, state, labels: labels.map((name) => ({ name })) });
+
+test("spec approved on a sub-issue opens its change into the family's branch", async () => {
+  const out = await both({ ...APPROVE, parent: 3, comments: answered });
+  assert.deepEqual([out.stage, out.family, out.change], ['handoff', '3', 'sub']);
+});
+
+test('spec approved on an issue with no sub-issues opens a change of its own', async () => {
+  assert.deepEqual([(await both(APPROVE)).stage, (await both(APPROVE)).change], ['handoff', 'own']);
+});
+
+test("spec approved on a parent opens the parent's change once its agent sub-issues are closed", async () => {
+  const out = await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open', [])] });
+  assert.deepEqual([out.stage, out.change], ['handoff', 'parent']);
+  assert.equal((await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open')] })).stage, 'none');
 });

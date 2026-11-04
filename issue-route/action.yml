@@ -31,6 +31,11 @@ outputs:
   family:
     description: The family's top issue, the issue itself when it has no parent; its session and queue are the turn's.
     value: ${{ steps.route.outputs.family }}
+  change:
+    description: >-
+      On a hand-off: `sub` for a sub-issue's change into its family's branch, `parent` for a
+      parent's change once its `agent` sub-issues are closed, `own` otherwise.
+    value: ${{ steps.route.outputs.change }}
   title:
     description: Its title.
     value: ${{ steps.route.outputs.title }}
