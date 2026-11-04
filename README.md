@@ -18,6 +18,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
 | [issue-route](issue-route/) | Decides what an event on a work item is: a spec turn, the hand-off to a plan or nothing; natively or from n8n's `agent-issue` dispatch |
+| [issue-template](issue-template/) | Turns an issue form into a JSON schema for an agent's output: one form by type or name, or a catalog of sub-issues to suggest |
 | [pr-route](pr-route/) | Decides what an event on an agent-built PR is: a plan turn, a code turn or nothing, and the kb prompt it starts with; also routes an `agent-route` dispatch, n8n's relay of a review, a push, a comment or the approval label |
 | [pr-checks/report](pr-checks/) | The checks workflow's last job: what failed in the run, for the code agent, as the step summary and the `checks-report` artifact |
 | [pr-checks/rerun](pr-checks/) | Re-runs a checks run's failed jobs once, when the failure was judged not the change's (a flaky test, an outage) |

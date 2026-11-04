@@ -1,0 +1,28 @@
+{
+  "name": "❓ Question",
+  "description": "Ask an app repo's info agent about the repo and the live homelab.",
+  "title": "[question]: ",
+  "labels": [
+    "question"
+  ],
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "The 🔎 **Info Agent** answers in a comment, from the repo, a `kubectl build` render\nand read-only lookups in the cluster. Reply in a comment to keep the\nconversation going: it remembers the thread. It never changes anything.\n"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "question",
+      "attributes": {
+        "label": "Question",
+        "description": "What you want to know. Name the thing you're asking about.",
+        "placeholder": "e.g. Which database indexes are free, and is redis-0 healthy right now?"
+      },
+      "validations": {
+        "required": true
+      }
+    }
+  ]
+}

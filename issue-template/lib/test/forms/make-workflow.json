@@ -1,0 +1,59 @@
+{
+  "name": "🔧 Make an n8n workflow",
+  "description": "Describe an n8n workflow for the plan agent to plan and GitHub Copilot to build.",
+  "title": "[workflow]: ",
+  "labels": [
+    "enhancement"
+  ],
+  "type": "Task",
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "This issue feeds the **issue → plan → build** loop for n8n workflows. Fill in the\nrequest below — it becomes the prompt the agents work from, so be concrete. On submit,\nthe 🧭 **Plan Agent** inspects the live n8n instance (read-only, via the n8n MCP) and\nthe repo, then appends a plan to this issue; refine it by commenting `@claude …`. When\nthe plan looks right, assign **Copilot** to build the workflow and open a PR.\n"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "workflow",
+      "attributes": {
+        "label": "What should the workflow do?",
+        "description": "The trigger, the steps, and the outcome. Name the source/destination systems and any transforms.",
+        "placeholder": "e.g. On a webhook POST, look up the customer in Postgres, then post a summary to the"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "input",
+      "id": "instance",
+      "attributes": {
+        "label": "Target n8n instance / environment",
+        "description": "Which n8n instance or environment this workflow targets (leave blank for the default in-cluster instance).",
+        "placeholder": "e.g. in-cluster n8n (flow namespace) / staging / production"
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "acceptance",
+      "attributes": {
+        "label": "Acceptance criteria",
+        "description": "What does \"done\" look like? A checklist the builder (and reviewer) can verify against.",
+        "placeholder": "- [ ] Workflow validates cleanly (n8n_validate_workflow)\n- [ ] A test run of ... produces ...\n- [ ] ...\n"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "---\n_The plan agent maintains everything below the divider it adds — edit your request above\nit, or comment `@claude` to refine. Don't hand-edit the generated plan._\n"
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+name: Issue Template
+description: >
+  Chooses an issue form and turns it into a JSON schema for an agent's output: by `type`, the
+  form whose `type:` matches, or by `template`, a file stem. With neither, the schema is a
+  catalog: a list of sub-issues to suggest, each one of `types` that has a form, a title and
+  why. Feed `schema` to issue-agent's `schema`.
+
+inputs:
+  github_token:
+    description: A token that may read the forms' repository.
+    required: false
+    default: ${{ github.token }}
+  type:
+    description: The issue type (Feature, Bug); picks the form whose `type:` it is.
+    required: false
+    default: ""
+  template:
+    description: A form's file stem (`bug`), to pick one directly.
+    required: false
+    default: ""
+  types:
+    description: The types a catalog offers, comma-separated.
+    required: false
+    default: Feature,Bug
+  repo:
+    description: >
+      Where the forms live (owner/name). Left out, the organisation's .github repository.
+      Given empty (`repo: ''`), the repository the workflow runs in.
+    required: false
+    default: ${{ github.repository_owner }}/.github
+
+outputs:
+  schema:
+    description: The schema's file.
+    value: ${{ steps.build.outputs.schema }}
+  template:
+    description: The chosen form's file stem; empty for a catalog.
+    value: ${{ steps.build.outputs.template }}
+  type:
+    description: Its issue type.
+    value: ${{ steps.build.outputs.type }}
+  labels:
+    description: Its labels, comma-separated.
+    value: ${{ steps.build.outputs.labels }}
+  title_prefix:
+    description: Its title prefix (`title:`).
+    value: ${{ steps.build.outputs.title_prefix }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Fetch the Forms
+    uses: actions/github-script@v9
+    env:
+      FORMS_REPO: ${{ inputs.repo }}
+      FORMS_DIR: ${{ runner.temp }}/issue-template/forms
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/run.js`).fetch({ github, context, core });
+
+  # yq is on GitHub's Ubuntu runners and the krm runners
+  - name: Read the Forms
+    shell: bash
+    env:
+      FORMS_DIR: ${{ runner.temp }}/issue-template/forms
+    run: |
+      command -v yq >/dev/null || { echo "::error::issue-template needs yq (mikefarah)"; exit 1; }
+      for f in "$FORMS_DIR"/*.y*ml; do yq -o=json '.' "$f" > "${f%.*}.json"; done
+
+  - name: Build the Schema
+    id: build
+    uses: actions/github-script@v9
+    env:
+      FORMS_DIR: ${{ runner.temp }}/issue-template/forms
+      TYPE: ${{ inputs.type }}
+      TEMPLATE: ${{ inputs.template }}
+      TYPES: ${{ inputs.types }}
+    with:
+      script: |
+        require(`${process.env.GITHUB_ACTION_PATH}/lib/run.js`).build({ core });

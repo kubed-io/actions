@@ -1,0 +1,53 @@
+{
+  "name": "🤖 Agent task",
+  "description": "Describe work for the agents to spec, plan and build.",
+  "title": "[task]: ",
+  "labels": [
+    "enhancement"
+  ],
+  "type": "Task",
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "This issue feeds the agents: once Dr K adds the `agent` label, the spec agent\nbrainstorms the design with Dr K here, one comment at a time, and each round of the\nspec is linked from its reply. `spec approved` commits it and opens a draft pull\nrequest, where the plan and then the code follow.\n"
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "summary",
+      "attributes": {
+        "label": "Summary",
+        "description": "What needs to happen, and why. One or two short paragraphs.",
+        "placeholder": "e.g. The backup cronjob still double-gzips the SQL dump — drop the inner gzip so restores match the new rclone image."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "acceptance",
+      "attributes": {
+        "label": "Acceptance criteria",
+        "description": "What does \"done\" look like? A checklist the builder (and reviewer) can verify against.",
+        "placeholder": "- [ ] ...\n- [ ] ...\n"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "context",
+      "attributes": {
+        "label": "Context & pointers",
+        "description": "Relevant apps/components/files, constraints, and links. The more specific, the better the plan.",
+        "placeholder": "e.g. apps/drupal/components/backups, apps/rclone; see PR"
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}

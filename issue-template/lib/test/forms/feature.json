@@ -1,0 +1,73 @@
+{
+  "name": "✨ Feature request",
+  "description": "Suggest a new capability or an improvement.",
+  "labels": [
+    "enhancement"
+  ],
+  "type": "Feature",
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "Thanks for the idea! Describe the problem you're trying to solve first —\nthat's usually more useful than jumping straight to a specific solution. Once Dr K adds\n`agent`, the spec agent works out the design with him here.\n"
+      }
+    },
+    {
+      "type": "checkboxes",
+      "id": "search",
+      "attributes": {
+        "label": "Existing requests",
+        "options": [
+          {
+            "label": "I searched the open issues and this isn't already requested.",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "problem",
+      "attributes": {
+        "label": "Problem / motivation",
+        "description": "What are you trying to do, and what's getting in the way? \"I'm always frustrated when …\""
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "solution",
+      "attributes": {
+        "label": "Proposed solution",
+        "description": "What you'd like to happen. Rough is fine."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "alternatives",
+      "attributes": {
+        "label": "Alternatives considered",
+        "description": "Other approaches or workarounds you've thought about."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "context",
+      "attributes": {
+        "label": "Anything else?",
+        "description": "Which app / node / component this touches, links, or extra context."
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}

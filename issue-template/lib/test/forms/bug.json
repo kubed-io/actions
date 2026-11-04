@@ -1,0 +1,96 @@
+{
+  "name": "🐛 Bug",
+  "description": "Report something in the homelab that's broken or behaving wrong.",
+  "type": "Bug",
+  "body": [
+    {
+      "type": "markdown",
+      "attributes": {
+        "value": "Thanks for filing a bug. Fill in what you can — a clear \"what happened vs.\nwhat you expected\" plus the steps to reproduce get it fixed fastest. Once Dr K adds\n`agent`, the debug agent looks into it, in the code and the live homelab, and reports\nhere.\n"
+      }
+    },
+    {
+      "type": "checkboxes",
+      "id": "search",
+      "attributes": {
+        "label": "Existing issues",
+        "options": [
+          {
+            "label": "I searched the open issues and this isn't a duplicate.",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "what-happened",
+      "attributes": {
+        "label": "What happened?",
+        "description": "The actual behavior — what went wrong.",
+        "placeholder": "e.g. `kubectl up apps/postgresql` rolls the StatefulSet but the pod CrashLoops on start."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "expected",
+      "attributes": {
+        "label": "What did you expect?",
+        "description": "The behavior you expected instead."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "steps",
+      "attributes": {
+        "label": "Steps to reproduce",
+        "description": "How to make it happen again, step by step.",
+        "placeholder": "1. ...\n2. ...\n3. ...\n"
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "input",
+      "id": "scope",
+      "attributes": {
+        "label": "Where? (app / node / component)",
+        "description": "The project(s) involved, plus the environment or image tag if relevant.",
+        "placeholder": "e.g. apps/postgresql (data namespace), image kubed/postgresql:vX.Y.Z"
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "logs",
+      "attributes": {
+        "label": "Logs / output",
+        "description": "Relevant logs, errors, or `kubectl` output. Automatically formatted as code.",
+        "render": "shell"
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "context",
+      "attributes": {
+        "label": "Anything else?",
+        "description": "Screenshots, links, recent changes, or anything else that helps."
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}
