@@ -53,6 +53,7 @@ jobs:
     outputs:
       stage: ${{ steps.route.outputs.stage }}
       number: ${{ steps.route.outputs.number }}
+      family: ${{ steps.route.outputs.family }}
       label: ${{ steps.route.outputs.label }}
       writes: ${{ steps.route.outputs.writes }}
       role: ${{ steps.route.outputs.role }}
@@ -77,10 +78,12 @@ jobs:
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'spec'
     runs-on: claude
     environment: claude
-    # Dr K's comments wait their turn; a label takes the issue over
+    # one turn at a time in a family (an issue and its sub-issues): Dr K's comments queue, in
+    # order; a label takes the family over
     concurrency:
-      group: agent-issue-${{ needs.route.outputs.number }}
+      group: agent-issue-${{ needs.route.outputs.family }}
       cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
+      queue: ${{ needs.route.outputs.takeover == 'true' && 'single' || 'max' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -147,13 +150,15 @@ jobs:
         # a Feature's turn is the spec agent's, a Bug's the debug agent's
         settings: ${{ env.CLAUDE_AGENTS }}/${{ needs.route.outputs.role }}/settings.json
         schema: ${{ env.CLAUDE_AGENTS }}/${{ needs.route.outputs.role }}/schema.json
-        # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
+        # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
+        # by login; the gate and the thread trust it by its bot's id
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
         opt_in_label: agent
         # a label's turn is a kb prompt (superpowers library)
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}
-        session_key: issue-${{ needs.route.outputs.number }}
+        # the family's conversation: a sub-issue goes on in the session that wrote it
+        session_key: issue-${{ needs.route.outputs.family }}
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         live_messages: true
@@ -197,9 +202,9 @@ jobs:
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'handoff'
     runs-on: claude
     environment: claude
-    # the approval takes the issue over from a spec turn still running
+    # the approval takes the family over from a spec turn still running
     concurrency:
-      group: agent-issue-${{ needs.route.outputs.number }}
+      group: agent-issue-${{ needs.route.outputs.family }}
       cancel-in-progress: true
     timeout-minutes: 10
     permissions:
@@ -359,8 +364,9 @@ jobs:
         schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
-        # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
+        # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
+        # by login; the gate and the thread trust it by its bot's id
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
         prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_spec-approved
         # the PR's opening post is always new, so a quiet prompt would never be sent
         prompt_when: always
@@ -414,6 +420,7 @@ jobs:
       ok: ${{ steps.tick.outputs.ok }}
       number: ${{ steps.tick.outputs.number }}
       parent: ${{ steps.tick.outputs.parent }}
+      family: ${{ steps.tick.outputs.family }}
       type: ${{ steps.tick.outputs.type }}
       title: ${{ steps.tick.outputs.title }}
     steps:
@@ -434,10 +441,11 @@ jobs:
     if: github.event_name == 'repository_dispatch' && needs.accept.outputs.ok == 'true'
     runs-on: claude
     environment: claude
-    # one issue turn at a time in the family
+    # one issue turn at a time in the family; ticks queue, in order
     concurrency:
-      group: agent-issue-${{ needs.accept.outputs.parent }}
+      group: agent-issue-${{ needs.accept.outputs.family }}
       cancel-in-progress: false
+      queue: max
     timeout-minutes: 30
     permissions:
       contents: read
@@ -496,12 +504,12 @@ jobs:
         number: ${{ needs.accept.outputs.number }}
         settings: ${{ env.CLAUDE_AGENTS }}/spec/settings.json
         schema: ${{ steps.form.outputs.schema }}
-        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},${{ steps.app.outputs.app-slug }}[bot]
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
         opt_in_label: agent
         prompt: "/mcp__plugin_kubed-runner_superpowers__superpowers_make-sub-issue ${{ needs.accept.outputs.type }}: ${{ needs.accept.outputs.title }}"
         prompt_when: always
         # the family's one conversation (R-F2)
-        session_key: issue-${{ needs.accept.outputs.parent }}
+        session_key: issue-${{ needs.accept.outputs.family }}
         allowed_tools: Read,Glob,Grep
         disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         live_messages: true

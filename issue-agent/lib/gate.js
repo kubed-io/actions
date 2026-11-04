@@ -6,6 +6,7 @@
 
 const { TAG, readSeenFor, isAgent } = require('./state');
 const { list } = require('./util');
+const parts = require('../../comment/lib/parts');
 
 const CAP = '<!-- issue-agent-cap -->';
 
@@ -43,7 +44,11 @@ async function run({ github, context, core }) {
     const events = await github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number, per_page: 100 });
     const actor = lastLabeledBy(events, env.OPT_IN_LABEL);
     if (!actor || !ids.includes(String(actor.id))) {
-      return allow(false, `${env.OPT_IN_LABEL} was last added by ${actor ? `@${actor.login}` : 'nobody'}, not a trusted user`);
+      const why = `${env.OPT_IN_LABEL} was last added by ${actor ? `@${actor.login}` : 'nobody'}, not a trusted user`;
+      // a turn the thread is waiting on says why it did not run, in comment/start's comment
+      const dir = parts.dirOf(env, issue_number);
+      if (parts.commentOf(dir)) parts.addPart(dir, 'gate', `This turn didn't run: \`${why}\`. Add \`${env.OPT_IN_LABEL}\` yourself to opt the issue in.`);
+      return allow(false, why);
     }
   }
 

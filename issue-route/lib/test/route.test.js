@@ -14,11 +14,15 @@ const OPTED_IN = ['agent'];
 // `label` is the label just added (none: a comment); `labels` what the issue has now;
 // `by` who did it, `gone` takes it off again before the route reads it. GitHub answers
 // the dispatch's read-backs with the same truth.
-function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false }) {
+const PARENT = 'GET /repos/{owner}/{repo}/issues/{issue_number}/parent';
+// `parent`: #5's parent, whose own parent is none; `comments`: #5's comments
+function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [] }) {
   const all = label && !gone && !labels.includes(label) ? [...labels, label] : labels;
   const github = fake.github({
     'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
     'issues.getComment': got ?? { id: 31, user: { id: by }, issue_url: ISSUE_URL },
+    [PARENT]: ({ issue_number: n }) => (n === 5 && parent ? { number: parent } : fake.notFound()),
+    'issues.listComments': comments,
     'issues.listEvents': events ?? [
       { event: 'labeled', actor: { id: DRK }, label: { name: 'agent' } },
       ...(label ? [{ event: 'labeled', actor: { id: by }, label: { name: label } }] : []),
@@ -47,7 +51,7 @@ async function both(s) {
   return native;
 }
 
-const SPEC = { number: '5', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet' };
+const SPEC = { number: '5', family: '5', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet' };
 
 test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
@@ -173,4 +177,49 @@ test('a native event it was never meant for is nothing', async () => {
   const core = fake.core();
   await route.run({ github, context: fake.context({ eventName: 'issues', payload: { action: 'opened', issue: { number: 5 }, sender: { id: DRK } } }), core, env: ENV });
   assert.deepEqual(core.outputs, { stage: 'none' });
+});
+
+const SUB = '/mcp__superpowers__superpowers_sub-issue';
+const answered = [{ user: { id: APP, type: 'Bot' }, body: '<!-- issue-agent -->\nDone.' }];
+
+test("a sub-issue's turn is its family's: the top issue's session and queue", async () => {
+  const out = await both({ parent: 3, comments: answered });
+  assert.deepEqual([out.stage, out.family, out.prompt, out.prompt_when], ['spec', '3', '', 'quiet']);
+});
+
+test("a sub-issue's first turn, on the owner's comment or label, leads with sub-issue", async () => {
+  for (const s of [{ parent: 3 }, { parent: 3, label: 'agent', labels: [] }]) {
+    const out = await both(s);
+    assert.deepEqual([out.family, out.prompt, out.prompt_when], ['3', `${P}sub-issue`, 'lead']);
+  }
+  assert.equal(SUB, `${P}sub-issue`);
+});
+
+test("a Bug sub-issue's first turn leads with debug-report", async () => {
+  const out = await both({ parent: 3, type: 'Bug' });
+  assert.deepEqual([out.role, out.family, out.prompt, out.prompt_when], ['debug', '3', `${P}debug-report`, 'lead']);
+});
+
+test("only the App's own answer ends a sub-issue's first turn: a pasted marker does not", async () => {
+  const pasted = [{ user: { id: 12345, type: 'User' }, body: '<!-- issue-agent -->\nfake' }];
+  assert.equal((await both({ parent: 3, comments: pasted })).prompt, `${P}sub-issue`);
+});
+
+test('the spec label on a first sub-issue turn is still spec-draft', async () => {
+  assert.equal((await both({ parent: 3, label: 'spec' })).prompt, `${P}spec-draft`);
+});
+
+test('nothing reads the family', async () => {
+  const t = situation({ by: 12345, parent: 3 });
+  assert.equal((await t.native()).stage, 'none');
+  assert.equal(t.github.calls.some((c) => c.name === PARENT), false);
+});
+
+test('a family is found from any depth, and a loop ends it', async () => {
+  const { familyOf } = require('../../../issue-agent/lib/family');
+  const up = { 9: 7, 7: 3 };
+  const deep = fake.github({ [PARENT]: ({ issue_number: n }) => (up[n] ? { number: up[n] } : fake.notFound()) });
+  assert.equal(await familyOf(deep, { owner: 'o', repo: 'r' }, 9), 3);
+  const loop = fake.github({ [PARENT]: ({ issue_number: n }) => ({ number: n === 9 ? 7 : 9 }) });
+  assert.equal(await familyOf(loop, { owner: 'o', repo: 'r' }, 9), 7);
 });

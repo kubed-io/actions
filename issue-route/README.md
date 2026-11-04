@@ -7,6 +7,10 @@ Only a Feature or Bug issue with `agent` is the agents'. A Feature's turns are t
 agent's (`role` `spec`); a Bug's are the debug agent's (`role` `debug`), which reports and
 never writes.
 
+A sub-issue is part of its family: `family` is its top issue, whose session and queue the
+turn takes. Its first turn, until the App has answered on it, opens with the `sub-issue`
+prompt (`lead`), or `debug-report` on a Bug.
+
 | Event | Before `spec approved` | After it |
 |---|---|---|
 | The owner's comment, on an `agent` Feature or Bug | `spec` | `none` |
@@ -37,5 +41,5 @@ may cause each. The token needs `issues: read`.
 | `app` | | The App's bot's user id |
 | `prompts` | `/mcp__superpowers__superpowers_` | |
 
-Outputs: `stage` (`spec`, `handoff`, `none`), `number`, `title`, `label`, `role`, `writes`,
-`prompt`, `prompt_when`, `takeover`.
+Outputs: `stage` (`spec`, `handoff`, `none`), `number`, `family`, `title`, `label`, `role`,
+`writes`, `prompt`, `prompt_when`, `takeover`.

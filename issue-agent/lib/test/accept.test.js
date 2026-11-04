@@ -16,7 +16,7 @@ function go({ ticked = 1, item = 1, actor = DRK, author = APP, state = 'open', p
   const github = fake.github({
     'issues.getComment': { id: 77, user: { id: author }, issue_url: issueUrl, body },
     'issues.get': { number: 5, state },
-    [PARENT]: parent ? { number: parent } : Object.assign(new Error('none'), { status: 404 }),
+    [PARENT]: ({ issue_number: n }) => (n === 5 && parent ? { number: parent } : Object.assign(new Error('none'), { status: 404 })),
   });
   const core = fake.core();
   const payload = { client_payload: { number: 5, comment_id: 77, item, actor } };
@@ -24,11 +24,12 @@ function go({ ticked = 1, item = 1, actor = DRK, author = APP, state = 'open', p
 }
 
 test("the owner's tick on the App's proposal is the item, filed under this issue", async () => {
-  assert.deepEqual(await go(), { ok: 'true', number: '5', parent: '5', type: 'Bug', title: 'A clash', why: '' });
+  assert.deepEqual(await go(), { ok: 'true', number: '5', parent: '5', family: '5', type: 'Bug', title: 'A clash', why: '' });
 });
 
 test("on a sub-issue the suggestion is a sibling: filed under that issue's parent", async () => {
-  assert.equal((await go({ parent: 3 })).parent, '3');
+  const out = await go({ parent: 3 });
+  assert.deepEqual([out.parent, out.family], ['3', '3']);
 });
 
 test('anyone else, another author, another thread, an unticked box or a closed issue: nothing', async () => {

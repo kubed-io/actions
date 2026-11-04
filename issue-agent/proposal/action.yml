@@ -26,6 +26,9 @@ outputs:
   parent:
     description: The issue to file it under.
     value: ${{ steps.read.outputs.parent }}
+  family:
+    description: The family's top issue, whose session and queue the filing turn takes.
+    value: ${{ steps.read.outputs.family }}
   type:
     description: The item's issue type.
     value: ${{ steps.read.outputs.type }}

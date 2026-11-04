@@ -3,6 +3,7 @@
 // box is ticked now. The item comes from the comment's marker, not from the payload.
 
 const { parse } = require('./proposal');
+const { parentOf, familyOf } = require('./family');
 
 async function run({ github, context, core, env = process.env }) {
   const { owner, repo } = context.repo;
@@ -31,17 +32,14 @@ async function run({ github, context, core, env = process.env }) {
   const { data: issue } = await github.rest.issues.get({ owner, repo, issue_number: number });
   if (issue.state !== 'open') return no(`#${number} is closed`);
   // a sub-issue's suggestions are its siblings: filed under its own parent
-  let parent = number;
-  try {
-    const { data: up } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/parent', { owner, repo, issue_number: number });
-    if (up?.number) parent = up.number;
-  } catch (e) {
-    if (e.status !== 404) throw e;
-  }
+  const parent = (await parentOf(github, { owner, repo }, number)) || number;
+  // the session and the queue are the family's, its top issue's
+  const family = await familyOf(github, { owner, repo }, parent);
 
   core.setOutput('ok', 'true');
   core.setOutput('number', String(number));
   core.setOutput('parent', String(parent));
+  core.setOutput('family', String(family));
   core.setOutput('type', chosen.type);
   core.setOutput('title', chosen.title);
   core.setOutput('why', chosen.why || '');
