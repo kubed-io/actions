@@ -70,9 +70,8 @@ test('a push to a PR out of draft, or by anyone else, wakes nothing', async () =
   assert.equal((await outcome(setup(relayed('pull_request', 12345))))[0], 'none');
 });
 
-test("a review wakes the code agent when it is the owner's or Copilot's, never the App's own replies", async () => {
+test("a review wakes the code agent when it is the owner's, never the App's own replies", async () => {
   assert.equal((await outcome(setup(relayed('pull_request_review', DRK))))[0], 'code');
-  assert.equal((await outcome(setup(relayed('pull_request_review', COPILOT))))[0], 'code');
   assert.equal((await outcome(setup(relayed('pull_request_review', APP))))[0], 'none');
 });
 
@@ -104,8 +103,8 @@ test("a PR not on the agents' branches, or closed, is nothing, and names no PR",
   }
 });
 
-test("Copilot's hand-back is a review to answer, and says so in reason", async () => {
-  const t = setup(dispatch('copilot', { sha: 'h', run_id: 3 }));
+test("Copilot's changes requested, from review-route, are a review to answer, and say so in reason", async () => {
+  const t = setup(dispatch('copilot', { review_id: 41 }));
   assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
   assert.equal(t.core.outputs.reason, 'copilot');
   assert.equal(t.core.outputs.run_id, '');
@@ -125,17 +124,18 @@ test("agent-route: the owner's review is a code turn after the approval, a plan 
   assert.equal((await outcome(setup({ ...routed(), approved: false })))[0], 'plan');
 });
 
-test("agent-route: Copilot's review of the head with line comments is a review to answer", async () => {
-  const t = setup({ ...routed({ actor: COPILOT }), draft: false, review: { user: { id: COPILOT } } });
-  assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
-  assert.equal(t.core.outputs.reason, '');
+test("agent-route: Copilot's review is review-route's, at any stage, with the review it reads", async () => {
+  const base = { ...routed({ actor: COPILOT }), review: { user: { id: COPILOT } } };
+  for (const t of [setup({ ...base, draft: false }), setup({ ...base, draft: true }), setup({ ...base, approved: false }), setup({ ...base, lineComments: 0 })]) {
+    assert.equal((await outcome(t))[0], 'copilot');
+    assert.equal(t.core.outputs.review_id, '9');
+  }
 });
 
-test("agent-route: Copilot's review with no line comments, of an older head, or on a draft is nothing", async () => {
-  const base = { ...routed({ actor: COPILOT }), draft: false, review: { user: { id: COPILOT } } };
-  assert.equal((await outcome(setup({ ...base, lineComments: 0 })))[0], 'none');
-  assert.equal((await outcome(setup({ ...base, review: { user: { id: COPILOT }, commit_id: 'old' } })))[0], 'none');
-  assert.equal((await outcome(setup({ ...base, draft: true })))[0], 'none');
+test("agent-route: a review claiming to be Copilot's, by someone else, is nothing", async () => {
+  const t = setup({ ...routed({ actor: COPILOT }), draft: false, review: { user: { id: 12345 } } });
+  assert.equal((await outcome(t))[0], 'none');
+  assert.equal(t.core.outputs.review_id, '');
 });
 
 test("agent-route: the App's own review replies are nothing", async () => {

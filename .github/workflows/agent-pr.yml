@@ -10,6 +10,11 @@ name: 🛠️ Agent · Pull Request
 # for changes both come back as the `agent-code` dispatch, the code agent's one event
 # interface: {pull_request, reason, run_id or review_id}.
 #
+# On a change Dr K asked Copilot to review (his own request, usually on the draft), Copilot
+# is the reviewer: each code turn asks it for the new head, and a code turn waits for its
+# review of the head before starting, so it answers the checks and Copilot together.
+# Copilot's reviews, relayed by n8n, go to agent-review.yml, whose Route reads them.
+#
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 175728472
 # Copilot's reviewer, 235398881 the kubed-io App's bot (the agent's pushes), 41898282
@@ -70,12 +75,14 @@ jobs:
       prompt_when: ${{ steps.route.outputs.prompt_when }}
       takeover: ${{ steps.route.outputs.takeover }}
       run_id: ${{ steps.route.outputs.run_id }}
+      review_id: ${{ steps.route.outputs.review_id }}
     steps:
 
     # Before `plan approved`: Dr K's comments and reviews are plan turns. After it: his
-    # comments and reviews, the label, a review by Copilot, an `agent-code` dispatch, and a
-    # push to the draft by the agent or Dr K are code turns; a push whose commit says
-    # `Agent: done` is not. Anything else is nothing. Each turn's words are a kb prompt.
+    # comments and reviews, the label, an `agent-code` dispatch, and a push to the draft by
+    # the agent or Dr K are code turns; a push whose commit says `Agent: done` is not. A
+    # review by Copilot is `copilot`, at any stage. Anything else is nothing. Each turn's
+    # words are a kb prompt.
     - name: Route
       id: route
       uses: kubed-io/actions/pr-route@main
@@ -85,6 +92,34 @@ jobs:
         owner: "4399427"
         app: "235398881"
         copilot: "175728472"
+
+  # Copilot's review is the verdict on its change, or its cancelled review of a draft: the
+  # review route reads it. On the App's token: a caller grants this workflow no contents write
+  copilot:
+    name: Copilot's Review
+    needs: route
+    if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'copilot'
+    runs-on: ubuntu-26.04
+    permissions: {}
+    steps:
+
+    - name: App Token
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+
+    - name: Over to the Review Route
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+        REVIEW_ID: ${{ needs.route.outputs.review_id }}
+      run: |
+        gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-review \
+          -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=copilot" \
+          -F "client_payload[review_id]=${REVIEW_ID}"
 
   plan:
     name: Plan
@@ -243,6 +278,17 @@ jobs:
         app: "235398881"
         copilot: "175728472"
 
+    # Copilot's change: its review of the head, when it was asked for one, is part of this
+    # turn; waiting before the App token, which lasts an hour
+    - name: Wait for Copilot
+      if: steps.still.outputs.stage == 'code'
+      uses: kubed-io/actions/review-route/copilot@main
+      with:
+        github_token: ${{ github.token }}
+        step: wait
+        number: ${{ needs.route.outputs.number }}
+        owner: "4399427"
+
     - name: App Token
       if: steps.still.outputs.stage == 'code'
       id: app
@@ -369,8 +415,16 @@ jobs:
         wiki: ${{ inputs.wiki }}
         pull_request: ${{ needs.route.outputs.number }}
 
-    # the agent judged the failed checks not this branch's: their failed jobs run once more;
-    # green brings the review, red again is Dr K's call
+    # Copilot's change: the head the turn landed is Copilot's to review, alongside its checks
+    - name: Ask Copilot
+      if: steps.still.outputs.stage == 'code'
+      uses: kubed-io/actions/review-route/copilot@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        step: ask
+        number: ${{ needs.route.outputs.number }}
+        owner: "4399427"
+
     - name: Answer
       if: steps.comment.outputs.comment_id != ''
       uses: kubed-io/actions/comment/end@main
@@ -379,6 +433,8 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
 
+    # the agent judged the failed checks not this branch's: their failed jobs run once more;
+    # green brings the review, red again is Dr K's call
     - name: Re-run the Checks
       if: steps.still.outputs.stage == 'code' && needs.route.outputs.run_id != '' && fromJSON(steps.agent.outputs.output || '{}').rerun == true
       uses: kubed-io/actions/pr-checks/rerun@main

@@ -15,6 +15,14 @@ name: 🔍 Agent · Review
 # kubed-io/actions/review-route decides it. A commit that only merges main in, or only
 # applies a passing review's own suggestions from the PR's page, keeps the last verdict.
 #
+# On a change Dr K asked Copilot to review, Copilot reviews instead: green checks wait for
+# its review of the head (`checks passed: waiting for Copilot`), and its review, forwarded
+# by agent-pr.yml as `agent-review` with `reason: copilot`, is the verdict. Line comments
+# send `agent-code` (`reason: copilot`), none passes the check; its reviews are capped
+# like the review agent's. Red checks still go to the code agent first, which waits for
+# Copilot's review of that head too. A review saying Copilot encountered an error (the
+# draft gate's cancel) is hidden.
+#
 # The verdict is a commit status on the PR's head, never this job's own check run: a run on
 # repository_dispatch belongs to main's commit. It is not a required check; Dr K merges.
 # The status is also the loop's memory: a head the review agent already passed is never
@@ -57,7 +65,8 @@ jobs:
       # contents write is the `agent-code` dispatch's
       contents: write
       actions: read
-      pull-requests: read
+      # Copilot is asked for a head, and its error reviews hidden
+      pull-requests: write
       statuses: write
     outputs:
       number: ${{ steps.route.outputs.number }}
@@ -65,7 +74,8 @@ jobs:
       last: ${{ steps.route.outputs.last }}
     steps:
 
-    # reads the PR and the run, sets statuses, dispatches; nothing of the PR is checked out
+    # reads the PR and the run, sets statuses, dispatches, asks Copilot; nothing of the PR is
+    # checked out
     - name: Route
       id: route
       uses: kubed-io/actions/review-route@main
