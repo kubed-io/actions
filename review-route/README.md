@@ -85,9 +85,12 @@ since review-route reads back only the reviewer's statuses.
     sha: ${{ needs.route.outputs.sha }}
     last: ${{ needs.route.outputs.last }}
     output: ${{ steps.agent.outputs.output }}
-    review_id: ${{ steps.agent.outputs.review_id }}
-    comment_id: ${{ steps.agent.outputs.comment_id }}
+    review_id: ${{ steps.answer.outputs.review_id }}
+    comment_id: ${{ steps.answer.outputs.comment_id }}
 ```
+
+`answer` is the job's comment/end, which runs first: the review agent's answer is one
+comment, or one review when it has line comments.
 
 Output: `verdict`.
 

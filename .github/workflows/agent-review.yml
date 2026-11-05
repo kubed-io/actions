@@ -7,8 +7,9 @@ name: 🔍 Agent · Review
 #
 # - checks red: no review. The status fails as `checks failed`, and `agent-code` goes out
 #   with `reason: ci` and the run, whose `checks-report` artifact the code agent reads.
-# - checks green: one review: its summary, with line comments and suggestions under it,
-#   on the built-in token, so it is github-actions[bot]'s and not the code agent's.
+# - checks green: one review agent turn, answered once: one comment, or with line comments
+#   one review with them and their suggestions under it (comment/end), on the built-in
+#   token, so it is github-actions[bot]'s and not the code agent's.
 #   `changes requested` dispatches `agent-code` (`reason: review`); the code agent's fix
 #   is a push, whose checks bring the next round; `looks good` passes the check.
 #
@@ -182,6 +183,16 @@ jobs:
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot],41898282,github-actions
         session_key: review-${{ needs.route.outputs.number }}
 
+    # the answer, once: one comment, or with line comments one review with them under it
+    - name: Answer
+      id: answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ github.token }}
+        number: ${{ needs.route.outputs.number }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+
     # the verdict is the check: only `looks good` passes it
     - name: Set the Check
       if: steps.still.outputs.wanted == 'true' && (always())
@@ -193,8 +204,8 @@ jobs:
         sha: ${{ steps.agent.outputs.reviewed_sha || needs.route.outputs.sha }}
         last: ${{ needs.route.outputs.last }}
         output: ${{ steps.agent.outputs.output }}
-        review_id: ${{ steps.agent.outputs.review_id }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
+        review_id: ${{ steps.answer.outputs.review_id }}
+        comment_id: ${{ steps.answer.outputs.comment_id }}
 
     # a pointer, never the review: the code agent reads it from the PR
     - name: Wake the Code Agent
@@ -205,19 +216,11 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         NUMBER: ${{ needs.route.outputs.number }}
-        REVIEW_ID: ${{ steps.agent.outputs.review_id }}
+        REVIEW_ID: ${{ steps.answer.outputs.review_id }}
       run: |
         gh api "repos/${GITHUB_REPOSITORY}/dispatches" -f event_type=agent-code \
           -F "client_payload[pull_request]=${NUMBER}" -f "client_payload[reason]=review" \
           -f "client_payload[review_id]=${REVIEW_ID}"
-
-    - name: Answer
-      if: steps.comment.outputs.comment_id != ''
-      uses: kubed-io/actions/comment/end@main
-      with:
-        github_token: ${{ github.token }}
-        number: ${{ needs.route.outputs.number }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
 
     - name: Save the Scratchpad
       if: always() && steps.scratch.outcome == 'success'

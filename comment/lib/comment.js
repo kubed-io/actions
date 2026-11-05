@@ -5,11 +5,15 @@
 // The comment is found the way issue-agent and n8n find it: the newest placeholder of this
 // run, since n8n reposts it under each in-flight reply. One without the run's marker (`live:
 // false`) never moves, so its id is enough.
+//
+// With line comments (lines.js) the answer is one review instead: the same body, the comments
+// under it, and the placeholder goes. Either way, one post.
 
 const { placeholder, reply, failure } = require('../../issue-agent/lib/comment');
 const { seenMarker } = require('../../issue-agent/lib/state');
 const { findPlaceholder } = require('../../issue-agent/lib/live');
 const parts = require('./parts');
+const lines = require('./lines');
 
 // the answer: the parts as one reply, a seen marker for each session that answered
 function answerBody({ texts, runUrl, seen }) {
@@ -75,6 +79,16 @@ async function post({ github, context, core, env = process.env }) {
   core.warning(`comment/end did not run: comment ${data.id} says so`);
 }
 
+// the placeholder, wherever it is now; already gone is fine
+async function remove({ github, context, number, known }) {
+  const id = await locate({ github, context, number, known });
+  try {
+    if (id) await github.rest.issues.deleteComment({ ...context.repo, comment_id: id });
+  } catch (e) {
+    if (e.status !== 404) throw e;
+  }
+}
+
 async function end({ github, context, core, env = process.env }) {
   const number = Number(env.INPUT_NUMBER);
   const dir = parts.dirOf(env, number);
@@ -83,19 +97,30 @@ async function end({ github, context, core, env = process.env }) {
   if (parts.isFinal(dir)) throw new Error(`the comment on #${number} is already written`);
   const known = Number(env.INPUT_COMMENT_ID) || info.comment_id;
   const texts = parts.partsOf(dir);
+  core.setOutput('review_id', '');
   // nothing was said: no answer, and no spinner left behind
   if (!texts.length) {
-    const id = await locate({ github, context, number, known });
-    try {
-      if (id) await github.rest.issues.deleteComment({ ...context.repo, comment_id: id });
-    } catch (e) {
-      if (e.status !== 404) throw e;
-    }
+    await remove({ github, context, number, known });
     parts.finalize(dir, 0);
     core.setOutput('comment_id', '');
     return core.info('no step left a part: the placeholder is gone');
   }
-  const body = answerBody({ texts, runUrl: info.run_url, seen: parts.seenOf(dir) });
+  const seen = parts.seenOf(dir);
+  const bodyWith = (extra) => answerBody({ texts: extra ? [...texts, extra] : texts, runUrl: info.run_url, seen });
+  const said = parts.linesOf(dir);
+  if (said?.inline.length) {
+    const review = await lines.postReview({ github, context, core, number, lines: said, bodyWith });
+    if (review) {
+      await remove({ github, context, number, known });
+      parts.finalize(dir, 0);
+      core.setOutput('comment_id', '');
+      core.setOutput('review_id', String(review.id));
+      return core.info(`review ${review.id}: ${texts.length} part(s), ${said.inline.length} line comment(s)`);
+    }
+  }
+  // no review: any line comments are listed in the comment
+  const all = said ? [...said.inline, ...said.outside] : [];
+  const body = bodyWith(lines.listed(all, said?.inline.length ? 'Line comments' : 'Outside the diff'));
   const data = await write({ github, context, number, known, body });
   parts.finalize(dir, data.id);
   core.setOutput('comment_id', String(data.id));

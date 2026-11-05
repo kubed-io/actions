@@ -1,8 +1,10 @@
 name: Comment · End
 description: >
   Writes the comment comment/start opened, once: the parts the steps between left, in the
-  order they ran, with a seen marker for each session that answered. No part, no comment:
-  the placeholder goes. Found by this run's marker, wherever n8n moved it.
+  order they ran, with a seen marker for each session that answered. With line comments on a
+  PR's diff, the answer is one review instead, the comments under it, and the placeholder
+  goes. No part, no comment: the placeholder goes. Found by this run's marker, wherever n8n
+  moved it.
 
 inputs:
   github_token:
@@ -19,7 +21,9 @@ inputs:
 
 outputs:
   comment_id:
-    description: The comment the answer is in; empty when no step said anything.
+    description: The comment the answer is in; empty when it went as a review or no step said anything.
+  review_id:
+    description: The review the answer is the body of, when it had line comments; empty otherwise.
 
 runs:
   using: node24
