@@ -6,12 +6,9 @@ Your new comments are the turn, in your words. The agent answers with:
 - **a reply**, posted as a comment;
 - **notes**, kept collapsed at the bottom of the description: what the next run, or the
   pull request after an issue, starts from;
-- on a pull request, **a review**: line comments and suggestions under its reply, the way
-  Copilot reviews (`review: true`).
-
-Where n8n relays Copilot's review (as an `agent-route` dispatch, see
-[pr-route](../pr-route/)), nothing waits for it; `review/` and its wait are for
-repositories without n8n.
+- on a pull request, **line comments** and suggestions (`review: true`), handed to
+  [comment/end](../comment/), which posts the answer as one review with them under it, the
+  way Copilot reviews.
 
 It does nothing else: no git, no workflow. Its structured response is its output, so the
 steps after it decide what to commit (`git/commit`), branch (`git/branch`) or open
@@ -112,7 +109,7 @@ them, or the profile, it warns and runs as off. The hooks are merged into the `s
 input's file, so the run has one `--settings`; another in `claude_args` replaces them.
 
 The placeholder carries `<!-- issue-agent-placeholder {"run_id": N} -->`, since n8n reposts it
-under each in-flight reply: the answer, the failure note and the review find it by that. The
+under each in-flight reply: the answer and the failure note find it by that. The
 answer's seen marker covers the comments and reviews the hook handed over, but never one older
 that it did not, so the comment's own queued run finds nothing new and none is lost.
 
@@ -120,7 +117,8 @@ that it did not, so the comment's own queued run finds nothing new and none is l
 
 Given [comment/start](../comment/)'s `comment_id`, the thread comment is the pair's: the agent
 posts no placeholder, reply or failure note. Its reply goes to comment/end as a part, with its
-seen marker; a review keeps only its line comments; and its `comment_id` output is where the
+seen marker, and its line comments (`review: true`) go beside it, so comment/end posts the
+answer once: a comment, or one review with them under it. Its `comment_id` output is where the
 comment is when it ends, since n8n may have moved it. Two runs in one job answer in one
 comment, and a second turn of the same session starts after the first's answer.
 
@@ -147,8 +145,8 @@ caller uses comment/start.
 ## Outputs
 
 `structured` (the whole response, JSON), `output` (the role's part, JSON), `reply`,
-`number`, `comment_id` (with comment/start, where its comment is now), `review_id`, `head_sha`, `reviewed_sha`, `session_id`, `conclusion`.
-`reviewed_sha` is the commit the review is on: the checkout's when the turn ended, past
+`number`, `comment_id` (with comment/start, where its comment is now), `head_sha`, `reviewed_sha`, `session_id`, `conclusion`.
+`reviewed_sha` is the commit the line comments are on: the checkout's when the turn ended, past
 `head_sha` when a push was brought in during it, and then line comments are checked against
 that commit's diff.
 

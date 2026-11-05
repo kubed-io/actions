@@ -30,11 +30,11 @@ inputs:
     required: false
     default: ""
   review_id:
-    description: issue-agent's `review_id`, which the status links to.
+    description: comment/end's `review_id`, which the status links to.
     required: false
     default: ""
   comment_id:
-    description: issue-agent's `comment_id`, linked when there is no review.
+    description: comment/end's `comment_id`, linked when there is no review.
     required: false
     default: ""
 

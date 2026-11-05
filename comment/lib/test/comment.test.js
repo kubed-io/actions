@@ -132,6 +132,99 @@ test('end with no part takes the spinner down and writes nothing', async () => {
   assert.equal(out.outputs.comment_id, '');
 });
 
+// a PR's answer with line comments: one review, nothing else left in the thread
+async function answered({ lines, reviewRoute }) {
+  const t = thread();
+  const reviews = [];
+  const base = t.github;
+  const github = fake.github({});
+  github.rest = new Proxy({}, {
+    get: (_, ns) => new Proxy({}, {
+      get: (__, method) => async (params) => {
+        const name = `${ns}.${method}`;
+        if (name === 'pulls.createReview') {
+          github.calls.push({ name, params });
+          const out = reviewRoute ? reviewRoute(params) : { id: 900 + reviews.length };
+          if (out instanceof Error) throw out;
+          reviews.push(params);
+          return { data: out };
+        }
+        return base.rest[ns][method](params);
+      },
+    }),
+  });
+  github.paginate = base.paginate;
+  const e = env();
+  const core = fake.core();
+  core.saveState = () => {};
+  await comment.start({ github, context, core, env: e });
+  const dir = parts.dirOf(e, 12);
+  parts.addPart(dir, 'issue-agent', '**Verdict: changes requested**\n\nOne thing.');
+  parts.addSeen(dir, { key: 'review-12', through: 't', id: '3' });
+  if (lines) parts.addLines(dir, lines);
+  const out = fake.core();
+  await comment.end({ github, context, core: out, env: e });
+  return { t, reviews, out, dir, calls: github.calls };
+}
+
+const ON = { path: 'a.py', line: 12, body: 'Name this.', suggestion: 'total = 0' };
+const OFF = { path: 'a.py', line: 15, body: 'Off it.' };
+
+test('line comments: the answer is one review, its body the whole answer, and no comment is left', async () => {
+  const { t, reviews, out, dir } = await answered({ lines: { commit_id: 'abc', inline: [ON], outside: [OFF] } });
+  assert.equal(reviews.length, 1);
+  const [r] = reviews;
+  assert.equal(r.event, 'COMMENT');
+  assert.equal(r.commit_id, 'abc');
+  assert.equal(r.pull_number, 12);
+  assert.ok(r.body.startsWith(`${state.TAG}\n**Verdict: changes requested**\n\nOne thing.\n\n**Outside the diff**\n\n- **\`a.py:15\`**: Off it.`));
+  assert.ok(r.body.includes(state.seenMarker({ key: 'review-12', through: 't', id: '3' })));
+  assert.deepEqual(r.comments, [{ path: 'a.py', line: 12, side: 'RIGHT', body: 'Name this.\n\n```suggestion\ntotal = 0\n```' }]);
+  assert.deepEqual(t.comments, []);
+  assert.equal(out.outputs.review_id, '900');
+  assert.equal(out.outputs.comment_id, '');
+  assert.equal(parts.isFinal(dir), true);
+});
+
+test('a review GitHub refuses goes again with every comment in its body; still one post', async () => {
+  let tries = 0;
+  const { t, reviews, out } = await answered({
+    lines: { commit_id: 'abc', inline: [ON], outside: [OFF] },
+    reviewRoute: () => (tries++ === 0 ? Object.assign(new Error('Unprocessable'), { status: 422 }) : { id: 901 }),
+  });
+  assert.equal(reviews.length, 1);
+  assert.deepEqual(reviews[0].comments, []);
+  assert.ok(reviews[0].body.includes('**Line comments**\n\n- **`a.py:12`**: Name this.'));
+  assert.ok(reviews[0].body.includes('- **`a.py:15`**: Off it.'));
+  assert.deepEqual(t.comments, []);
+  assert.equal(out.outputs.review_id, '901');
+});
+
+test('refused twice: the answer is the one comment, the line comments listed in it', async () => {
+  const { t, reviews, out } = await answered({
+    lines: { commit_id: 'abc', inline: [ON], outside: [] },
+    reviewRoute: () => Object.assign(new Error('Unprocessable'), { status: 422 }),
+  });
+  assert.equal(reviews.length, 0);
+  assert.equal(t.comments.length, 1);
+  assert.ok(t.comments[0].body.includes('One thing.\n\n**Line comments**\n\n- **`a.py:12`**: Name this.'));
+  assert.equal(out.outputs.review_id, '');
+  assert.equal(out.outputs.comment_id, String(t.comments[0].id));
+});
+
+test('only comments off the diff, or none: one comment, no review', async () => {
+  const off = await answered({ lines: { commit_id: 'abc', inline: [], outside: [OFF] } });
+  assert.equal(off.reviews.length, 0);
+  assert.equal(off.t.comments.length, 1);
+  assert.ok(off.t.comments[0].body.includes('One thing.\n\n**Outside the diff**\n\n- **`a.py:15`**: Off it.'));
+
+  const none = await answered({});
+  assert.equal(none.reviews.length, 0);
+  assert.equal(none.t.comments.length, 1);
+  assert.ok(!none.t.comments[0].body.includes('**Outside the diff**'));
+  assert.equal(none.out.outputs.review_id, '');
+});
+
 test('n8n moves it between the lookup and the edit: once more; with none left, a new comment', async () => {
   const t = thread();
   const e = env();

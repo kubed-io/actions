@@ -4,6 +4,7 @@
 //   comment.json      comment/start's: the placeholder's first id and the run link
 //   parts/NN-name.md  a step's piece of the answer, markdown; joined in name order
 //   seen.json         the seen marker of each session that answered, in answer order
+//   lines.json        a step's line comments on the PR's diff: the answer goes as a review
 //   final.json        comment/end's: the comment is written, so start's post does nothing
 //
 // Only the file system: no GitHub, so issue-agent, land and the comment actions share it.
@@ -69,6 +70,24 @@ function seenOf(dir) {
   return Array.isArray(all) ? all : [];
 }
 
+// line comments on one commit, split by the step that read the diff: on it, and off it
+function addLines(dir, { commit_id, inline = [], outside = [] }) {
+  const was = linesOf(dir);
+  const all = {
+    commit_id,
+    inline: [...(was?.inline || []), ...inline],
+    outside: [...(was?.outside || []), ...outside],
+  };
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'lines.json'), JSON.stringify(all));
+}
+
+function linesOf(dir) {
+  const lines = readJson(path.join(dir, 'lines.json'), null);
+  if (!lines?.commit_id) return null;
+  return { commit_id: lines.commit_id, inline: lines.inline || [], outside: lines.outside || [] };
+}
+
 function finalize(dir, commentId) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'final.json'), JSON.stringify({ comment_id: commentId || 0 }));
@@ -78,4 +97,4 @@ function isFinal(dir) {
   return fs.existsSync(path.join(dir, 'final.json'));
 }
 
-module.exports = { dirOf, open, commentOf, addPart, partsOf, addSeen, seenOf, finalize, isFinal };
+module.exports = { dirOf, open, commentOf, addPart, partsOf, addSeen, seenOf, addLines, linesOf, finalize, isFinal };

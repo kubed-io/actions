@@ -9,7 +9,6 @@ const state = require('../state');
 const thread = require('../thread');
 const comment = require('../comment');
 const land = require('../land');
-const review = require('../review');
 const parts = require('../../../comment/lib/parts');
 const fake = require('./fake');
 
@@ -93,25 +92,4 @@ test('what did not land is a part after the answer, and no comment is touched', 
   const got = parts.partsOf(dir);
   assert.equal(got[0], 'Did task 3.');
   assert.match(got[1], /^> \[!WARNING\]\n> \*\*Not committed:\*\* `\.github\/workflows\/pr\.yml`\./);
-});
-
-test('the review holds only the line comments; the answer and its marker stay for comment/end', async () => {
-  const dir = tmp();
-  fs.writeFileSync(path.join(dir, 's.json'), JSON.stringify({ reply: 'Looks close.', notes: 'n', review: { comments: [{ path: 'a.py', line: 12, body: 'Name this.' }, { path: 'a.py', line: 15, body: 'Off it.' }] } }));
-  fs.writeFileSync(path.join(dir, 'diff.json'), JSON.stringify({ 'a.py': [12] }));
-  const env = {
-    PAIR: 'true', LIVE: 'true', NUMBER: '81', STRUCTURED_FILE: path.join(dir, 's.json'), DIFF_FILE: path.join(dir, 'diff.json'), HEAD_SHA: 'abc',
-    COMMENT_ID: '', PROMPT: '', REPLY: 'Looks close.', HEADER: '', SESSION_KEY: 'review-81', THROUGH: 't', THROUGH_ID: '9', RUN_URL: RUN, BLOB: '', SESSION_ID: '',
-  };
-  Object.assign(process.env, env);
-  const github = fake.github({ 'pulls.createReview': { id: 77 } });
-  const core = fake.core();
-  await review.run({ github, context: fake.context({ runId: 7 }), core, exec: fake.exec('abc') });
-  const body = github.calls.find((x) => x.name === 'pulls.createReview').params.body;
-  assert.ok(!body.includes('Looks close.'));
-  assert.ok(body.includes('- **`a.py:15`**: Off it.'));
-  assert.equal(state.readSeen(body), null);
-  assert.deepEqual(github.calls.map((x) => x.name), ['pulls.createReview']);
-  assert.equal(core.outputs.posted, 'true');
-  for (const k of Object.keys(env)) delete process.env[k];
 });

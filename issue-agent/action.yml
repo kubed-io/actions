@@ -2,7 +2,8 @@ name: Issue Agent (Claude)
 description: >
   A Claude Code agent in a GitHub issue or pull request, as a real Claude Code session.
   The thread's new messages are the turn; the agent's reply is posted back, its notes are
-  kept in the description, and on a pull request its review comments sit under the reply.
+  kept in the description, and on a pull request its line comments go to comment/end, which
+  posts them under the reply.
   Nothing else: no git, no workflow. The structured output it returns is this action's
   output, for the steps after it.
 
@@ -46,7 +47,9 @@ inputs:
     required: false
     default: ""
   review:
-    description: On a PR, give the agent `review`, line comments posted as one review under its reply.
+    description: >
+      On a PR, give the agent `review`: line comments, handed to comment/end, which posts the
+      answer as one review with them under it. Needs `comment_id`.
     required: false
     default: "false"
   threads:
@@ -156,19 +159,16 @@ outputs:
     value: ${{ steps.gather.outputs.number }}
   comment_id:
     description: >
-      The comment the reply is in (empty when it went as a review). With `comment_id` given,
-      where comment/start's comment is now: n8n may have moved it.
-    value: ${{ steps.where.outputs.comment_id || (steps.review.outputs.posted != 'true' && (steps.reply.outputs.comment_id || steps.ack.outputs.comment_id) || '') }}
-  review_id:
-    description: The review the reply is the body of, when it had line comments.
-    value: ${{ steps.review.outputs.review_id }}
+      The comment the reply is in. With `comment_id` given, where comment/start's comment is
+      now: n8n may have moved it.
+    value: ${{ steps.where.outputs.comment_id || steps.reply.outputs.comment_id || steps.ack.outputs.comment_id || '' }}
   head_sha:
     description: The PR head the agent read.
     value: ${{ steps.gather.outputs.head_sha }}
   reviewed_sha:
     description: >
-      The commit the review is on: the checkout's when the turn ended, which a push brought in
-      during it moves past `head_sha`; `head_sha` when no review step ran.
+      The commit the line comments are on: the checkout's when the turn ended, which a push
+      brought in during it moves past `head_sha`; `head_sha` when there was no review.
     value: ${{ steps.review.outputs.reviewed_sha || steps.gather.outputs.head_sha }}
   session_id:
     description: The Claude session id.
@@ -338,30 +338,16 @@ runs:
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 
-  - name: Post the Review
+  # line comments: comment/end posts the answer as one review with them under it
+  - name: Hand the Line Comments On
     id: review
-    if: steps.gather.outputs.is_pr == 'true' && inputs.review == 'true' && steps.read.outputs.structured_file != ''
+    if: inputs.comment_id != '' && steps.gather.outputs.is_pr == 'true' && inputs.review == 'true' && steps.read.outputs.structured_file != ''
     uses: actions/github-script@v9
     env:
-      LIVE: ${{ steps.setup.outputs.live }}
-      PAIR: ${{ inputs.comment_id != '' }}
-      IS_PR: ${{ steps.gather.outputs.is_pr }}
-      TRUSTED_IDS: ${{ inputs.trusted || format('{0},{1}', env.CLAUDE_OWNER_ID, env.CLAUDE_TRUSTED_BOTS) }}
-      TRUSTED_BOTS: ${{ inputs.trusted || env.CLAUDE_TRUSTED_BOTS }}
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
       DIFF_FILE: ${{ github.workspace }}/${{ inputs.scratch_dir }}/diff.json
       HEAD_SHA: ${{ steps.gather.outputs.head_sha }}
-      COMMENT_ID: ${{ steps.ack.outputs.comment_id }}
-      PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
-      REPLY: ${{ steps.read.outputs.reply }}
-      HEADER: ${{ inputs.header }}
-      SESSION_KEY: ${{ inputs.session_key }}
-      SESSION_ID: ${{ steps.setup.outputs.session_id }}
-      THROUGH: ${{ steps.gather.outputs.through }}
-      THROUGH_ID: ${{ steps.gather.outputs.through_id }}
-      BLOB: ${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.gather.outputs.head }}
-      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -369,7 +355,7 @@ runs:
 
   - name: Reply
     id: reply
-    if: inputs.comment_id == '' && steps.gather.outputs.prompt != '' && steps.gather.outputs.number != '' && steps.review.outputs.posted != 'true'
+    if: inputs.comment_id == '' && steps.gather.outputs.prompt != '' && steps.gather.outputs.number != ''
     uses: actions/github-script@v9
     env:
       MODE: reply
@@ -434,7 +420,7 @@ runs:
 
   # a failed or cancelled run never leaves the spinner up, and never advances the seen marker
   - name: Report Failure
-    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != '' && steps.reply.outputs.posted != 'true' && steps.review.outputs.posted != 'true'
+    if: (failure() || cancelled()) && steps.ack.outputs.comment_id != '' && steps.reply.outputs.posted != 'true'
     uses: actions/github-script@v9
     env:
       MODE: failure

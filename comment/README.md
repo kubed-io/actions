@@ -1,7 +1,9 @@
 # Comment Actions
 
 One thread comment for a whole job. `comment/start` posts "Working on it…" before anything
-runs; the steps between add to the answer; `comment/end` writes it, once. Two issue-agent
+runs; the steps between add to the answer; `comment/end` writes it, once. On a pull request
+with line comments, that one answer is a review instead, the comments under it: a step only
+says what to post, and comment/end picks GitHub's API for it. Two issue-agent
 turns, a land and the end all answer in the one comment. A job that never reaches
 `comment/end` ends with the failure note instead, keeping what the steps that finished said.
 
@@ -67,7 +69,11 @@ Outputs: `comment_id`, `number`.
 ## comment/end
 
 Writes the parts as one reply, a seen marker for each session that answered, and marks the
-comment written, so `comment/start`'s post leaves it alone.
+comment written, so `comment/start`'s post leaves it alone. With line comments beside the
+parts, the reply is the body of one `COMMENT` review on their commit, with the comments
+under it, and the placeholder is deleted. Comments off the diff are listed in the body; a
+review GitHub refuses goes once more with every comment in the body, and refused again, the
+answer is a plain comment that lists them.
 
 | Input | Default | Description |
 |---|---|---|
@@ -75,7 +81,8 @@ comment written, so `comment/start`'s post leaves it alone.
 | `number` | the event's | comment/start's |
 | `comment_id` | comment/start's | The last issue-agent's, for a comment with no run marker |
 
-Output: `comment_id`, empty when no step said anything.
+Outputs: `comment_id`, empty when the answer went as a review or no step said anything;
+`review_id`, the review the answer is the body of, when there were line comments.
 
 ## Parts
 
@@ -88,6 +95,7 @@ line between, then the run link. Beside them:
 |---|---|---|
 | `comment.json` | comment/start | The first id, the number, the run link |
 | `seen.json` | issue-agent | Each session's seen marker, one per key; the next turn of that session starts after it |
+| `lines.json` | issue-agent (`review: true`) | Line comments on one commit: `commit_id`, `inline` (on the diff), `outside` (off it) |
 | `final.json` | comment/end | Written: start's post does nothing |
 
 issue-agent writes its reply (header and text), with `comment_id`; issue-agent/land writes
