@@ -3,20 +3,13 @@
 // is a commit status on the head: the PR's required check, and the loop's memory, since a
 // head the review agent already judged carries its status.
 //
-// A change the owner asked Copilot to review is Copilot's: green checks wait for its
-// review of the head, and that review is the verdict. Copilot's review comes here as an
-// `agent-review` dispatch with `reason: copilot`, forwarded by agent-pr.yml from n8n's
-// relay; whichever of the two ends last decides.
-
-const copilot = require('../../issue-agent/lib/copilot');
+// Copilot never stands in for the review agent: asked for, its review is a second opinion,
+// which wakes the code agent through pr-route like any review.
 
 const VERDICT = /^(looks good|changes requested|needs a human)$|^changes requested, last review/;
 // a verdict carried to a later commit, with the commit it was given on
 const CARRIED = /^(?:no changes|suggestions applied) since \w+: /;
 const failedChecks = (s) => /^checks failed/.test(s?.description || '');
-// Copilot's verdicts, and green checks waiting for one
-const COPILOT_VERDICT = /^Copilot: (looks good|changes requested)/;
-const WAITING = 'checks passed: waiting for Copilot';
 const short = (sha) => (sha || '').slice(0, 7);
 const BAD = ['failure', 'cancelled', 'timed_out'];
 const csv = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -95,9 +88,7 @@ async function run({ github, context, core, env = process.env }) {
   const sent = e.client_payload || {};
   // the checks run's pointer to itself routes as the run; any other dispatch asks again
   const pointer = sent.reason === 'checks';
-  // Copilot reviewed: a verdict to read, never a request for the review agent
-  const fromCopilot = sent.reason === 'copilot';
-  const dispatched = !pointer && !fromCopilot;
+  const dispatched = !pointer;
   let checksRun = null;
   if (pointer) {
     ({ data: checksRun } = await github.rest.actions.getWorkflowRun({ ...repo, run_id: Number(sent.run_id) }));
@@ -109,13 +100,6 @@ async function run({ github, context, core, env = process.env }) {
   const number = Number(sent.pull_request) || 0;
   if (!number) return core.info('no pull request');
   const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: number });
-  let review = null;
-  if (fromCopilot) {
-    ({ data: review } = await github.rest.pulls.getReview({ ...repo, pull_number: number, review_id: Number(sent.review_id) }));
-    if (!copilot.isCopilot(review.user)) return core.info(`review ${sent.review_id} is not Copilot's`);
-    // a cancelled review (the draft gate's) or a failed one says nothing: out of the way
-    if (copilot.failedReview(review)) await copilot.hide(github, review.node_id);
-  }
   if (pr.state !== 'open' || pr.draft) return core.info(`#${number} is ${pr.draft ? 'a draft' : pr.state}`);
   const sha = pr.head.sha;
   if (checksRun && checksRun.head_sha !== sha) return core.info(`${checksRun.head_sha} is no longer the head`);
@@ -128,7 +112,7 @@ async function run({ github, context, core, env = process.env }) {
   const labels = pr.labels.map((l) => l.name);
   if (!ours || !pr.head.ref.startsWith(cfg.prefix) || !cfg.labels.every((l) => labels.includes(l))) {
     // the pointer comes only for the agents' PRs, whose check this is
-    if (pointer || fromCopilot) return core.info(`#${number} was not built by the agents: no status`);
+    if (pointer) return core.info(`#${number} was not built by the agents: no status`);
     await status('success', 'not built by the agents');
     return core.info(`#${number} was not built by the agents`);
   }
@@ -154,7 +138,7 @@ async function run({ github, context, core, env = process.env }) {
   if (mine?.state === 'success') return core.info(`${sha} already passed`);
   // a head is judged once; a dispatch asks again, and checks that turn green again
   // (a re-run) bring the review the red ones held back
-  if (mine && !dispatched && !fromCopilot && !(failedChecks(mine) && checks === 'passed')) return core.info(`${sha} already ${mine.state}`);
+  if (mine && !dispatched && !(failedChecks(mine) && checks === 'passed')) return core.info(`${sha} already ${mine.state}`);
   const actor = String((checksRun ? checksRun.triggering_actor : e.sender)?.id);
   if (!cfg.trusted.includes(actor)) return core.info(`${actor} cannot start an agent`);
 
@@ -165,48 +149,6 @@ async function run({ github, context, core, env = process.env }) {
   for (const ref of all.filter((c) => c !== sha).reverse()) {
     const s = await mineOn(ref);
     if (s && (s.state === 'success' || s.state === 'failure')) judged.push({ ref, ...s });
-  }
-
-  // Copilot's review is the verdict: changes requested go to the code agent, and its reviews
-  // without a pass are capped like the review agent's
-  const events = await copilot.timeline(github, { ...repo, number });
-  const optedIn = copilot.optedIn(events, cfg.owner);
-  const copilotVerdict = async (got) => {
-    const comments = await copilot.reviewComments(github, { ...repo, number, reviewId: got.id });
-    const round = judged.filter((s) => COPILOT_VERDICT.test(s.description)).length + 1;
-    if (!comments) {
-      await status('success', 'Copilot: looks good', got.html_url);
-      return core.info(`${sha}: Copilot left no comments`);
-    }
-    if (round >= cfg.maxReviews) {
-      await status('failure', `needs a human: ${round} Copilot reviews without a pass`, got.html_url);
-      return core.info(`${round} Copilot reviews without a pass: over to a human`);
-    }
-    await status('failure', `Copilot: changes requested (${round} of ${cfg.maxReviews})`, got.html_url);
-    await github.rest.repos.createDispatchEvent({
-      ...repo, event_type: 'agent-code',
-      client_payload: { pull_request: number, reason: 'copilot', review_id: got.id },
-    });
-    return core.info(`Copilot left ${comments} comments: agent-code dispatched`);
-  };
-  if (fromCopilot) {
-    if (!optedIn) return core.info(`#${number} is not Copilot's: the owner never asked it`);
-    if (review.commit_id !== sha) return core.info(`Copilot reviewed ${short(review.commit_id)}, not the head`);
-    if (copilot.failedReview(review)) {
-      const failed = (await copilot.reviewsOf(github, { ...repo, number, sha })).filter(copilot.failedReview).length;
-      if (failed < 2) {
-        await copilot.ask(github, { ...repo, number });
-        return core.info(`Copilot could not review ${short(sha)}: asked again`);
-      }
-      await status('failure', 'needs a human: Copilot could not review this commit');
-      return core.info(`Copilot failed ${failed} times on ${short(sha)}`);
-    }
-    // the checks end later and read this review then; red checks wake the code agent, which
-    // answers this review too
-    if (!mine) return core.info(`${short(sha)}: the checks are still running`);
-    if (failedChecks(mine)) return core.info(`${short(sha)}: the checks failed, the code turn answers Copilot too`);
-    if (mine.state !== 'pending' || mine.description !== WAITING) return core.info(`${short(sha)} already ${mine.state}: ${mine.description}`);
-    return copilotVerdict(review);
   }
 
   // red: the code agent gets the run, the review waits for green
@@ -222,19 +164,6 @@ async function run({ github, context, core, env = process.env }) {
       client_payload: { pull_request: number, reason: 'ci', run_id: checksRun.id },
     });
     return core.info(`checks failed: agent-code dispatched with run ${checksRun.id}`);
-  }
-
-  // green on a change that is Copilot's: its review of the head is the verdict, unless a
-  // dispatch asks for the review agent by name. One not here yet is asked for, if nobody
-  // asked since the commit, and its arrival decides
-  if (optedIn && !dispatched) {
-    if (checks !== 'passed') return core.info(`${short(sha)}: Copilot's, and its checks have not passed`);
-    const got = (await copilot.reviewsOf(github, { ...repo, number, sha })).filter((r) => !copilot.failedReview(r)).at(-1);
-    if (got) return copilotVerdict(got);
-    const { data: commit } = await github.rest.repos.getCommit({ ...repo, ref: sha });
-    if (!copilot.askedSince(events, commit.commit.committer.date)) await copilot.ask(github, { ...repo, number });
-    await status('pending', WAITING);
-    return core.info(`${short(sha)}: waiting for Copilot's review`);
   }
 
   // the last verdict, the review agent's own or one carried forward

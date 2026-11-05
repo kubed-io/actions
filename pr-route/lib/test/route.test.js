@@ -90,13 +90,6 @@ test("a PR not on the agents' branches, or closed, is nothing, and names no PR",
   }
 });
 
-test("Copilot's changes requested, from review-route, are a review to answer, and say so in reason", async () => {
-  const t = setup(dispatch('copilot', { review_id: 41 }));
-  assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
-  assert.equal(t.core.outputs.reason, 'copilot');
-  assert.equal(t.core.outputs.run_id, '');
-});
-
 test('reason is empty for anything but an agent-code dispatch', async () => {
   const t = setup(routed({ event: 'issue_comment', action: 'created', comment_id: 31, review_id: undefined }));
   await t.go();
@@ -109,18 +102,25 @@ test("agent-route: the owner's review is a code turn after the approval, a plan 
   assert.equal((await outcome(setup({ ...routed(), approved: false })))[0], 'plan');
 });
 
-test("agent-route: Copilot's review is review-route's, at any stage, with the review it reads", async () => {
-  const base = { ...routed({ actor: COPILOT }), review: { user: { id: COPILOT } } };
-  for (const t of [setup({ ...base, draft: false }), setup({ ...base, draft: true }), setup({ ...base, approved: false }), setup({ ...base, lineComments: 0 })]) {
-    assert.equal((await outcome(t))[0], 'copilot');
-    assert.equal(t.core.outputs.review_id, '9');
+test("agent-route: Copilot's review, submitted or edited, is a code turn in its own words, like the owner's", async () => {
+  for (const action of ['submitted', 'edited']) {
+    const t = setup({ ...routed({ actor: COPILOT, action }), draft: false, review: { user: { id: COPILOT }, commit_id: 'old', body: '### Changes recommended' } });
+    assert.deepEqual(await outcome(t), ['code', '', 'quiet']);
   }
 });
 
-test("agent-route: a review claiming to be Copilot's, by someone else, is nothing", async () => {
-  const t = setup({ ...routed({ actor: COPILOT }), draft: false, review: { user: { id: 12345 } } });
-  assert.equal((await outcome(t))[0], 'none');
-  assert.equal(t.core.outputs.review_id, '');
+test("agent-route: Copilot's review on a draft, before the approval, or one saying it could not review, is nothing", async () => {
+  const base = { ...routed({ actor: COPILOT, action: 'edited' }), draft: false, review: { user: { id: COPILOT } } };
+  assert.equal((await outcome(setup({ ...base, draft: true })))[0], 'none');
+  assert.equal((await outcome(setup({ ...base, approved: false })))[0], 'none');
+  for (const body of ['Copilot encountered an error and was unable to review this pull request.', "Copilot wasn't able to review any files in this pull request."]) {
+    assert.equal((await outcome(setup({ ...base, review: { user: { id: COPILOT }, body } })))[0], 'none');
+  }
+});
+
+test("agent-route: a review claiming to be Copilot's, by someone else, or anyone else's edit, is nothing", async () => {
+  assert.equal((await outcome(setup({ ...routed({ actor: COPILOT }), draft: false, review: { user: { id: 12345 } } })))[0], 'none');
+  assert.equal((await outcome(setup({ ...routed({ action: 'edited' }), draft: false })))[0], 'none');
 });
 
 test("agent-route: the App's own review replies are nothing", async () => {
