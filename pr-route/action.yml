@@ -18,7 +18,7 @@ inputs:
     description: The code agent's (the App's bot's) user id; its pushes to the draft are the next task.
     required: true
   copilot:
-    description: Copilot's reviewer user id; its reviews are review-route's (`copilot`).
+    description: Copilot's reviewer user id; its reviews are code turns, however they were asked for.
     required: false
     default: "175728472"
   branch_prefix:
@@ -36,7 +36,7 @@ inputs:
 
 outputs:
   stage:
-    description: "`plan`, `code`, `copilot` (review-route reads the review) or `none`."
+    description: "`plan`, `code` or `none`."
     value: ${{ steps.route.outputs.stage }}
   number:
     description: The pull request.
@@ -56,11 +56,8 @@ outputs:
   run_id:
     description: The failed checks run a `ci` dispatch names, for its report.
     value: ${{ steps.route.outputs.run_id }}
-  review_id:
-    description: Copilot's review, when `stage` is `copilot`.
-    value: ${{ steps.route.outputs.review_id }}
   reason:
-    description: An `agent-code` dispatch's reason (`ci`, `review`, `copilot`); empty for any other event, an `agent-route` dispatch included.
+    description: An `agent-code` dispatch's reason (`ci`, `review`, `fix`); empty for any other event, an `agent-route` dispatch included.
     value: ${{ steps.route.outputs.reason }}
 
 runs:

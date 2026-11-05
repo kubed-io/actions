@@ -2,10 +2,15 @@
 // turn, a code turn, or nothing, and the words the turn starts with.
 //
 // Before `plan approved`: the owner's comments and reviews are plan turns. After it: the
-// owner's comments and reviews, the label, an `agent-code` dispatch, and a push to the
-// draft by the agent or the owner are code turns; a push whose commit says `Agent: done` is
-// not. Anything else is nothing. A review by Copilot is review-route's to read, at any
-// stage: `copilot`.
+// owner's comments and reviews, a review by Copilot, the label, an `agent-code` dispatch,
+// and a push to the draft by the agent or the owner are code turns; a push whose commit says
+// `Agent: done` is not. Anything else is nothing.
+//
+// Copilot's review is a second opinion, however it was asked for: out of draft, every one
+// that says something is a turn, in its own words like the owner's. Copilot's newer reviews
+// reach the relay as `edited` only, so its `edited` counts as its review; anyone else's edit
+// is nothing. A review the agent-flow channel handed to a running turn is seen there, so the
+// turn this one queues finds nothing new.
 //
 // It answers two dispatches. `agent-route` is n8n's relay of a review, a push, a comment or
 // the approval label, and routes like the event it carries; its payload is a pointer, so
@@ -13,6 +18,10 @@
 // own: failed checks, a review asking for changes, a Bug's fix.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
+
+// a review that says Copilot could not review (a cancelled or failed run, nothing it could
+// read): nothing to answer
+const failedReview = (review) => /^(?:<!--[\s\S]*?-->\s*)?Copilot (?:encountered an error|wasn't able to review)/.test(review?.body || '');
 
 const FINISHED = /^Agent: done$/m;
 
@@ -28,14 +37,12 @@ function settings(env) {
 }
 
 // The stage an event is for, from who caused it and what it was
-function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, draft, finished }) {
+function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished }) {
   if (dispatched) return approved ? 'code' : 'none';
-  // Copilot's verdict, or its cancelled review of a draft to hide, is review-route's
-  if (review && byCopilot) return 'copilot';
   if (!approved) return byOwner && !pushed ? 'plan' : 'none';
-  // a review wakes the code agent when it is the owner's: the agent's own thread replies
-  // arrive as reviews too, by the App, and must not wake it again
-  if (review) return byOwner ? 'code' : 'none';
+  // a review wakes the code agent when it is the owner's or Copilot's: the agent's own
+  // thread replies arrive as reviews too, by the App, and must not wake it again
+  if (review) return byOwner || (byCopilot && copilotOk) ? 'code' : 'none';
   // a comment, the label: the owner's, read back from GitHub
   if (!pushed) return byOwner ? 'code' : 'none';
   return draft && (byOwner || byApp) && !finished ? 'code' : 'none';
@@ -45,9 +52,8 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
 // so the methodology's own text drives the turn
 function promptOf({ dispatched, reason, labelled, pushed }, prefix) {
   const turn = (name) => `${prefix}${name}`;
-  // copilot: Copilot's review, read by review-route, with comments to answer; fix: a
-  // Bug's change with no plan, started by its hand-off, built from the approved report
-  const reasons = { review: turn('review-came-in'), copilot: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved') };
+  // fix: a Bug's change with no plan, started by its hand-off, built from the approved report
+  const reasons = { review: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved') };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (labelled) return turn('plan-approved');
   if (pushed) return turn('next-task');
@@ -70,12 +76,13 @@ async function run({ github, context, core, env = process.env }) {
   const carried = viaRoute ? e.client_payload?.event : '';
   const via = e.client_payload?.action;
   const pushed = carried === 'pull_request' && via === 'synchronize';
-  const review = carried === 'pull_request_review' && via === 'submitted';
+  const review = carried === 'pull_request_review' && (via === 'submitted' || via === 'edited');
   const commented = carried === 'issue_comment' && via === 'created';
   const labelled = carried === 'pull_request' && via === 'labeled' && e.client_payload?.label === cfg.label;
   // the relay carries only these: a push, a submitted review, a new comment, the approval label
   if (viaRoute && !pushed && !review && !commented && !labelled) return core.info('agent-route: unknown event');
   let actor = String(viaRoute ? e.client_payload?.actor : e.sender?.id);
+  let copilotOk = true;
   if (review) {
     // the payload is a pointer: who reviewed, and of what, is read back from GitHub
     const reviewId = Number(e.client_payload?.review_id) || 0;
@@ -88,6 +95,10 @@ async function run({ github, context, core, env = process.env }) {
       }
     }
     if (!got || String(got.user?.id) !== actor) actor = 'unknown';
+    // only Copilot's review arrives as an edit; anyone else's edit is no review
+    if (via === 'edited' && actor !== cfg.copilot) actor = 'unknown';
+    // one that says it could not review says nothing to answer
+    if (actor === cfg.copilot) copilotOk = !pr.draft && !failedReview(got);
   }
   if (commented) {
     const commentId = Number(e.client_payload?.comment_id) || 0;
@@ -115,6 +126,7 @@ async function run({ github, context, core, env = process.env }) {
     dispatched, pushed, labelled,
     approved,
     review,
+    copilotOk,
     byOwner: actor === cfg.owner,
     byApp: actor === cfg.app,
     byCopilot: actor === cfg.copilot,
@@ -131,8 +143,6 @@ async function run({ github, context, core, env = process.env }) {
   // the whole turn, and anything unread is the next one. A slash command only works at
   // the start of a turn, so it cannot follow the thread's messages
   core.setOutput('prompt_when', dispatched ? 'always' : 'quiet');
-  // the review review-route reads
-  core.setOutput('review_id', stage === 'copilot' ? String(e.client_payload?.review_id || '') : '');
   // the checks run whose report the code job downloads
   const runId = dispatched && facts.reason === 'ci' ? Number(e.client_payload?.run_id) || 0 : 0;
   core.setOutput('run_id', runId ? String(runId) : '');
@@ -143,4 +153,4 @@ async function run({ github, context, core, env = process.env }) {
   core.info(`#${number}: ${stage}`);
 }
 
-module.exports = { run, stageOf, promptOf };
+module.exports = { run, stageOf, promptOf, failedReview };

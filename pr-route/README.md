@@ -8,8 +8,8 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | The owner's comment or review | `plan` | `code` |
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
-| Copilot's review | `copilot`, with `review_id`: review-route reads it | `copilot` |
-| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `copilot` (Copilot asked for changes, by review-route) → review-came-in |
+| Copilot's review, `submitted` or `edited`, however it was asked for | | `code`, in its own words like the owner's; `none` on a draft or when it says Copilot could not review |
+| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `fix` → fix-approved |
 | An `agent-route` dispatch | routes like the review, push, comment or `plan approved` label it carries, the owner's only, and Copilot's, read back from the review |
 | Anything else (the App's own thread replies, a push out of draft) | `none` | `none` |
 
@@ -37,7 +37,7 @@ GitHub's event data can vouch for a sender before a runner starts. The token nee
 | `github_token` | `github.token` | |
 | `owner` | | The owner's user id |
 | `app` | | The code agent's (the App's bot's) user id |
-| `copilot` | `175728472` | Copilot's reviewer |
+| `copilot` | `175728472` | Copilot's reviewer: its reviews are code turns |
 | `branch_prefix` | `issue-` | |
 | `label` | `plan approved` | |
 | `prompts` | `/mcp__superpowers__superpowers_` | |

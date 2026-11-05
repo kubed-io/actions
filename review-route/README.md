@@ -10,12 +10,8 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 | Checks red on the head | `failure`: checks failed (fix n of max) | an `agent-code` dispatch, `reason: ci`, with the run |
 | Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
-| Checks green on a change the owner asked Copilot to review | `pending`: checks passed: waiting for Copilot, or Copilot's verdict when its review of the head is in | Copilot is asked for the head, unless asked since its commit; an `agent-review` dispatch still asks the review agent |
-| Copilot's review of the head (`reason: copilot`), the checks green | `success`: Copilot: looks good (no line comments), or `failure`: Copilot: changes requested (n of max) | changes requested: an `agent-code` dispatch, `reason: copilot`, with `review_id` |
-| Copilot's review before the checks end, or after red ones | | none: the checks' end reads it, or the code turn answers it |
-| Copilot encountered an error (its draft gate's cancel, or a failure) | hidden; on the ready head, `failure`: needs a human after two | Copilot is asked again, once |
 | A new head, checks green | `pending`: reviewing (n of max) | `number`, `sha`, `last` for the review job |
-| `max_reviews` verdicts without a pass, the review agent's or Copilot's | `failure`: needs a human | |
+| `max_reviews` verdicts without a pass | `failure`: needs a human | |
 
 A head is judged once; an `agent-review` dispatch asks again, and the owner's own dispatch
 is never capped.
@@ -42,16 +38,15 @@ last job pointing at its own run, and is routed as that run (a run without the
 ```
 
 The run is read back: its head must be `sha` and the PR's, its `triggering_actor` must be
-trusted, and its finished jobs, not `failed`, say whether the checks passed. A dispatch with
-`reason: copilot` and a `review_id` is Copilot's review, forwarded from n8n's relay by
-agent-pr.yml. Any other `agent-review` dispatch asks again.
-
-A change is Copilot's when the timeline holds the `owner`'s own request for Copilot's
-review; the requests the flow makes for each head never opt a change in. The job's `if` still gates who may dispatch: only
+trusted, and its finished jobs, not `failed`, say whether the checks passed. Any other
+`agent-review` dispatch asks again. The job's `if` still gates who may dispatch: only
 GitHub's event data can vouch for a sender before a runner starts.
 
-The token needs `pull-requests: write` (asking Copilot, hiding its error reviews),
-`statuses: write`, `actions: read` (the artifact) and `contents: write` (the dispatch). The review job must set its verdict as the same bot, the
+Copilot never stands in for the review agent: asked for on a PR, its review is a second
+opinion that wakes the code agent through pr-route.
+
+The token needs `pull-requests: read`, `statuses: write`, `actions: read` (the artifact) and
+`contents: write` (the dispatch). The review job must set its verdict as the same bot, the
 `reviewer`, since only its statuses count.
 
 | Input | Default | |
@@ -92,20 +87,3 @@ since review-route reads back only the reviewer's statuses.
 comment, or one review when it has line comments.
 
 Output: `verdict`.
-
-## Copilot
-
-`review-route/copilot` is the code job's side of a change the owner asked Copilot to
-review. `step: wait`, before a code turn, holds until Copilot's review of the head is in,
-when it was asked for one (`timeout_minutes`, 20), so the turn answers the checks and
-Copilot together. `step: ask`, after the turn's commit, asks Copilot for the new head,
-alongside its checks. Neither does anything on a draft or a change that is not Copilot's.
-
-```yaml
-- uses: kubed-io/actions/review-route/copilot@main
-  with:
-    github_token: ${{ steps.app.outputs.token }}
-    step: ask
-    number: ${{ needs.route.outputs.number }}
-    owner: "4399427"
-```
