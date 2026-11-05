@@ -10,10 +10,10 @@ const ENV = { OWNER_ID: String(DRK), APP_ID: String(APP), PROMPTS: P };
 const ISSUE_URL = 'https://api.github.com/repos/kubed-io/selenium-flow/issues/5';
 const OPTED_IN = ['agent'];
 
-// A situation on issue #5, as GitHub sends it natively or as n8n's `agent-issue` dispatch.
+// A situation on issue #5, as n8n's `agent-issue` dispatch.
 // `label` is the label just added (none: a comment); `labels` what the issue has now;
 // `by` who did it, `gone` takes it off again before the route reads it. GitHub answers
-// the dispatch's read-backs with the same truth.
+// the dispatch's read-backs.
 const PARENT = 'GET /repos/{owner}/{repo}/issues/{issue_number}/parent';
 // `parent`: #5's parent, whose own parent is none; `comments`: #5's comments
 function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [], subs }) {
@@ -29,9 +29,6 @@ function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = 
       ...(label ? [{ event: 'labeled', actor: { id: by }, label: { name: label } }] : []),
     ],
   });
-  const native = label
-    ? { eventName: 'issues', payload: { action: 'labeled', label: { name: label }, issue: { number: 5 }, sender: { id: by } } }
-    : { eventName: 'issue_comment', payload: { action: 'created', issue: { number: 5 }, comment: { id: 31 }, sender: { id: by } } };
   const pointer = label
     ? { number: 5, event: 'issues', action: 'labeled', actor: by, label }
     : { number: 5, event: 'issue_comment', action: 'created', actor: String(by), comment_id: 31 };
@@ -41,16 +38,11 @@ function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = 
     await route.run({ github, context: fake.context(ctx), core, env: ENV });
     return core.outputs;
   };
-  return { github, native: () => go(native), dispatch: () => go(dispatch) };
+  return { github, dispatch: () => go(dispatch) };
 }
 
-// the same situation gives the same outputs, natively and dispatched
-async function both(s) {
-  const t = situation(s);
-  const native = await t.native();
-  assert.deepEqual(await t.dispatch(), native);
-  return native;
-}
+// the situation's outputs
+const both = (s) => situation(s).dispatch();
 
 const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true' };
 
@@ -182,11 +174,18 @@ test('agent-issue: an unknown event or action, or no number, is nothing and read
   }
 });
 
-test('a native event it was never meant for is nothing', async () => {
-  const github = fake.github({});
-  const core = fake.core();
-  await route.run({ github, context: fake.context({ eventName: 'issues', payload: { action: 'opened', issue: { number: 5 }, sender: { id: DRK } } }), core, env: ENV });
-  assert.deepEqual(core.outputs, { stage: 'none' });
+test('a native event, or another dispatch, is nothing: only n8n sends turns', async () => {
+  for (const ctx of [
+    { eventName: 'issues', payload: { action: 'labeled', label: { name: 'agent' }, issue: { number: 5 }, sender: { id: DRK } } },
+    { eventName: 'issue_comment', payload: { action: 'created', issue: { number: 5 }, comment: { id: 31 }, sender: { id: DRK } } },
+    { eventName: 'repository_dispatch', payload: { action: 'agent-code', client_payload: { number: 5, event: 'issues', action: 'labeled', label: 'agent', actor: DRK } } },
+  ]) {
+    const github = fake.github({});
+    const core = fake.core();
+    await route.run({ github, context: fake.context(ctx), core, env: ENV });
+    assert.deepEqual(core.outputs, { stage: 'none' });
+    assert.deepEqual(github.calls, []);
+  }
 });
 
 const SUB = '/mcp__superpowers__superpowers_sub-issue';
@@ -219,9 +218,9 @@ test('the spec label on a first sub-issue turn is still spec-draft', async () =>
   assert.equal((await both({ parent: 3, label: 'spec' })).prompt, `${P}spec-draft`);
 });
 
-test('nothing reads the family', async () => {
+test("a stranger's turn is nothing, and reads no family", async () => {
   const t = situation({ by: 12345, parent: 3 });
-  assert.equal((await t.native()).stage, 'none');
+  assert.equal((await t.dispatch()).stage, 'none');
   assert.equal(t.github.calls.some((c) => c.name === PARENT), false);
 });
 

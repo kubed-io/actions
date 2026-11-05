@@ -16,10 +16,10 @@ name: 🛠️ Agent · Pull Request
 # Copilot's reviews, relayed by n8n, go to agent-review.yml, whose Route reads them.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
-# only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 175728472
-# Copilot's reviewer, 235398881 the kubed-io App's bot (the agent's pushes), 41898282
-# github-actions[bot] (the review agent's dispatch). Who else counts inside a run comes
-# from the claude runner's env.
+# only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
+# kubed-io App's bot (n8n's relay, the agents' dispatches), 41898282 github-actions[bot]
+# (the review agent's dispatch). Who else counts inside a run comes from the claude
+# runner's env.
 #
 # A repo calls this from its agent-pr.yml, on the `agent-code` and `agent-route` dispatches.
 # The jobs on the claude runner run for a dispatch only: the runner group lists this file, and
@@ -44,17 +44,6 @@ jobs:
   route:
     name: Route
     if: >-
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
-        github.event.sender.id == 4399427 &&
-        github.triggering_actor == 'kferrone') ||
-      (github.event_name == 'pull_request_target' && github.event.label.name == 'plan approved' &&
-        github.event.sender.id == 4399427 &&
-        github.triggering_actor == 'kferrone') ||
-      (github.event_name == 'workflow_run' &&
-        github.event.workflow_run.head_repository.full_name == github.repository &&
-        (github.event.workflow_run.triggering_actor.id == 4399427 ||
-          github.event.workflow_run.triggering_actor.id == 175728472 ||
-          github.event.workflow_run.triggering_actor.id == 235398881)) ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'agent-route' &&
         github.event.sender.id == 235398881) ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'agent-code' &&

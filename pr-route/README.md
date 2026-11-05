@@ -25,12 +25,11 @@ anything else is answered in its own words and gets the prompt only when nothing
     app: "235398881"
 ```
 
-It answers `issue_comment`, `pull_request_target` (the label), `workflow_run` (a relay of
-`pull_request` and `pull_request_review`) and `repository_dispatch`: `agent-code`, or
-`agent-route` where n8n relays the events instead (`client_payload`: `pull_request`, `event`,
-`action`, `actor`, `review_id`, `comment_id`, `label`; a pointer: the review's or comment's
-author and the labeler are read back from GitHub). The job's `if` still gates who may cause
-each: only GitHub's event data can vouch for a sender before a runner starts. The token needs
+It answers two `repository_dispatch` types: `agent-code`, and `agent-route`, n8n's relay
+of the events (`client_payload`: `pull_request`, `event`, `action`, `actor`, `review_id`,
+`comment_id`, `label`; a pointer: the review's or comment's author and the labeler are read
+back from GitHub). Anything else is nothing. The job's `if` gates who may dispatch: only
+GitHub's event data can vouch for a sender before a runner starts. The token needs
 `pull-requests: read` and `contents: read`.
 
 | Input | Default | |

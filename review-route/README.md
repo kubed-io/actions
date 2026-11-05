@@ -6,7 +6,7 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 
 | What happened | Status | Then |
 |---|---|---|
-| A PR the agents did not build | `success`: not built by the agents; none on a checks dispatch | |
+| A PR the agents did not build | `success`: not built by the agents, when asked; none on a checks dispatch | |
 | Checks red on the head | `failure`: checks failed (fix n of max) | an `agent-code` dispatch, `reason: ci`, with the run |
 | Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
@@ -33,10 +33,9 @@ requested` get a review: the review may have asked for more than its suggestions
     owner: "4399427"
 ```
 
-It answers `workflow_run` (the checks run ended; one without the `checks_artifact` ran no
-checks and is skipped), `pull_request_target` (a push, with no checks gate) and an
-`agent-review` dispatch. A dispatch with `reason: checks` is the checks run's last job
-pointing at its own run, and is routed as that run:
+It answers an `agent-review` dispatch only. One with `reason: checks` is the checks run's
+last job pointing at its own run, and is routed as that run (a run without the
+`checks_artifact` ran no checks and is skipped):
 
 ```json
 {"pull_request": 7, "reason": "checks", "run_id": 123, "sha": "<head>", "failed": 0}

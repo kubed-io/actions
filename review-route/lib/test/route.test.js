@@ -32,9 +32,17 @@ const applied = (over = {}) => ({
   ...over,
 });
 
-// a PR whose head is the last of `commits`, after a checks run on it ended `conclusion`
-function setup({ commits = [A, B], statuses = {}, conclusion = 'success', artifacts = 1, pr = {}, routes = {}, payload, eventName = 'workflow_run' } = {}) {
+// the checks run's own last job points at itself: `agent-review`, `reason: checks`, sent
+// as github-actions[bot] while that job is still running
+const CHECKS = { id: 3, event: 'pull_request', status: 'in_progress', conclusion: null, head_sha: B, html_url: 'https://run/3', triggering_actor: { id: DRK } };
+const job = (name, conclusion, status = 'completed') => ({ name, status, conclusion });
+const GREEN = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'success'), job('Bench', 'skipped'), job('Checks', null, 'in_progress')];
+const RED = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'failure'), job('Checks', null, 'in_progress')];
+// a PR whose head is the last of `commits`, its checks run's last job pointing at itself as
+// the run ends `conclusion`: green jobs, red ones, or the run cancelled
+function setup({ commits = [A, B], statuses = {}, conclusion = 'success', run = {}, artifacts = 1, pr = {}, routes = {}, payload, eventName = 'repository_dispatch' } = {}) {
   const head = commits.at(-1);
+  const checksRun = { ...CHECKS, head_sha: head, ...(conclusion === 'cancelled' ? { status: 'completed', conclusion } : {}), ...run };
   const github = fake.github({
     'pulls.get': {
       state: 'open', draft: false, labels: [{ name: 'plan approved' }],
@@ -48,15 +56,16 @@ function setup({ commits = [A, B], statuses = {}, conclusion = 'success', artifa
     'repos.createCommitStatus': {},
     'repos.createDispatchEvent': {},
     'issues.listEventsForTimeline': [],
+    'actions.getWorkflowRun': checksRun,
+    'actions.listJobsForWorkflowRun': conclusion === 'failure' ? RED : GREEN,
     ...routes,
   });
   const context = fake.context({
     eventName, serverUrl: 'https://github.com', runId: 5,
     payload: payload || {
-      workflow_run: {
-        id: 3, conclusion, head_sha: head, html_url: 'https://run/3',
-        pull_requests: [{ number: 7 }], triggering_actor: { id: DRK },
-      },
+      action: 'agent-review',
+      client_payload: { pull_request: 7, reason: 'checks', run_id: 3, sha: head, failed: conclusion === 'failure' ? 1 : 0 },
+      sender: { id: BOT },
     },
   });
   const core = fake.core();
@@ -73,8 +82,10 @@ test('green checks on a new head start a review', async () => {
   assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false' });
 });
 
-test('a PR the agents did not build passes straight away', async () => {
-  const t = setup({ pr: { labels: [] } });
+test('asked about a PR the agents did not build, it passes straight away', async () => {
+  const t = setup({
+    pr: { labels: [] }, payload: { action: 'agent-review', client_payload: { pull_request: 7 }, sender: { id: DRK } },
+  });
   await t.go();
   assert.deepEqual(t.posted(), ['success: not built by the agents']);
   assert.equal(t.core.outputs.number, '');
@@ -97,7 +108,7 @@ test('red checks send the code agent the run, not a review', async () => {
 });
 
 test('an untrusted actor starts nothing', async () => {
-  const t = setup({ payload: { workflow_run: { id: 3, conclusion: 'success', head_sha: B, pull_requests: [{ number: 7 }], triggering_actor: { id: 1 } } } });
+  const t = setup({ run: { triggering_actor: { id: 1 } } });
   await t.go();
   assert.deepEqual(t.posted(), []);
 });
@@ -190,14 +201,17 @@ test('reviews stop at the cap, but the owner may always ask again', async () => 
   assert.equal(asked.core.outputs.last, 'false');
 });
 
-test('a push (pull_request_target) is routed without a checks run', async () => {
-  const t = setup({
-    eventName: 'pull_request_target',
-    payload: { action: 'synchronize', pull_request: { number: 7 }, sender: { id: DRK } },
-  });
-  await t.go();
-  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
-  assert.ok(!t.github.calls.some((c) => c.name === 'actions.listWorkflowRunArtifacts'));
+test('only an agent-review dispatch is routed: a native event is nothing', async () => {
+  for (const [eventName, payload] of [
+    ['workflow_run', { workflow_run: { id: 3, conclusion: 'success', head_sha: B, pull_requests: [{ number: 7 }], triggering_actor: { id: DRK } } }],
+    ['pull_request_target', { action: 'synchronize', pull_request: { number: 7 }, sender: { id: DRK } }],
+    ['repository_dispatch', { action: 'agent-code', client_payload: { pull_request: 7 }, sender: { id: DRK } }],
+  ]) {
+    const t = setup({ eventName, payload });
+    await t.go();
+    assert.deepEqual(t.posted(), []);
+    assert.deepEqual(t.github.calls, []);
+  }
 });
 
 // Copilot: the owner's request at eight, on the draft, is the opt-in; the head was committed at nine
@@ -355,12 +369,6 @@ test("someone else's review is not Copilot's", async () => {
   assert.deepEqual(hidden(t), []);
 });
 
-// the checks run's own last job points at itself: `agent-review`, `reason: checks`, sent
-// as github-actions[bot] while that job is still running
-const CHECKS = { id: 3, event: 'pull_request', status: 'in_progress', conclusion: null, head_sha: B, html_url: 'https://run/3', triggering_actor: { id: DRK } };
-const job = (name, conclusion, status = 'completed') => ({ name, status, conclusion });
-const GREEN = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'success'), job('Bench', 'skipped'), job('Checks', null, 'in_progress')];
-const RED = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'failure'), job('Checks', null, 'in_progress')];
 function pointed({ run = {}, jobs = GREEN, failed = 0, sha = B, ...over } = {}) {
   return setup({
     eventName: 'repository_dispatch',

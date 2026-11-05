@@ -42,14 +42,8 @@ jobs:
   route:
     name: Route
     if: >-
-      (github.event_name != 'repository_dispatch' &&
-        github.event.sender.id == 4399427 &&
-        github.triggering_actor == 'kferrone' &&
-        !github.event.issue.pull_request &&
-        contains(github.event.issue.labels.*.name, 'agent') &&
-        (github.event_name == 'issue_comment' || contains(fromJSON('["agent","spec","spec approved"]'), github.event.label.name))) ||
-      (github.event_name == 'repository_dispatch' && github.event.action == 'agent-issue' &&
-        github.event.sender.id == 235398881)
+      github.event_name == 'repository_dispatch' && github.event.action == 'agent-issue' &&
+      github.event.sender.id == 235398881
     runs-on: ubuntu-26.04
     permissions:
       contents: read
