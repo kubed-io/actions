@@ -83,7 +83,7 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 | `prompt` | `""` | The event's turn, for an event with no words |
 | `prompt_when` | `quiet` | `quiet`: only when nothing new; `always`: every run, quoted above the reply |
 | `header` | `""` | Template above the reply: `{{ output.<field> }}`, `{{ link:output.<field> }}` (the file's wiki page when it is in a wiki submodule, else its blob), `{{ run_url }}`, `{{ session_id }}`, `{{ number }}`, `{{ blob }}` |
-| `review`, `threads`, `ready` | `false`, `true`, `false` | The PR fields the agent gets |
+| `review`, `threads` | `false`, `true` | The PR fields the agent gets |
 | `session_key` | `""` | Resumable session |
 | `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |
 | `opt_in_label`, `max_runs` | `""`, `0` | The gate |
@@ -131,7 +131,7 @@ job, and saves it even when a turn failed:
     path: .issue/scratch
     key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.NUMBER }}-${{ github.run_id }}-${{ github.run_attempt }}
     restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.NUMBER }}-
-# ... comment/start, issue-agent with scratch_cache: false, twice, land, comment/end ...
+# ... comment/start, issue-agent with scratch_cache: false, twice, git/commit, comment/end ...
 - if: always()
   uses: actions/cache/save@v6
   with:
@@ -150,41 +150,28 @@ caller uses comment/start.
 `head_sha` when a push was brought in during it, and then line comments are checked against
 that commit's diff.
 
-## Landing the turn
+## Committing the turn
 
-`issue-agent/land` puts a turn's work on its branch, after the agent step. From the
-agent's `output` it takes `commit_message`, plus `Agent: done` on it when `done` is true, so
-that push wakes nothing. It pushes the wiki submodule with git, then makes one signed commit
-through the API, with the wiki's pointer in it. If the commit fails, or `ignore` leaves
-files out, it says so under the turn's reply, so the reply never claims work the branch
-does not have. The commit never overwrites: when the branch moved during the turn and changed
-a file the commit has, it is refused, the reply names the files, and the working tree's
-changes go to `{scratch_dir}/scratch/unlanded/` (each file, the deletions, a patch, why),
-kept for the next turn when `number` is given. When the agent is done, it marks
-`pull_request` ready. No commit message means no commit.
+The agent writes; it never commits. The workflow commits its work with
+[git/commit](../git/), from its `output`:
 
 ```yaml
-- uses: kubed-io/actions/issue-agent/land@main
-  id: land
+- id: commit
+  if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+  continue-on-error: true
+  uses: kubed-io/actions/git/commit@main
   with:
     token: ${{ steps.app.outputs.token }}
-    app_slug: ${{ steps.app.outputs.app-slug }}
     branch: ${{ needs.route.outputs.head }}
-    output: ${{ steps.agent.outputs.output }}
-    comment_id: ${{ steps.agent.outputs.comment_id }}
-    # the App cannot write workflow files, and one in the commit refuses all of it
-    ignore: .github/workflows/**
-    pull_request: ${{ needs.route.outputs.number }}
-    number: ${{ steps.agent.outputs.number }}
+    message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+    keep_to: .issue/scratch/uncommitted
+- uses: kubed-io/actions/comment/end@main
+  with:
+    github_token: ${{ steps.app.outputs.token }}
+    append: ${{ steps.commit.outputs.summary }}
 ```
 
-Inside comment/start and comment/end, `parts: true` (with `number`) makes the note a part
-of the comment instead of an edit of it.
-
-Inputs: `token`, `app_slug`, `branch`, `output`, `comment_id`, `parts`, `files` and `ignore` (as
-git/commit's), `wiki` (the submodule, `docs`; empty for none), `pull_request` (empty never
-marks one ready), `number`, `scratch_dir` and `keep_scratch` (as issue-agent's: whose
-scratchpad keeps what did not land). Outputs: `message`, `done`, `sha`, `ignored`.
+`summary` goes in the answer, so the reply never claims work the branch does not have.
 
 ## Reading a session in VS Code
 

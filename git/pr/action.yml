@@ -1,7 +1,8 @@
 name: Git · Pull Request
 description: >
-  Opens a pull request from a branch, or finds the open one (left as it is). A branch with
-  nothing beyond its base fails with GitHub's own message; commit first.
+  Opens a pull request from a branch, or finds the open one, which is left as it is except
+  that `draft: false` marks a draft one ready. A branch with nothing beyond its base fails
+  with GitHub's own message; commit first.
 
 inputs:
   token:
@@ -11,18 +12,19 @@ inputs:
     description: The head branch.
     required: true
   base:
-    description: The base branch; the default branch when empty.
+    description: The base branch; a new PR's is the default branch when empty, and with none a PR into any base is found.
     required: false
     default: ""
   title:
-    description: The PR's title.
-    required: true
+    description: The PR's title; needed only to open one.
+    required: false
+    default: ""
   body:
     description: The PR's body.
     required: false
     default: ""
   draft:
-    description: Open it as a draft.
+    description: Open it as a draft; `false` also marks a found draft ready.
     required: false
     default: "true"
   labels:

@@ -18,6 +18,10 @@ inputs:
     description: The last issue-agent's `comment_id`, when the comment carries no run marker; comment/start's otherwise.
     required: false
     default: ""
+  append:
+    description: Markdown added to the answer after the parts (a commit's `summary`, say); nothing when empty.
+    required: false
+    default: ""
 
 outputs:
   comment_id:

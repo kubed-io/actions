@@ -120,6 +120,23 @@ test('a comment without the run\'s marker is ended by its id', async () => {
   assert.ok(t.comments[0].body.includes('Done.'));
 });
 
+test('append goes after the parts, and alone it is still an answer', async () => {
+  const t = thread();
+  const e = env({ INPUT_APPEND: '> [!WARNING]\n> **Not committed:** `x`.' });
+  const core = fake.core();
+  core.saveState = () => {};
+  await comment.start({ github: t.github, context, core, env: e });
+  parts.addPart(parts.dirOf(e, 12), 'issue-agent', 'Done.');
+  await comment.end({ github: t.github, context, core: fake.core(), env: e });
+  assert.ok(t.comments[0].body.includes('Done.\n\n> [!WARNING]\n> **Not committed:** `x`.'));
+
+  const alone = thread();
+  const e2 = env({ INPUT_APPEND: 'Only this.' });
+  await comment.start({ github: alone.github, context, core, env: e2 });
+  await comment.end({ github: alone.github, context, core: fake.core(), env: e2 });
+  assert.ok(alone.comments[0].body.includes('Only this.'));
+});
+
 test('end with no part takes the spinner down and writes nothing', async () => {
   const t = thread();
   const e = env();

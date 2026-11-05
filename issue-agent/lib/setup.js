@@ -135,7 +135,7 @@ const THREADS = {
 
 // The action's own fields, with the role's schema as `output`. The role's $defs move to
 // the root, where its `#/$defs/…` references still point.
-function envelope({ role, review, threads, ready }) {
+function envelope({ role, review, threads }) {
   const properties = {
     reply: { type: 'string', description: 'Your answer to the person, markdown, posted exactly as written.' },
     notes: { type: 'string', description: 'Your notes on this thread, whole, every turn: what the next run, or the pull request after this issue, starts from.' },
@@ -144,7 +144,6 @@ function envelope({ role, review, threads, ready }) {
   const schema = { type: 'object', additionalProperties: false, properties, required };
   if (review) properties.review = REVIEW;
   if (threads) properties.threads = THREADS;
-  if (ready) properties.ready = { type: 'boolean', description: 'True to mark this draft pull request ready for review.' };
   if (role) {
     const { $defs, definitions, $schema, ...rest } = role;
     properties.output = rest;
@@ -228,16 +227,11 @@ async function run({ github, context, core }) {
   // what kind of thread this is decides which of the action's fields the agent gets
   const number = Number(env.NUMBER) || 0;
   let isPr = false;
-  let draft = false;
   let title = '';
   if (number) {
     const { data: thread } = await github.rest.issues.get({ ...context.repo, issue_number: number });
     title = thread.title || '';
-    if (thread.pull_request) {
-      isPr = true;
-      const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
-      draft = !!pr.draft;
-    }
+    isPr = !!thread.pull_request;
   }
 
   const contract = fill(fs.readFileSync(path.join(__dirname, 'contract.md'), 'utf8'), { scratch });
@@ -270,7 +264,6 @@ async function run({ github, context, core }) {
     role,
     review: isPr && on(env.REVIEW, false),
     threads: isPr && on(env.THREADS, true),
-    ready: isPr && draft && on(env.READY, false),
   }));
 
   let mcpFile = '';

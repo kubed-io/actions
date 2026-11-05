@@ -65,8 +65,8 @@ test('the envelope: reply and notes always; the toggles add theirs; the role is 
   assert.equal(bare.additionalProperties, false);
 
   const role = { type: 'object', properties: { commit_message: { $ref: '#/$defs/msg' } }, required: ['commit_message'], $defs: { msg: { type: 'string' } } };
-  const full = setup.envelope({ role, review: true, threads: true, ready: true });
-  assert.deepEqual(Object.keys(full.properties), ['reply', 'notes', 'review', 'threads', 'ready', 'output']);
+  const full = setup.envelope({ role, review: true, threads: true });
+  assert.deepEqual(Object.keys(full.properties), ['reply', 'notes', 'review', 'threads', 'output']);
   assert.deepEqual(full.required, ['reply', 'notes', 'output']);
   // the role's $defs move to the root, where its #/$defs references point
   assert.deepEqual(full.$defs, { msg: { type: 'string' } });
@@ -106,7 +106,7 @@ function schemaOf(args) {
   return JSON.parse(m[1].replace(/'\\''/g, "'"));
 }
 
-function scene({ pr = false, draft = false } = {}) {
+function scene({ pr = false } = {}) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'ws-'));
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmp-'));
   const cfg = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-'));
@@ -122,19 +122,18 @@ function scene({ pr = false, draft = false } = {}) {
     CLAUDE_CODE_PROJECT_DIR_NAME: '-projects-kubed-io-selenium-flow', NUMBER: '81',
     AGENT: '.issue/roles/claude/agents/plan.md', SCHEMA: '.issue/roles/claude/agents/plan.schema.json',
     APPEND_SYSTEM_PROMPT: 'In this job, plans go under docs/.', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}', KB_URL: 'https://kb',
-    REVIEW: 'true', THREADS: '', READY: 'true', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
+    REVIEW: 'true', THREADS: '', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
     SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '', SETTINGS: '',
   });
   for (const name of ['AGENT_FLOW_N8N_TOKEN', 'AGENT_FLOW_CALLBACK_URL', 'CLAUDE_MCP_PROFILES']) delete process.env[name];
   const github = fake.github({
     'issues.get': { number: 81, title: 'Flows tab', ...(pr ? { pull_request: {} } : {}) },
-    'pulls.get': { draft },
   });
   return { ws, tmp, id, github };
 }
 
-test('run: the agent file, the system prompt, the envelope on a draft PR, and a resumed session', async () => {
-  const { tmp, id, github } = scene({ pr: true, draft: true });
+test('run: the agent file, the system prompt, the envelope on a PR, and a resumed session', async () => {
+  const { tmp, id, github } = scene({ pr: true });
   const core = fake.core();
   await setup.run({ github, context: fake.context(), core });
   const prompt = fs.readFileSync(core.outputs.system_prompt_file, 'utf8');
@@ -144,7 +143,7 @@ test('run: the agent file, the system prompt, the envelope on a draft PR, and a 
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-agents.json'), 'utf8'))), ['plan']);
   assert.ok(core.outputs.args.includes(`--agent 'plan'`));
   const schema = schemaOf(core.outputs.args);
-  assert.deepEqual(Object.keys(schema.properties), ['reply', 'notes', 'review', 'threads', 'ready', 'output']);
+  assert.deepEqual(Object.keys(schema.properties), ['reply', 'notes', 'review', 'threads', 'output']);
   assert.equal(core.outputs.resumed, 'true');
   assert.ok(core.outputs.args.includes(`--resume ${id}`));
   assert.equal(JSON.parse(fs.readFileSync(path.join(tmp, 'issue-agent-mcp.json'), 'utf8')).mcpServers.kb.url, 'https://kb');

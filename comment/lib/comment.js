@@ -96,7 +96,8 @@ async function end({ github, context, core, env = process.env }) {
   if (!info) throw new Error(`no comment/start for #${number} in this job`);
   if (parts.isFinal(dir)) throw new Error(`the comment on #${number} is already written`);
   const known = Number(env.INPUT_COMMENT_ID) || info.comment_id;
-  const texts = parts.partsOf(dir);
+  // what the workflow adds after the steps' parts
+  const texts = [...parts.partsOf(dir), ...[(env.INPUT_APPEND || '').trim()].filter(Boolean)];
   core.setOutput('review_id', '');
   // nothing was said: no answer, and no spinner left behind
   if (!texts.length) {

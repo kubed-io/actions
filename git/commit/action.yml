@@ -2,9 +2,12 @@ name: Git · Commit
 description: >
   Commits the checkout's changes to a branch through the API, so GitHub signs the commit.
   A submodule checked out at a new commit moves its pointer in the same commit (the Git
-  Data API); afterwards HEAD and the index match the commit and the working tree is left
-  as it was. It never overwrites: when the branch moved since the checkout's commit and
-  changed a path the commit writes, nothing is committed and the step fails naming them.
+  Data API); one listed in `submodules` with changes inside it (a wiki, which has no commit
+  API) is committed and pushed with git first. Afterwards HEAD and the index match the
+  commit and the working tree is left as it was. It never overwrites: when the branch moved
+  since the checkout's commit and changed a path the commit writes, nothing is committed
+  and the step fails naming them. A failed commit can keep its changes (`keep_to`), and
+  `summary` says what is not on the branch.
 
 inputs:
   token:
@@ -13,6 +16,10 @@ inputs:
   message:
     description: The commit message; its first line is the headline.
     required: true
+  trailers:
+    description: "`Key: value` lines added after the message, a blank line between (`Agent: done`)."
+    required: false
+    default: ""
   files:
     description: Paths or globs (`**`, `*`, `?`), one per line; only matching changes are committed. Every change when empty.
     required: false
@@ -29,6 +36,24 @@ inputs:
     description: Commit even with no changes, so a PR can open on a new branch.
     required: false
     default: "false"
+  submodules:
+    description: >
+      Submodule paths, one per line, this commit may commit inside: changes in one that
+      `files` reaches are committed on its branch (.gitmodules', else master) and pushed with
+      git, then its pointer moves in this commit. Any other submodule is never pushed.
+    required: false
+    default: ""
+  author:
+    description: The App's slug; its bot authors a submodule's commit. Needed only when one changed.
+    required: false
+    default: ""
+  keep_to:
+    description: >
+      A folder from the repository's top: when the commit fails, its changes are written
+      there (each file, the deletions, a patch, a README) so they are not lost. None when
+      empty.
+    required: false
+    default: ""
 
 outputs:
   sha:
@@ -49,6 +74,14 @@ outputs:
   conflicts:
     description: JSON list of the paths the branch changed too, when that refused the commit; empty otherwise.
     value: ${{ steps.commit.outputs.conflicts }}
+  kept:
+    description: "`true` when a failed commit's changes were written to `keep_to`."
+    value: ${{ steps.commit.outputs.kept }}
+  summary:
+    description: >
+      Markdown for a reader saying what is not on the branch: the commit failed or was
+      refused, or `ignore` left paths out. Empty when everything selected was committed.
+    value: ${{ steps.commit.outputs.summary }}
 
 runs:
   using: composite
@@ -63,6 +96,10 @@ runs:
       IGNORE: ${{ inputs.ignore }}
       BRANCH: ${{ inputs.branch }}
       ALLOW_EMPTY: ${{ inputs.allow_empty }}
+      TRAILERS: ${{ inputs.trailers }}
+      SUBMODULES: ${{ inputs.submodules }}
+      AUTHOR: ${{ inputs.author }}
+      KEEP_TO: ${{ inputs.keep_to }}
       TOKEN: ${{ inputs.token }}
     with:
       github-token: ${{ inputs.token }}

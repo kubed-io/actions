@@ -12,10 +12,9 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [k8s-summary](k8s-summary/) | Kubernetes resources and their diffs in the step summary: manifests as accordions by kind, plan and diff output as a diff per resource, up and apply output counted |
 | [issue-agent](issue-agent/) | A Claude Code agent in an issue or PR as a real Claude Code session: its reply, its notes in the description, and on a PR its review comments. No git; it outputs its structured response for the steps after it |
 | [comment/start](comment/), [comment/end](comment/) | One answer for a job: the spinner first, every step's part, written once at the end, as a comment or, with line comments, one review with them under it; the failure note when the end never comes |
-| [issue-agent/land](issue-agent/) | Lands an agent's turn: its commit message, the wiki, one signed commit, a note on the reply when something did not land, the PR ready when done |
 | [git/branch](git/) | Makes a branch through the GitHub API, or finds it; optionally linked to an issue's Development panel |
-| [git/commit](git/) | Commits the checkout's changes to a branch through `createCommitOnBranch`, so every commit is GitHub-signed |
-| [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one |
+| [git/commit](git/) | Commits the checkout's changes to a branch through the API, so every commit is GitHub-signed; a wiki submodule's changes pushed with git first; a failed commit's changes kept, and a summary of what is not on the branch |
+| [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one; `draft: false` marks a found draft ready |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
 | [issue-route](issue-route/) | Decides what n8n's `agent-issue` dispatch is: a spec turn, the hand-off to a plan or nothing |
 | [issue-template](issue-template/) | Turns an issue form into a JSON schema for an agent's output: one form by type or name, or a catalog of sub-issues to suggest |

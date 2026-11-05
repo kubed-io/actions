@@ -9,7 +9,7 @@ description: >
 
 inputs:
   github_token:
-    description: Token for the thread (issues, pull requests). The App's, so a ready-for-review or review it posts wakes workflows.
+    description: Token for the thread (issues, pull requests). The App's, so what it posts wakes workflows.
     required: true
   number:
     description: The issue or PR; defaults to the event's. Only for a run started off the thread.
@@ -56,10 +56,6 @@ inputs:
     description: On a PR, give the agent `threads`, its answers to the unresolved review threads.
     required: false
     default: "true"
-  ready:
-    description: On a draft PR, give the agent `ready`, which marks it ready for review.
-    required: false
-    default: "false"
   session_key:
     description: uuid5(repo + key) is the session id, resumed where /claude has its transcript.
     required: false
@@ -208,7 +204,6 @@ runs:
       MCP_CONFIG: ${{ inputs.mcp }}
       REVIEW: ${{ inputs.review }}
       THREADS: ${{ inputs.threads }}
-      READY: ${{ inputs.ready }}
       MODEL: ${{ inputs.model }}
       MAX_TURNS: ${{ inputs.max_turns }}
       PERMISSION_MODE: ${{ inputs.permission_mode }}
@@ -405,18 +400,6 @@ runs:
       github-token: ${{ inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
-
-  - name: Mark Ready
-    if: steps.gather.outputs.is_pr == 'true' && inputs.ready == 'true' && steps.read.outputs.structured_file != ''
-    uses: actions/github-script@v9
-    env:
-      MODE: ready
-      NUMBER: ${{ steps.gather.outputs.number }}
-      STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
-    with:
-      github-token: ${{ inputs.github_token }}
-      script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 
   # a failed or cancelled run never leaves the spinner up, and never advances the seen marker
   - name: Report Failure

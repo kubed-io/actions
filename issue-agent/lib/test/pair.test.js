@@ -1,5 +1,5 @@
 // issue-agent between comment/start and comment/end: the comment is theirs, so the answer
-// and what did not land become parts, and the run says where the comment is now.
+// becomes a part, and the run says where the comment is now.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -8,7 +8,6 @@ const path = require('path');
 const state = require('../state');
 const thread = require('../thread');
 const comment = require('../comment');
-const land = require('../land');
 const parts = require('../../../comment/lib/parts');
 const fake = require('./fake');
 
@@ -80,16 +79,4 @@ test('the run ends saying where the comment is now: where n8n moved it, or comme
   assert.equal(core.outputs.comment_id, '21');
   assert.equal(core.notices.length, 1);
   for (const k of Object.keys(env)) delete process.env[k];
-});
-
-test('what did not land is a part after the answer, and no comment is touched', async () => {
-  const temp = tmp();
-  const dir = parts.dirOf({ RUNNER_TEMP: temp }, 12);
-  parts.addPart(dir, 'issue-agent', 'Did task 3.');
-  const github = fake.github();
-  await land.note({ github, context: fake.context(), env: { PARTS: 'true', NUMBER: '12', RUNNER_TEMP: temp, COMMENT_ID: '', FAILED: 'false', IGNORED: '[".github/workflows/pr.yml"]', RUN_URL: RUN } });
-  assert.equal(github.calls.length, 0);
-  const got = parts.partsOf(dir);
-  assert.equal(got[0], 'Did task 3.');
-  assert.match(got[1], /^> \[!WARNING\]\n> \*\*Not committed:\*\* `\.github\/workflows\/pr\.yml`\./);
 });
