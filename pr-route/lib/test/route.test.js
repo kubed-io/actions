@@ -102,6 +102,20 @@ test("agent-route: the owner's review is a code turn after the approval, a plan 
   assert.equal((await outcome(setup({ ...routed(), approved: false })))[0], 'plan');
 });
 
+// #68: the approval started a code turn that was still running when the PR was merged
+test("agent-route: the owner's approval is nothing, before the plan is approved or after", async () => {
+  for (const approved of [true, false]) {
+    const t = setup({ ...routed(), approved, review: { state: 'APPROVED', body: '' } });
+    assert.equal((await outcome(t))[0], 'none');
+  }
+  // with words in it, still nothing
+  assert.equal((await outcome(setup({ ...routed(), review: { state: 'APPROVED', body: 'Ship it' } })))[0], 'none');
+  // a comment or a request for changes is still a turn
+  for (const state of ['COMMENTED', 'CHANGES_REQUESTED']) {
+    assert.equal((await outcome(setup({ ...routed(), review: { state, body: 'One more thing' } })))[0], 'code');
+  }
+});
+
 test("agent-route: Copilot's review, submitted or edited, is a code turn in its own words, like the owner's", async () => {
   for (const action of ['submitted', 'edited']) {
     const t = setup({ ...routed({ actor: COPILOT, action }), draft: false, review: { user: { id: COPILOT }, commit_id: 'old', body: '### Changes recommended' } });

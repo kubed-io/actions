@@ -6,6 +6,7 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | Event | Before `plan approved` | After it |
 |---|---|---|
 | The owner's comment or review | `plan` | `code` |
+| The owner's approval | `none` | `none`: the merge follows, not a turn |
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
 | Copilot's review, `submitted` or `edited`, however it was asked for | | `code`, in its own words like the owner's; `none` on a draft or when it says Copilot could not review |

@@ -50,11 +50,13 @@ function findPlaceholder(comments, runId) {
 
 // `through` moves to the latest message handed over, but never onto or past a trusted one
 // the hook did not hand over (posted before the channel was live, or a push that failed):
-// that one is still unseen, and the next turn takes it.
+// that one is still unseen, and the next turn takes it. A turn that started with nothing
+// seen (a PR's first turn) has no `through`: everything is after it.
 function advance(seen, got, messages, trust) {
-  if (!seen.through || !got.length) return seen;
+  if (!got.length) return seen;
+  const from = { ...seen, through: seen.through || '' };
   const keys = new Set(got.map((h) => `${h.kind}:${h.id}`));
-  const after = unseen(messages, seen, trust).filter((m) => m.at > seen.through);
+  const after = unseen(messages, from, trust).filter((m) => m.at > from.through);
   const isHanded = (m) => keys.has(`${m.kind}:${m.id}`);
   const gap = after.filter((m) => !isHanded(m)).reduce((min, m) => (min === null || m.at < min ? m.at : min), null);
   let out = seen;

@@ -83,7 +83,13 @@ test('draft false marks a found draft ready; a ready one, or draft true, is left
   }
 });
 
-test('with no PR open, opening one needs a title', async () => {
-  setup({ TITLE: '' });
-  await assert.rejects(pr.run({ github: fake.github(routes()), context: fake.context(), core: fake.core() }), /needs a title/);
+// #68: merged during the code turn, so Mark Ready found no open PR
+test('with no PR open and no title, nothing is opened and nothing fails', async () => {
+  setup({ TITLE: '', DRAFT: 'false' });
+  const core = fake.core();
+  const gh = fake.github(routes());
+  await pr.run({ github: gh, context: fake.context(), core });
+  assert.equal(core.outputs.created, 'false');
+  assert.equal(core.outputs.number, undefined);
+  assert.ok(!gh.calls.some((c) => c.name === 'pulls.create' || c.name.startsWith('graphql')), 'nothing was opened or marked');
 });

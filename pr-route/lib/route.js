@@ -6,6 +6,9 @@
 // and a push to the draft by the agent or the owner are code turns; a push whose commit says
 // `Agent: done` is not. Anything else is nothing.
 //
+// The owner's approval is no turn, before the plan is approved or after: it says the change
+// is done, and the merge follows. A comment or a request for changes keeps it going.
+//
 // Copilot's review is a second opinion, however it was asked for: out of draft, every one
 // that says something is a turn, in its own words like the owner's. Copilot's newer reviews
 // reach the relay as `edited` only, so its `edited` counts as its review; anyone else's edit
@@ -94,6 +97,8 @@ async function run({ github, context, core, env = process.env }) {
         if (err.status !== 404) throw err;
       }
     }
+    // an approval ends the conversation: what follows is the merge, not a turn
+    if (got?.state === 'APPROVED') return core.info(`#${number}: an approval is no turn`);
     if (!got || String(got.user?.id) !== actor) actor = 'unknown';
     // only Copilot's review arrives as an edit; anyone else's edit is no review
     if (via === 'edited' && actor !== cfg.copilot) actor = 'unknown';
