@@ -12,7 +12,7 @@ inputs:
     required: false
     default: ${{ github.token }}
   owner:
-    description: The owner's user id; their comments and reviews are turns.
+    description: The owner's user id; their comments and reviews are turns, an approval is not.
     required: true
   app:
     description: The code agent's (the App's bot's) user id; its pushes to the draft are the next task.

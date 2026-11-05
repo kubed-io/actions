@@ -1,5 +1,6 @@
 // git/pr: open a PR from a branch, or find the open one. A found PR is left as it is, except
-// that `draft: false` marks a draft one ready: the PR exists, in the state asked for.
+// that `draft: false` marks a draft one ready: the PR exists, in the state asked for. With no
+// title it only finds: a branch whose PR was merged or closed meanwhile has nothing to do.
 
 const { list, defaultBranch } = require('./util');
 
@@ -23,7 +24,10 @@ async function run({ github, context, core }) {
     return outputs(core, pr, false);
   }
 
-  if (!env.TITLE) throw new Error(`${branch} has no open PR, and opening one needs a title`);
+  if (!env.TITLE) {
+    core.notice(`${branch} has no open PR: nothing to do without a title to open one`);
+    return core.setOutput('created', 'false');
+  }
   const base = env.BASE || await defaultBranch(github, owner, repo);
   // "No commits between" is GitHub's to say: the caller commits first
   const { data: pr } = await github.rest.pulls.create({ owner, repo, title: env.TITLE, head: branch, base, body: env.BODY || '', draft });

@@ -98,11 +98,20 @@ test('advance: a review is matched as a review, never as a comment with the same
   assert.deepEqual(live.advance(SEEN, [{ kind: 'comment', id: '500' }], messages, TRUST), SEEN);
 });
 
-test('advance: no turn through, or nothing handed, leaves the marker as it was', () => {
+test('advance: nothing handed leaves the marker as it was', () => {
   const messages = [msg(11, OWNER, '05')];
-  const none = { key: 'pr-81', through: '', id: '' };
-  assert.deepEqual(live.advance(none, [{ kind: 'comment', id: '11' }], messages, TRUST), none);
   assert.deepEqual(live.advance(SEEN, [], messages, TRUST), SEEN);
+});
+
+// #68: the PR's first turn saw nothing before it, the owner's comment was answered live, and
+// with no marker the queued turn answered it again
+test('advance: a turn that started with nothing seen still covers what was handed over', () => {
+  const none = { key: 'pr-81', through: '', id: '' };
+  const messages = [msg(11, OWNER, '05')];
+  assert.deepEqual(live.advance(none, [{ kind: 'comment', id: '11' }], messages, TRUST), { ...none, through: at('05'), id: '11' });
+  // and still never past one it did not hand over
+  const two = [msg(10, OWNER, '03'), msg(11, OWNER, '05')];
+  assert.deepEqual(live.advance(none, [{ kind: 'comment', id: '11' }], two, TRUST), none);
 });
 
 test('settle on a PR: one comment listing finds the placeholder; a handed review is read from the reviews', async () => {

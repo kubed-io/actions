@@ -16,7 +16,7 @@ inputs:
     required: false
     default: ""
   title:
-    description: The PR's title; needed only to open one.
+    description: The PR's title; needed only to open one. Without it, a branch with no open PR is nothing to do.
     required: false
     default: ""
   body:
