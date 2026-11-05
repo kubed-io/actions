@@ -37,11 +37,10 @@ off. Without it, the change goes straight to the code, built from the report.
     app: "235398881"
 ```
 
-It answers `issues` (labeled), `issue_comment` (created) and `repository_dispatch`
-`agent-issue`, where n8n relays them instead (`client_payload`: `number`, `event`, `action`,
-`actor`, `comment_id`, `label`; a pointer: the comment's author and the labeler are read back
-from GitHub). The same situation routes the same either way. The job's `if` still gates who
-may cause each. The token needs `issues: read`.
+It answers n8n's `repository_dispatch` `agent-issue`: a label added or a comment made
+(`client_payload`: `number`, `event`, `action`, `actor`, `comment_id`, `label`; a pointer:
+the comment's author and the labeler are read back from GitHub). Anything else is nothing.
+The job's `if` gates who may dispatch. The token needs `issues: read`.
 
 | Input | Default | |
 |---|---|---|

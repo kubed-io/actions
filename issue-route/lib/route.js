@@ -18,10 +18,9 @@
 // A Bug's change skips the plan unless the issue has `needs plan`, which the debug agent adds
 // for a nasty one and Dr K may add or take off (spec 2026-10-28 R-G15, R-G16).
 //
-// It answers the native events (`issues` labeled, `issue_comment` created) and n8n's
-// `agent-issue` dispatch, the same for the same situation. The issue is read live; a
-// dispatch's payload is a pointer, so the comment's author and the labeler are read back
-// from GitHub.
+// It answers n8n's `agent-issue` dispatch: a label added or a comment made on an issue. The
+// issue is read live; the payload is a pointer, so the comment's author and the labeler are
+// read back from GitHub.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 const { familyOf } = require('../../issue-agent/lib/family');
@@ -53,14 +52,11 @@ function stageOf({ comment, label, labels, type, isPR, byOwner, byApp }) {
   return { stage: 'spec' };
 }
 
-// The event, natively or from the dispatch's pointer
+// The event, from the dispatch's pointer
 function eventOf(context) {
   const e = context.payload;
-  if (context.eventName === 'repository_dispatch') {
-    const p = e.action === 'agent-issue' ? e.client_payload || {} : {};
-    return { dispatched: true, event: p.event, action: p.action, number: Number(p.number) || 0, label: p.label || '', actor: String(p.actor), commentId: Number(p.comment_id) || 0 };
-  }
-  return { dispatched: false, event: context.eventName, action: e.action, number: e.issue?.number || 0, label: e.label?.name || '', actor: String(e.sender?.id) };
+  const p = context.eventName === 'repository_dispatch' && e.action === 'agent-issue' ? e.client_payload || {} : {};
+  return { event: p.event, action: p.action, number: Number(p.number) || 0, label: p.label || '', actor: String(p.actor), commentId: Number(p.comment_id) || 0 };
 }
 
 async function run({ github, context, core, env = process.env }) {
@@ -76,7 +72,7 @@ async function run({ github, context, core, env = process.env }) {
 
   const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: number });
   let actor = ev.actor;
-  if (ev.dispatched && comment) {
+  if (comment) {
     let got = null;
     if (ev.commentId) {
       try {
@@ -87,7 +83,7 @@ async function run({ github, context, core, env = process.env }) {
     }
     const here = got?.issue_url?.endsWith(`/issues/${number}`);
     if (!got || !here || String(got.user?.id) !== actor) actor = 'unknown';
-  } else if (ev.dispatched) {
+  } else {
     // the last to add the label, unless it came off again
     const events = await github.paginate(github.rest.issues.listEvents, { ...context.repo, issue_number: number, per_page: 100 });
     actor = String(lastLabeledBy(events, label)?.id ?? 'unknown');

@@ -2,9 +2,9 @@ name: PR Route
 description: >
   Decides what an event on an agent-built pull request is for the agents: a plan turn, a
   code turn, or nothing, and the kb prompt the turn starts with. Reads the PR and its head
-  commit only; runs no Claude. The job's `if` still gates who may cause an event. An
-  `agent-route` dispatch (n8n's relay of a review, a push, a comment or the approval label,
-  where it runs) routes like the event it carries, re-reading who caused it.
+  commit only; runs no Claude. It answers an `agent-code` dispatch and n8n's `agent-route`
+  relay of a review, a push, a comment or the approval label, which routes like the event it
+  carries, re-reading who caused it.
 
 inputs:
   github_token:

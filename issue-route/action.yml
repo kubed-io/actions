@@ -2,8 +2,7 @@ name: Issue Route
 description: >
   Decides what an event on a work item is for the agents: a spec turn, the hand-off to a
   plan, or nothing, and the kb prompt the turn starts with. Reads the issue only; runs no
-  Claude. Answers the native `issues` and `issue_comment` events, where the job's `if` gates
-  the sender, and n8n's `agent-issue` dispatch, re-reading who caused it.
+  Claude. Answers n8n's `agent-issue` dispatch, re-reading who caused it.
 
 inputs:
   github_token:

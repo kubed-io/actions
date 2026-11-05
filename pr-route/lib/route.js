@@ -7,10 +7,10 @@
 // not. Anything else is nothing. A review by Copilot is review-route's to read, at any
 // stage: `copilot`.
 //
-// An `agent-route` dispatch (n8n's relay of a review, a push, a comment or the approval
-// label) routes like the event it carries. Its payload is a pointer: who commented or
-// labelled is read back from GitHub, and only the owner's are turns, where the native
-// events have the job's gate.
+// It answers two dispatches. `agent-route` is n8n's relay of a review, a push, a comment or
+// the approval label, and routes like the event it carries; its payload is a pointer, so
+// who reviewed, commented or labelled is read back from GitHub. `agent-code` is the agents'
+// own: failed checks, a review asking for changes, a Bug's fix.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 
@@ -28,7 +28,7 @@ function settings(env) {
 }
 
 // The stage an event is for, from who caused it and what it was
-function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, draft, finished, vouched = true }) {
+function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, draft, finished }) {
   if (dispatched) return approved ? 'code' : 'none';
   // Copilot's verdict, or its cancelled review of a draft to hide, is review-route's
   if (review && byCopilot) return 'copilot';
@@ -36,8 +36,8 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
   // a review wakes the code agent when it is the owner's: the agent's own thread replies
   // arrive as reviews too, by the App, and must not wake it again
   if (review) return byOwner ? 'code' : 'none';
-  // a comment, the label: the owner's, by the job's gate, or, relayed, read back
-  if (!pushed) return byOwner || vouched ? 'code' : 'none';
+  // a comment, the label: the owner's, read back from GitHub
+  if (!pushed) return byOwner ? 'code' : 'none';
   return draft && (byOwner || byApp) && !finished ? 'code' : 'none';
 }
 
@@ -57,30 +57,26 @@ function promptOf({ dispatched, reason, labelled, pushed }, prefix) {
 async function run({ github, context, core, env = process.env }) {
   const cfg = settings(env);
   const e = context.payload;
-  const checksRun = e.workflow_run;
   const viaRoute = context.eventName === 'repository_dispatch' && e.action === 'agent-route';
-  const dispatched = context.eventName === 'repository_dispatch' && !viaRoute;
-  const number = checksRun ? (checksRun.pull_requests?.[0]?.number || 0)
-    : Number(context.eventName === 'repository_dispatch' ? e.client_payload?.pull_request : (e.issue?.number || e.pull_request?.number)) || 0;
+  const dispatched = context.eventName === 'repository_dispatch' && e.action === 'agent-code';
   core.setOutput('stage', 'none');
+  if (!viaRoute && !dispatched) return core.info(`${context.eventName}: only n8n's relay and an agent-code dispatch are turns`);
+  const number = Number(e.client_payload?.pull_request) || 0;
   if (!number) return core.info('no pull request');
   const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
   const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
   if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith(cfg.prefix)) return core.info(`#${number} is not the agents'`);
 
-  const carried = viaRoute ? e.client_payload?.event : checksRun?.event;
+  const carried = viaRoute ? e.client_payload?.event : '';
   const via = e.client_payload?.action;
-  const pushed = viaRoute ? carried === 'pull_request' && via === 'synchronize' : carried === 'pull_request';
-  const review = viaRoute ? carried === 'pull_request_review' && via === 'submitted' : carried === 'pull_request_review';
-  const commented = viaRoute && carried === 'issue_comment' && via === 'created';
-  const labelled = viaRoute
-    ? carried === 'pull_request' && via === 'labeled' && e.client_payload?.label === cfg.label
-    : context.eventName === 'pull_request_target';
-  // a dispatch carries only the relayed events: a push, a submitted review, a new comment,
-  // the approval label
+  const pushed = carried === 'pull_request' && via === 'synchronize';
+  const review = carried === 'pull_request_review' && via === 'submitted';
+  const commented = carried === 'issue_comment' && via === 'created';
+  const labelled = carried === 'pull_request' && via === 'labeled' && e.client_payload?.label === cfg.label;
+  // the relay carries only these: a push, a submitted review, a new comment, the approval label
   if (viaRoute && !pushed && !review && !commented && !labelled) return core.info('agent-route: unknown event');
-  let actor = String(viaRoute ? e.client_payload?.actor : (checksRun ? checksRun.triggering_actor : e.sender)?.id);
-  if (viaRoute && review) {
+  let actor = String(viaRoute ? e.client_payload?.actor : e.sender?.id);
+  if (review) {
     // the payload is a pointer: who reviewed, and of what, is read back from GitHub
     const reviewId = Number(e.client_payload?.review_id) || 0;
     let got = null;
@@ -93,7 +89,7 @@ async function run({ github, context, core, env = process.env }) {
     }
     if (!got || String(got.user?.id) !== actor) actor = 'unknown';
   }
-  if (viaRoute && commented) {
+  if (commented) {
     const commentId = Number(e.client_payload?.comment_id) || 0;
     let got = null;
     if (commentId) {
@@ -107,7 +103,7 @@ async function run({ github, context, core, env = process.env }) {
     if (!got || !here || String(got.user?.id) !== actor) actor = 'unknown';
   }
   const approved = pr.labels.some((l) => l.name === cfg.label);
-  if (viaRoute && labelled) {
+  if (labelled) {
     // gone again: nothing to approve
     if (!approved) return core.info(`agent-route: ${cfg.label} is no longer on #${number}`);
     const events = await github.paginate(github.rest.issues.listEvents, { ...context.repo, issue_number: number, per_page: 100 });
@@ -118,8 +114,6 @@ async function run({ github, context, core, env = process.env }) {
   const facts = {
     dispatched, pushed, labelled,
     approved,
-    // a native comment or label passed the job's gate; a relayed one is the actor's
-    vouched: !viaRoute,
     review,
     byOwner: actor === cfg.owner,
     byApp: actor === cfg.app,
