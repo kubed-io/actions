@@ -4,7 +4,7 @@ One thread comment for a whole job. `comment/start` posts "Working on it…" bef
 runs; the steps between add to the answer; `comment/end` writes it, once. On a pull request
 with line comments, that one answer is a review instead, the comments under it: a step only
 says what to post, and comment/end picks GitHub's API for it. Two issue-agent
-turns, a land and the end all answer in the one comment. A job that never reaches
+turns and the end all answer in the one comment. A job that never reaches
 `comment/end` ends with the failure note instead, keeping what the steps that finished said.
 
 ## Usage
@@ -31,18 +31,18 @@ turns, a land and the end all answer in the one comment. A job that never reache
     session_key: code-${{ github.event.issue.number }}
     scratch_cache: false
 
-- uses: kubed-io/actions/issue-agent/land@main
+- id: commit
+  continue-on-error: true
+  uses: kubed-io/actions/git/commit@main
   with:
     token: ${{ steps.app.outputs.token }}
-    app_slug: ${{ steps.app.outputs.app-slug }}
     branch: ${{ needs.route.outputs.head }}
-    output: ${{ steps.code.outputs.output }}
-    number: ${{ steps.comment.outputs.number }}
-    parts: true
+    message: ${{ fromJSON(steps.code.outputs.output).commit_message }}
 
 - uses: kubed-io/actions/comment/end@main
   with:
     github_token: ${{ steps.app.outputs.token }}
+    append: ${{ steps.commit.outputs.summary }}
     comment_id: ${{ steps.code.outputs.comment_id }}
 ```
 
@@ -80,6 +80,7 @@ answer is a plain comment that lists them.
 | `github_token` | required | comment/start's |
 | `number` | the event's | comment/start's |
 | `comment_id` | comment/start's | The last issue-agent's, for a comment with no run marker |
+| `append` | `""` | Markdown after the parts: a commit's `summary`, say |
 
 Outputs: `comment_id`, empty when the answer went as a review or no step said anything;
 `review_id`, the review the answer is the body of, when there were line comments.
@@ -98,8 +99,8 @@ line between, then the run link. Beside them:
 | `lines.json` | issue-agent (`review: true`) | Line comments on one commit: `commit_id`, `inline` (on the diff), `outside` (off it) |
 | `final.json` | comment/end | Written: start's post does nothing |
 
-issue-agent writes its reply (header and text), with `comment_id`; issue-agent/land writes
-what did not land, with `parts: true`.
+issue-agent writes its reply (header and text), with `comment_id`. The workflow adds anything
+else with comment/end's `append`: a commit's `summary` of what did not land, say.
 
 JavaScript actions on `node24`, no dependencies: only one can have a post step, and end shares
 start's code.

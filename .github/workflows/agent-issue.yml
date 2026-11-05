@@ -163,22 +163,23 @@ jobs:
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         live_messages: true
 
-    # the draft spec lives under docs/: the wiki first when docs/ is the wiki, then one signed
-    # commit
-    - name: Land the Spec
-      if: env.WRITES == 'true'
-      uses: kubed-io/actions/issue-agent/land@main
+    # the draft spec lives under docs/, one signed commit
+    - name: Commit the Spec
+      id: commit
+      if: env.WRITES == 'true' && fromJSON(steps.agent.outputs.output || '{}').commit_message
+      # a refused commit is said in the answer; the job fails after it
+      continue-on-error: true
+      uses: kubed-io/actions/git/commit@main
       with:
-        parts: true
-        keep_scratch: false
-        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ env.BRANCH }}
-        output: ${{ steps.agent.outputs.output }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         files: docs
-        wiki: ${{ inputs.wiki }}
+        # the wiki has no commit API: pushed with git, its pointer in this commit
+        submodules: ${{ inputs.wiki }}
+        author: ${{ steps.app.outputs.app-slug }}
+        # what a failed commit leaves is kept in the scratchpad for the next turn
+        keep_to: .issue/scratch/uncommitted
 
     # the debug agent judged the fix nasty enough for a plan: the label says so on the issue,
     # and Dr K may take it off. The agent adds it, never removes it
@@ -196,6 +197,11 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
+        append: ${{ steps.commit.outputs.summary }}
+
+    - name: The Commit Failed
+      if: steps.commit.outcome == 'failure'
+      run: echo "::error::the commit failed; its answer says why" && exit 1
 
     - name: Save the Scratchpad
       if: always() && steps.scratch.outcome == 'success'
@@ -436,21 +442,23 @@ jobs:
         session_key: pr-${{ needs.handoff.outputs.pull_request }}
         live_messages: true
 
-    # the plan and spec live under docs/: the wiki first when docs/ is the wiki, then one
-    # signed commit
-    - name: Land the Plan
-      uses: kubed-io/actions/issue-agent/land@main
+    # the plan and spec live under docs/, one signed commit
+    - name: Commit the Plan
+      id: commit
+      if: fromJSON(steps.agent.outputs.output || '{}').commit_message
+      # a refused commit is said in the answer; the job fails after it
+      continue-on-error: true
+      uses: kubed-io/actions/git/commit@main
       with:
-        parts: true
-        keep_scratch: false
-        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.handoff.outputs.branch }}
-        output: ${{ steps.agent.outputs.output }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         files: docs
-        wiki: ${{ inputs.wiki }}
+        # the wiki has no commit API: pushed with git, its pointer in this commit
+        submodules: ${{ inputs.wiki }}
+        author: ${{ steps.app.outputs.app-slug }}
+        # what a failed commit leaves is kept in the scratchpad for the next turn
+        keep_to: .issue/scratch/uncommitted
 
     - name: Answer
       if: steps.comment.outputs.comment_id != ''
@@ -459,6 +467,11 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
+        append: ${{ steps.commit.outputs.summary }}
+
+    - name: The Commit Failed
+      if: steps.commit.outcome == 'failure'
+      run: echo "::error::the commit failed; its answer says why" && exit 1
 
     - name: Save the Scratchpad
       if: always() && steps.scratch.outcome == 'success'

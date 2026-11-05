@@ -198,22 +198,23 @@ jobs:
         session_key: pr-${{ needs.route.outputs.number }}
         live_messages: true
 
-    # the spec and plan live under docs/: the wiki first when docs/ is the wiki, then one
-    # signed commit
-    - name: Land the Plan
-      if: steps.still.outputs.stage == 'plan'
-      uses: kubed-io/actions/issue-agent/land@main
+    # the spec and plan live under docs/, one signed commit
+    - name: Commit the Plan
+      id: commit
+      if: steps.still.outputs.stage == 'plan' && fromJSON(steps.agent.outputs.output || '{}').commit_message
+      # a refused commit is said in the answer; the job fails after it
+      continue-on-error: true
+      uses: kubed-io/actions/git/commit@main
       with:
-        parts: true
-        keep_scratch: false
-        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.route.outputs.head }}
-        output: ${{ steps.agent.outputs.output }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         files: docs
-        wiki: ${{ inputs.wiki }}
+        # the wiki has no commit API: pushed with git, its pointer in this commit
+        submodules: ${{ inputs.wiki }}
+        author: ${{ steps.app.outputs.app-slug }}
+        # what a failed commit leaves is kept in the scratchpad for the next turn
+        keep_to: .issue/scratch/uncommitted
 
     - name: Answer
       if: steps.comment.outputs.comment_id != ''
@@ -222,6 +223,11 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
+        append: ${{ steps.commit.outputs.summary }}
+
+    - name: The Commit Failed
+      if: steps.commit.outcome == 'failure'
+      run: echo "::error::the commit failed; its answer says why" && exit 1
 
     - name: Save the Scratchpad
       if: always() && steps.scratch.outcome == 'success'
@@ -382,29 +388,40 @@ jobs:
         session_key: pr-${{ needs.route.outputs.number }}
         live_messages: true
 
-    # the commit (the wiki, then the code and its pointer, signed), a note on the reply if
-    # it did not land, and the PR ready on the run that finishes the plan, whose commit
-    # says `Agent: done` so its push wakes nothing. On the App's token, so ready_for_review
-    # starts the checks and the review once, on the final commit
-    - name: Land the Task
-      if: steps.still.outputs.stage == 'code'
-      id: land
-      uses: kubed-io/actions/issue-agent/land@main
+    # the turn's work, one signed commit. The run that finishes the plan says `Agent: done` on
+    # it, so its push wakes nothing
+    - name: Commit the Turn
+      id: commit
+      if: steps.still.outputs.stage == 'code' && fromJSON(steps.agent.outputs.output || '{}').commit_message
+      # a refused commit is said in the answer; the job fails after it
+      continue-on-error: true
+      uses: kubed-io/actions/git/commit@main
       with:
-        parts: true
-        keep_scratch: false
-        number: ${{ steps.agent.outputs.number }}
         token: ${{ steps.app.outputs.token }}
-        app_slug: ${{ steps.app.outputs.app-slug }}
         branch: ${{ needs.route.outputs.head }}
-        output: ${{ steps.agent.outputs.output }}
-        comment_id: ${{ steps.agent.outputs.comment_id }}
+        message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
+        trailers: "${{ fromJSON(steps.agent.outputs.output).done == true && 'Agent: done' || '' }}"
         # the App cannot write workflow files, and one in the commit refuses all of it
         ignore: .github/workflows/**
-        wiki: ${{ inputs.wiki }}
-        pull_request: ${{ needs.route.outputs.number }}
+        # the wiki has no commit API: pushed with git, its pointer in this commit
+        submodules: ${{ inputs.wiki }}
+        author: ${{ steps.app.outputs.app-slug }}
+        # what a failed commit leaves is kept in the scratchpad for the next turn
+        keep_to: .issue/scratch/uncommitted
 
-    # Copilot's change: the head the turn landed is Copilot's to review, alongside its checks
+    # done: out of draft, after the commit and on the App's token, so ready_for_review starts
+    # the checks and the review once, on the final commit
+    - name: Mark Ready
+      if: >-
+        steps.still.outputs.stage == 'code' && steps.commit.outcome != 'failure' &&
+        fromJSON(steps.agent.outputs.output || '{}').done == true
+      uses: kubed-io/actions/git/pr@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ needs.route.outputs.head }}
+        draft: false
+
+    # Copilot's change: the head the turn committed is Copilot's to review, alongside its checks
     - name: Ask Copilot
       if: steps.still.outputs.stage == 'code'
       uses: kubed-io/actions/review-route/copilot@main
@@ -421,6 +438,11 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
+        append: ${{ steps.commit.outputs.summary }}
+
+    - name: The Commit Failed
+      if: steps.commit.outcome == 'failure'
+      run: echo "::error::the commit failed; its answer says why" && exit 1
 
     # the agent judged the failed checks not this branch's: their failed jobs run once more;
     # green brings the review, red again is Dr K's call
@@ -433,7 +455,9 @@ jobs:
 
     # the plan built: the fix rounds that follow carry its summary, not every step of it
     - name: Compact the Session
-      if: steps.still.outputs.stage == 'code' && (steps.land.outputs.done == 'true' && steps.agent.outputs.session_id != '')
+      if: >-
+        steps.still.outputs.stage == 'code' && steps.agent.outputs.session_id != '' &&
+        fromJSON(steps.agent.outputs.output || '{}').done == true
       # a session that could not be compacted is still a finished task
       continue-on-error: true
       env:

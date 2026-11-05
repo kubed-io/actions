@@ -7,7 +7,7 @@
 //   lines.json        a step's line comments on the PR's diff: the answer goes as a review
 //   final.json        comment/end's: the comment is written, so start's post does nothing
 //
-// Only the file system: no GitHub, so issue-agent, land and the comment actions share it.
+// Only the file system: no GitHub, so issue-agent and the comment actions share it.
 
 const fs = require('fs');
 const os = require('os');

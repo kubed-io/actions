@@ -8,7 +8,7 @@ const fake = require('./fake');
 
 // a checkout on disk: `files` are what the working tree holds
 function setup({ files = {}, env = {} } = {}) {
-  for (const k of ['MESSAGE', 'FILES', 'IGNORE', 'BRANCH', 'ALLOW_EMPTY', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME']) delete process.env[k];
+  for (const k of ['MESSAGE', 'FILES', 'IGNORE', 'BRANCH', 'ALLOW_EMPTY', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME', 'TRAILERS', 'SUBMODULES', 'AUTHOR', 'KEEP_TO', 'GITHUB_RUN_ID']) delete process.env[k];
   Object.assign(process.env, { MESSAGE: 'docs: recordings', ...env });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'git-commit-'));
   for (const [file, contents] of Object.entries(files)) {
@@ -70,6 +70,8 @@ test('every change is committed: additions with contents, deletions, a rename as
     files: JSON.stringify(['deep/x/y.txt', 'del.txt', 'mod.txt', 'new.txt', 'old.txt']),
     committed: 'true',
     ignored: '[]',
+    kept: 'false',
+    summary: '',
   });
 });
 
@@ -126,7 +128,7 @@ test('nothing selected commits nothing and calls no API', async () => {
   await commit.run({ github, context: fake.context(), core, exec });
   assert.equal(github.calls.length, 0);
   assert.ok(!exec.calls.some((c) => c[1] === 'fetch' || c[1] === 'reset'));
-  assert.deepEqual(core.outputs, { sha: '', url: '', files: '[]', committed: 'false', ignored: '[]' });
+  assert.deepEqual(core.outputs, { sha: '', url: '', files: '[]', committed: 'false', ignored: '[]', kept: 'false', summary: '' });
 });
 
 test('a clean tree commits nothing', async () => {
@@ -446,4 +448,77 @@ test('a checkout commit GitHub does not know fails: what moved cannot be told', 
   const github = fake.github({ ...routes(), 'repos.compareCommitsWithBasehead': () => fake.notFound() });
   await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, [' M a.txt'], { 'rev-parse HEAD': 'local\n' }) }), /local is not on GitHub/);
   assert.ok(!call(github, 'graphql:createCommitOnBranch'));
+});
+
+test('trailers go after the message, a blank line between', async () => {
+  const root = setup({ files: { 'a.txt': 'a' }, env: { MESSAGE: 'Task 3\n\nThe body.', TRAILERS: 'Agent: done\n' } });
+  const github = fake.github(routes());
+  await commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, ['?? a.txt']) });
+  assert.deepEqual(input(github).message, { headline: 'Task 3', body: 'The body.\n\nAgent: done' });
+  assert.equal(commit.withTrailers('x', ''), 'x');
+});
+
+test('what ignore left out is the summary, a warning', async () => {
+  const root = setup({ files: { 'a.txt': 'a', '.github/workflows/ui.yml': 'x' }, env: { IGNORE: '.github/workflows/**' } });
+  const core = fake.core();
+  await commit.run({ github: fake.github(routes()), context: fake.context(), core, exec: git(root, [' M .github/workflows/ui.yml', '?? a.txt']) });
+  assert.equal(core.outputs.summary, "> [!WARNING]\n> **Not committed:** `.github/workflows/ui.yml`, left out by this commit's `ignore`. They need committing another way.");
+});
+
+test('a refused commit keeps its changes in keep_to, and the summary says why', async () => {
+  const root = setup({ files: { 'a.txt': 'a2', 'new.txt': 'n' }, env: { KEEP_TO: '.issue/scratch/uncommitted', GITHUB_RUN_ID: '9', GITHUB_REPOSITORY: 'kubed-io/actions' } });
+  const github = fake.github({ ...routes(), 'repos.compareCommitsWithBasehead': moved(['a.txt']) });
+  const core = fake.core();
+  const exec = git(root, [' M a.txt', '?? new.txt'], { 'rev-parse HEAD': 'local\n', 'diff --binary HEAD': 'the patch' });
+  await assert.rejects(commit.run({ github, context: fake.context(), core, exec }), /nothing was committed/);
+  const kept = path.join(root, '.issue/scratch/uncommitted');
+  assert.equal(fs.readFileSync(path.join(kept, 'files/a.txt'), 'utf8'), 'a2');
+  assert.equal(fs.readFileSync(path.join(kept, 'files/new.txt'), 'utf8'), 'n');
+  assert.equal(fs.readFileSync(path.join(kept, 'changes.patch'), 'utf8'), 'the patch');
+  assert.match(fs.readFileSync(path.join(kept, 'README.md'), 'utf8'), /changed `a\.txt` too/);
+  assert.equal(core.outputs.kept, 'true');
+  assert.equal(core.outputs.summary, '> [!CAUTION]\n> **The commit was refused: the branch moved and changed `a.txt` too, so none of these changes are on the branch.** They are kept for the next try. See [the run](https://github.com/kubed-io/actions/actions/runs/9).');
+});
+
+test('a failed commit without keep_to keeps nothing, and still says so', async () => {
+  const root = setup({ files: { 'a.txt': 'a' } });
+  const github = fake.github({ ...routes(), 'graphql:createCommitOnBranch': () => new Error('boom') });
+  const core = fake.core();
+  await assert.rejects(commit.run({ github, context: fake.context(), core, exec: git(root, ['?? a.txt']) }), /boom/);
+  assert.equal(core.outputs.kept, 'false');
+  assert.equal(core.outputs.summary, '> [!CAUTION]\n> **The commit failed, so none of these changes are on the branch.**');
+});
+
+test('a submodule it may commit inside is committed and pushed with git first, as the App, then its pointer moves', async () => {
+  const root = setup({ files: { 'a.txt': 'a\n', 'wiki/.git': 'gitdir: x', 'wiki/Home.md': 'h' }, env: { SUBMODULES: 'wiki', AUTHOR: 'kubed-io', TOKEN: 't' } });
+  fs.writeFileSync(path.join(root, '.gitmodules'), '[submodule "wiki"]\n\tpath = wiki\n\turl = x\n');
+  const sub = path.join(root, 'wiki');
+  const exec = git(root, [' M wiki', '?? a.txt'], { ...linked(root, { at: 'f00d' }), [`-C ${sub} status --porcelain`]: ' M Home.md\n' });
+  const github = fake.github({ ...treeRoutes(), 'users.getByUsername': { id: 235398881 } });
+  await commit.run({ github, context: fake.context(), core: fake.core(), exec });
+  const inSub = exec.calls.filter((c) => c[1] === '-C' && c[2] === sub).map((c) => c.slice(3).join(' '));
+  assert.deepEqual(inSub.filter((c) => !c.startsWith('rev-parse')), [
+    'status --porcelain', 'checkout -B master', 'add -A', 'commit -m docs: recordings', 'fetch --no-tags origin master',
+    'rebase -X theirs FETCH_HEAD', 'push origin HEAD:refs/heads/master',
+  ]);
+  assert.equal(call(github, 'users.getByUsername').username, 'kubed-io[bot]');
+  assert.deepEqual(call(github, 'git.createTree').tree.find((e) => e.path === 'wiki'), { path: 'wiki', mode: '160000', type: 'commit', sha: 'f00d' });
+});
+
+test('a submodule outside files, or not listed, is never pushed', async () => {
+  for (const env of [{ SUBMODULES: 'wiki', FILES: 'docs', AUTHOR: 'kubed-io' }, { AUTHOR: 'kubed-io' }]) {
+    const root = setup({ files: { 'docs/a.md': 'a', 'wiki/.git': 'gitdir: x' }, env });
+    const sub = path.join(root, 'wiki');
+    const exec = git(root, ['?? docs/a.md'], { [`-C ${sub} status --porcelain`]: ' M Home.md\n' });
+    await commit.run({ github: fake.github(routes()), context: fake.context(), core: fake.core(), exec });
+    assert.ok(!exec.calls.some((c) => c[1] === '-C' && c[2] === sub && c[3] === 'push'));
+  }
+});
+
+test('a changed submodule with no author fails before pushing anything', async () => {
+  const root = setup({ files: { 'wiki/.git': 'gitdir: x' }, env: { SUBMODULES: 'wiki' } });
+  const sub = path.join(root, 'wiki');
+  const exec = git(root, [' M wiki'], { [`-C ${sub} status --porcelain`]: ' M Home.md\n' });
+  await assert.rejects(commit.run({ github: fake.github(routes()), context: fake.context(), core: fake.core(), exec }), /give author/);
+  assert.ok(!exec.calls.some((c) => c[3] === 'push'));
 });

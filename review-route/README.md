@@ -98,7 +98,7 @@ Output: `verdict`.
 `review-route/copilot` is the code job's side of a change the owner asked Copilot to
 review. `step: wait`, before a code turn, holds until Copilot's review of the head is in,
 when it was asked for one (`timeout_minutes`, 20), so the turn answers the checks and
-Copilot together. `step: ask`, after the turn lands, asks Copilot for the new head,
+Copilot together. `step: ask`, after the turn's commit, asks Copilot for the new head,
 alongside its checks. Neither does anything on a draft or a change that is not Copilot's.
 
 ```yaml

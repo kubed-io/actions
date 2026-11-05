@@ -23,8 +23,8 @@ test('an open PR for the branch is found and left alone', async () => {
   const core = fake.core();
   await pr.run({ github, context: fake.context(), core });
   const list = github.calls.find((c) => c.name === 'pulls.list').params;
-  assert.deepEqual(list, { owner: 'kubed-io', repo: 'actions', head: 'kubed-io:issue-5', base: 'main', state: 'open' });
-  assert.ok(!github.calls.some((c) => c.name === 'pulls.create' || c.name === 'issues.addLabels' || c.name === 'pulls.update'));
+  assert.deepEqual(list, { owner: 'kubed-io', repo: 'actions', head: 'kubed-io:issue-5', state: 'open' });
+  assert.ok(!github.calls.some((c) => c.name === 'pulls.create' || c.name === 'issues.addLabels' || c.name === 'pulls.update' || c.name.startsWith('graphql')));
   assert.deepEqual(core.outputs, { number: '7', url: 'https://github.com/kubed-io/actions/pull/7', created: 'false' });
 });
 
@@ -57,4 +57,33 @@ test('GitHub refusing a branch with no commits surfaces as is', async () => {
   r['pulls.create'] = Object.assign(new Error('Validation Failed: No commits between main and issue-5'), { status: 422 });
   const github = fake.github(r);
   await assert.rejects(pr.run({ github, context: fake.context(), core: fake.core() }), /No commits between main and issue-5/);
+});
+
+test('a given base narrows the search to PRs into it', async () => {
+  setup({ BASE: 'issue-3' });
+  const github = fake.github(routes([{ number: 7, html_url: 'u' }]));
+  await pr.run({ github, context: fake.context(), core: fake.core() });
+  assert.equal(github.calls.find((c) => c.name === 'pulls.list').params.base, 'issue-3');
+});
+
+test('draft false marks a found draft ready; a ready one, or draft true, is left as it is', async () => {
+  setup({ DRAFT: 'false', TITLE: '' });
+  const draft = fake.github({ ...routes([{ number: 7, html_url: 'u', draft: true, node_id: 'PR_7' }]), graphql: {} });
+  const core = fake.core();
+  await pr.run({ github: draft, context: fake.context(), core });
+  const marked = draft.calls.find((c) => c.name === 'graphql');
+  assert.deepEqual(marked.params, { id: 'PR_7' });
+  assert.equal(core.outputs.created, 'false');
+
+  for (const [env, found] of [[{ DRAFT: 'false' }, { draft: false }], [{ DRAFT: 'true' }, { draft: true }]]) {
+    setup(env);
+    const github = fake.github({ ...routes([{ number: 7, html_url: 'u', node_id: 'PR_7', ...found }]), graphql: {} });
+    await pr.run({ github, context: fake.context(), core: fake.core() });
+    assert.ok(!github.calls.some((c) => c.name === 'graphql'));
+  }
+});
+
+test('with no PR open, opening one needs a title', async () => {
+  setup({ TITLE: '' });
+  await assert.rejects(pr.run({ github: fake.github(routes()), context: fake.context(), core: fake.core() }), /needs a title/);
 });

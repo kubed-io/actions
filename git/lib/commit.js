@@ -6,10 +6,17 @@
 // It never overwrites: the commit goes on the branch's head as it is now, so when the branch
 // moved since the commit the checkout is at, and a path the commit writes changed there in
 // between, nothing is committed and the step fails naming the paths.
+//
+// A submodule it may commit inside (`submodules`, a wiki say) is committed and pushed with
+// git first (submodule.js), so its pointer moves in this commit beside the files. A commit
+// that fails can keep its changes (`keep_to`, keep.js). Either way `summary` says, in
+// markdown, what is not on the branch.
 
 const fs = require('fs');
 const path = require('path');
 const { lines, gql, headOid, compareFiles, matcher } = require('./util');
+const submodules = require('./submodule');
+const { keep } = require('./keep');
 
 const UNMERGED = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 const SUBMODULE_HINT = 'a submodule moves only to a commit made inside it: commit inside the submodule first';
@@ -170,7 +177,7 @@ function guard({ github, core, owner, repo, branch, local, paths }) {
     const both = paths.filter((p) => changed.has(p)).sort();
     if (!both.length) return;
     core.setOutput('conflicts', JSON.stringify(both));
-    throw new Error(`the branch ${branch} moved from ${local} to ${head} since the checkout and changed ${both.join(', ')} too: nothing was committed, so neither side is overwritten`);
+    throw Object.assign(new Error(`the branch ${branch} moved from ${local} to ${head} since the checkout and changed ${both.join(', ')} too: nothing was committed, so neither side is overwritten`), { conflicts: both });
   };
 }
 
@@ -243,15 +250,63 @@ function authEnv(core, token, server = 'https://github.com') {
   return { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: `http.${server}/.extraheader`, GIT_CONFIG_VALUE_0: header };
 }
 
+// the message with its trailers (`Key: value` lines) after a blank line
+function withTrailers(message, trailers) {
+  const extra = lines(trailers);
+  return extra.length ? `${message}\n\n${extra.join('\n')}` : message;
+}
+
+// what is not on the branch, for a reader: empty when everything selected was committed
+function summary({ failed = false, conflicts = [], ignored = [], kept = false, runUrl = '' }) {
+  const list = (ps) => ps.map((p) => `\`${p}\``).join(', ');
+  if (failed) {
+    const why = conflicts.length
+      ? `The commit was refused: the branch moved and changed ${list(conflicts)} too, so none of these changes are on the branch.`
+      : 'The commit failed, so none of these changes are on the branch.';
+    return `> [!CAUTION]\n> **${why}**${kept ? ' They are kept for the next try.' : ''}${runUrl ? ` See [the run](${runUrl}).` : ''}`;
+  }
+  if (ignored.length) return `> [!WARNING]\n> **Not committed:** ${list(ignored)}, left out by this commit's \`ignore\`. They need committing another way.`;
+  return '';
+}
+
 async function run({ github, context, core, exec }) {
   const env = process.env;
+  const runUrl = env.GITHUB_RUN_ID ? `${env.GITHUB_SERVER_URL || 'https://github.com'}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : '';
+  core.setOutput('kept', 'false');
+  let ignored = [];
+  try {
+    ({ ignored } = await commit({ github, context, core, exec }));
+  } catch (e) {
+    let kept = false;
+    if (env.KEEP_TO) {
+      const root = (await git(exec, ['rev-parse', '--show-toplevel'], { ignoreReturnCode: true })).trim() || env.GITHUB_WORKSPACE || process.cwd();
+      kept = await keep({ exec, core, root, to: env.KEEP_TO, conflicts: e.conflicts || [], runUrl });
+    }
+    core.setOutput('kept', String(kept));
+    core.setOutput('summary', summary({ failed: true, conflicts: e.conflicts || [], kept, runUrl }));
+    throw e;
+  }
+  core.setOutput('summary', summary({ ignored, runUrl }));
+}
+
+async function commit({ github, context, core, exec }) {
+  const env = process.env;
   const { owner, repo } = context.repo;
-  const message = (env.MESSAGE || '').trim();
-  if (!message) throw new Error('message is required');
+  const text = (env.MESSAGE || '').trim();
+  if (!text) throw new Error('message is required');
+  const message = withTrailers(text, env.TRAILERS);
   const patterns = lines(env.FILES);
   const allowEmpty = env.ALLOW_EMPTY === 'true';
   const branch = env.BRANCH || await currentBranch(exec);
   const root = (await git(exec, ['rev-parse', '--show-toplevel'])).trim() || env.GITHUB_WORKSPACE || process.cwd();
+
+  // the submodules this commit may commit inside, as far as `files` and `ignore` reach them
+  const reach = patterns.length ? matcher(patterns) : () => true;
+  const ignoring = env.IGNORE ? matcher(lines(env.IGNORE)) : () => false;
+  const subs = lines(env.SUBMODULES).map((p) => p.replace(/^\.\//, '').replace(/\/+$/, '')).filter((p) => reach(p) && !ignoring(p));
+  if (subs.length) {
+    await submodules.push({ github, core, exec, root, subs, message, author: env.AUTHOR, auth: authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL) });
+  }
 
   const changes = parseStatus(await git(exec, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));
   let { kept: paths, links } = await checkSubmodules({ exec, core, root, patterns, paths: selected(changes, patterns, root) });
@@ -273,7 +328,7 @@ async function run({ github, context, core, exec }) {
     core.setOutput('url', '');
     core.setOutput('files', '[]');
     core.setOutput('committed', 'false');
-    return;
+    return { ignored };
   }
 
   const { additions, deletions } = fileChanges(root, paths);
@@ -300,6 +355,7 @@ async function run({ github, context, core, exec }) {
   core.setOutput('url', commit.url);
   core.setOutput('files', JSON.stringify([...paths, ...links.map((l) => l.path)].sort()));
   core.setOutput('committed', 'true');
+  return { ignored };
 }
 
-module.exports = { authEnv, run, parseStatus };
+module.exports = { authEnv, run, parseStatus, withTrailers, summary };
