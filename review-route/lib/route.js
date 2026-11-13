@@ -30,10 +30,14 @@ function settings(env) {
 
 // what the PR itself changes at a commit, blind to line numbers, so merging the base in
 // leaves it as it was; null when GitHub's compare is cut off at 300 files
+// a submodule pointer's move (the docs wiki), which a branch update moves to the wiki's head
+// every time main moves (cluster spec 2026-11-12, R-L9): it is no change of the PR's own
+const POINTER = /^@@[^\n]*@@\n-Subproject commit [0-9a-f]+\n\+Subproject commit [0-9a-f]+\s*$/;
+
 async function prChanges(github, repo, base, ref) {
   const { data } = await github.rest.repos.compareCommitsWithBasehead({ ...repo, basehead: `${base}...${ref}` });
   if ((data.files?.length || 0) >= 300) return null;
-  return data.files.map((f) => `${f.status} ${f.filename} ${f.previous_filename || ''}\n${
+  return data.files.filter((f) => !POINTER.test(f.patch || '')).map((f) => `${f.status} ${f.filename} ${f.previous_filename || ''}\n${
     f.patch == null ? `blob ${f.sha}` : f.patch.replace(/^@@[^@]*@@/gm, '@@')}`).sort().join('\n');
 }
 

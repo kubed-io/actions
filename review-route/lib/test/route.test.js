@@ -123,6 +123,17 @@ test('merging the base in keeps the last verdict', async () => {
   assert.equal(t.core.outputs.number, '');
 });
 
+test("a branch update that only moves the docs pointer keeps the last verdict", async () => {
+  const code = { status: 'modified', filename: 'AGENTS.md', patch: '@@ -9 +9 @@\n+same' };
+  const docs = (sha) => ({ status: 'modified', filename: 'docs', patch: `@@ -1 +1 @@\n-Subproject commit ${'1'.repeat(40)}\n+Subproject commit ${sha.repeat(40)}` });
+  const t = setup({
+    statuses: { [A]: [mine('success', 'looks good')] },
+    routes: { 'repos.compareCommitsWithBasehead': (p) => ({ files: [code, docs(p.basehead.endsWith(A) ? 'a' : 'b')] }) },
+  });
+  await t.go();
+  assert.deepEqual(t.posted(), ['success: no changes since aaaaaaa: looks good']);
+});
+
 test("applying a passing review's own suggestion keeps the pass", async () => {
   const t = setup({
     statuses: { [A]: [mine('success', 'looks good')] },
