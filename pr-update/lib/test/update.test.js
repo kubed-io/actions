@@ -7,7 +7,9 @@ const pr = require('../update');
 const fake = require('../../../git/lib/test/fake');
 
 const WIKI = 'https://github.com/kubed-io/x.wiki.git';
-const REJECTED = (why) => ` ! [rejected]        HEAD -> issue-5 (${why})\nerror: failed to push some refs to 'https://github.com/kubed-io/x.git'\n`;
+// a `git diff-tree -r -z` row
+const diff = (was, mode, sha, status, p) => `:${was} ${mode} ${'0'.repeat(7)} ${sha} ${status}\0${p}\0`;
+const POINTER = diff('160000', '160000', 'wikihead', 'M', 'docs');
 
 // a stage line of `git ls-files -u -z`
 const stage = (mode, sha, n, p) => `${mode} ${sha} ${n}\t${p}`;
@@ -46,19 +48,29 @@ function conflicted(conflicts, over = {}) {
       return [1, ''];
     },
     'merge-base --is-ancestor': [0, ''],
+    'rev-parse refs/remotes/origin/main': 'base5\n',
+    'rev-parse head5^{tree}': 'htree\n',
+    'write-tree': 'tree5\n',
+    'diff-tree': POINTER,
+    'rev-parse --verify --quiet refs/remotes/origin/main:': 'onbase\n',
     ...over,
   };
 }
 
 const PR5 = { number: 5, head: { ref: 'issue-5', sha: 'head5', repo: { full_name: 'kubed-io/x' } } };
 
-function setup({ prs = [PR5], behind = 1, updateBranch = {}, routes = {}, files = {} } = {}) {
+function setup({ prs = [PR5], behind = 1, updateBranch = {}, routes = {}, files = {}, api = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-update-'));
   for (const [f, text] of Object.entries(files)) fs.writeFileSync(path.join(root, f), text);
   const github = fake.github({
     'pulls.list': prs,
     'repos.compareCommitsWithBasehead': { behind_by: behind },
     'pulls.updateBranch': updateBranch,
+    'git.createBlob': { sha: 'sent' },
+    'git.createTree': { sha: 'tree5' },
+    'git.createCommit': { sha: 'merge5' },
+    'git.updateRef': {},
+    ...api,
   });
   github.paginate = async (fn, params) => (await fn(params)).data;
   const exec = git(routes);
@@ -91,8 +103,36 @@ test("a docs pointer conflict moves the pointer to the wiki's head, which holds 
   assert.ok(ran(t, `fetch --no-tags --quiet ${WIKI} HEAD`).length);
   assert.deepEqual(ran(t, 'merge-base --is-ancestor').slice(1), ['merge-base --is-ancestor a11ce wikihead', 'merge-base --is-ancestor b0b wikihead']);
   assert.deepEqual(ran(t, 'update-index'), ['update-index --cacheinfo 160000,wikihead,docs']);
-  assert.deepEqual(ran(t, 'commit'), ["commit --quiet --no-verify -m Merge main into issue-5: the docs pointer at the wiki's head"]);
-  assert.deepEqual(ran(t, 'push'), ['push origin HEAD:refs/heads/issue-5']);
+  // the commit is GitHub's, so it is signed: nothing is committed or pushed from the checkout
+  assert.deepEqual([...ran(t, 'commit'), ...ran(t, 'push')], []);
+  assert.deepEqual(called(t, 'git.createTree')[0].params, { owner: 'kubed-io', repo: 'x', base_tree: 'htree',
+    tree: [{ path: 'docs', mode: '160000', type: 'commit', sha: 'wikihead' }] });
+  assert.deepEqual(called(t, 'git.createCommit')[0].params, { owner: 'kubed-io', repo: 'x',
+    message: "Merge main into issue-5: the docs pointer at the wiki's head", tree: 'tree5', parents: ['head5', 'base5'] });
+  assert.deepEqual(called(t, 'git.updateRef')[0].params, { owner: 'kubed-io', repo: 'x', ref: 'heads/issue-5', sha: 'merge5', force: false });
+  assert.deepEqual(called(t, 'git.createBlob'), []);
+});
+
+test("a blob the base has is named, not sent; one only the merge made is sent; a deleted path goes", async () => {
+  const rows = POINTER + diff('100644', '100644', 'onbase', 'M', 'src/base.py') + diff('100644', '100644', 'merged', 'M', 'src/both.py')
+    + diff('100644', '000000', '0000000', 'D', 'old.txt');
+  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { 'diff-tree': rows }), files: {} });
+  fs.mkdirSync(path.join(t.root, 'src'));
+  fs.writeFileSync(path.join(t.root, 'src', 'both.py'), 'merged\n');
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'merged & resolved: pointer' }]);
+  assert.deepEqual(called(t, 'git.createBlob').map((c) => c.params.content), [Buffer.from('merged\n').toString('base64')]);
+  assert.deepEqual(called(t, 'git.createTree')[0].params.tree, [
+    { path: 'docs', mode: '160000', type: 'commit', sha: 'wikihead' },
+    { path: 'src/base.py', mode: '100644', type: 'blob', sha: 'onbase' },
+    { path: 'src/both.py', mode: '100644', type: 'blob', sha: 'sent' },
+    { path: 'old.txt', mode: '100644', type: 'blob', sha: null },
+  ]);
+});
+
+test("a tree GitHub builds differently from the merge's is the PR's failure, and no commit is made", async () => {
+  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS), api: { 'git.createTree': { sha: 'other' } } });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: "failed: the tree GitHub built (other) is not the merge's (tree5)" }]);
+  assert.deepEqual(called(t, 'git.createCommit'), []);
 });
 
 test("a pointer side the wiki's head does not hold is left for the PR's agent, and nothing is pushed", async () => {
@@ -102,8 +142,7 @@ test("a pointer side the wiki's head does not hold is left for the PR's agent, a
     client_payload: { pull_request: 5, reason: 'conflict', base: 'main', paths: 'docs' } }]);
   assert.deepEqual(ran(t, 'update-index'), []);
   assert.deepEqual(ran(t, 'merge --abort'), ['merge --abort']);
-  assert.deepEqual(ran(t, 'commit'), []);
-  assert.deepEqual(ran(t, 'push'), []);
+  assert.deepEqual(called(t, 'git.createCommit'), []);
 });
 
 const CHANGELOG = [
@@ -115,7 +154,7 @@ const CHANGELOG = [
 ].join('\n');
 
 test("the changelog's conflict hunks keep the base's lines, then the PR's; the rest of the file is untouched", async () => {
-  const t = setup({ updateBranch: refused(), routes: conflicted([...DOCS, ...LOG]), files: { 'CHANGELOG.md': CHANGELOG } });
+  const t = setup({ updateBranch: refused(), routes: conflicted([...DOCS, ...LOG], { 'diff-tree': POINTER + diff('100644', '100644', 'u1', 'M', 'CHANGELOG.md') }), files: { 'CHANGELOG.md': CHANGELOG } });
   assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'merged & resolved: pointer, changelog' }]);
   assert.equal(fs.readFileSync(path.join(t.root, 'CHANGELOG.md'), 'utf8'), [
     '# Changelog', '', '## [Unreleased]', '', '### Added', '',
@@ -125,7 +164,9 @@ test("the changelog's conflict hunks keep the base's lines, then the PR's; the r
     '', '## [1.0.0]', '', '- untouched', '',
   ].join('\n'));
   assert.deepEqual(ran(t, 'add'), ['add -- CHANGELOG.md']);
-  assert.match(ran(t, 'commit')[0], /: the docs pointer at the wiki's head; CHANGELOG\.md's entries from both$/);
+  assert.match(called(t, 'git.createCommit')[0].params.message, /: the docs pointer at the wiki's head; CHANGELOG\.md's entries from both$/);
+  // the union is the merge's own blob: sent, as the file the checkout holds
+  assert.equal(Buffer.from(called(t, 'git.createBlob')[0].params.content, 'base64').toString(), fs.readFileSync(path.join(t.root, 'CHANGELOG.md'), 'utf8'));
 });
 
 test('a hunk cut off, or no hunk at all, is no union', () => {
@@ -138,7 +179,7 @@ test("any other conflict aborts the merge: the PR's agent's, named, even beside 
   assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: src/x.py (dispatched)' }]);
   assert.equal(called(t, 'repos.createDispatchEvent')[0].params.client_payload.paths, 'src/x.py');
   assert.deepEqual(ran(t, 'merge --abort'), ['merge --abort']);
-  assert.deepEqual(ran(t, 'push'), []);
+  assert.deepEqual(called(t, 'git.createCommit'), []);
 });
 
 test("a conflict on a PR that is not an agent's (another head prefix) is only its row: nothing is dispatched", async () => {
@@ -148,12 +189,11 @@ test("a conflict on a PR that is not an agent's (another head prefix) is only it
   assert.deepEqual(called(t, 'repos.createDispatchEvent'), []);
 });
 
-test('a push refused because the agent committed meanwhile is moved, for the next merge', async () => {
-  for (const why of ['fetch first', 'non-fast-forward']) {
-    const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { push: [1, '', REJECTED(why)] }) });
-    assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'moved during the update; next merge retries' }]);
-    assert.deepEqual(ran(t, 'push'), ['push origin HEAD:refs/heads/issue-5']);
-  }
+test('a branch the agent committed to meanwhile is not a fast-forward: it is moved, for the next merge', async () => {
+  const notFF = Object.assign(new Error('Update is not a fast forward'), { status: 422 });
+  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS), api: { 'git.updateRef': notFF } });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'moved during the update; next merge retries' }]);
+  assert.equal(called(t, 'git.updateRef')[0].params.force, false);
 });
 
 test("one PR's failure is its row; the others are still updated, and a fork's PR is not touched", async () => {

@@ -14,7 +14,7 @@ For every open PR whose base is `base` and whose head is in this repository:
 | GitHub's update-branch, from the head it was at, takes | `updated` |
 | Else the base is merged into the head in the checkout, and resolves | `merged`, or `merged & resolved: pointer, changelog` |
 | A conflict it does not resolve | `needs its agent: <paths>`, the merge aborted; ` (dispatched)` when the head is an agent's |
-| The branch moved before the push (the agent committed) | `moved during the update; next merge retries` |
+| The branch moved before the update (the agent committed) | `moved during the update; next merge retries` |
 | Anything else that went wrong for that PR | `failed: <why>` |
 
 What the merge resolves:
@@ -28,9 +28,11 @@ What the merge resolves:
 Any other conflicted path is the PR's agent's. When the head starts with `prefix`
 (`issue-` by default; empty turns it off), the agent is told: an `agent-code` dispatch,
 `{pull_request, reason: conflict, base, paths}`, which pr-route makes a code turn that
-names the base and the paths. The merge commit is the App's bot's
-(`<slug>[bot]`, its noreply address), its message saying what was resolved, and it is
-pushed with the App's token, never forced, so the PR's workflows run on it. The summary is
+names the base and the paths. The merge commit is made through the API with the App's
+token, its message saying what was resolved: GitHub signs it, so a ruleset that wants
+changes attributed asks no extra approval, and the PR's workflows run on it. The merged
+tree is rebuilt on the head's there, sending only the blobs the base lacks. The branch
+moves to it, never forced. The summary is
 a table of every PR and its result, and `results` the same as JSON. Only a setup error (no
 token, no checkout) fails the step.
 
@@ -67,7 +69,7 @@ n8n trusts the App's pushes like the agent's own landing commit: one into a live
 delivered to it, one on a draft in its code stage with no live turn dispatches a next-task
 turn.
 
-A main that changed workflow files may need the App's `workflows` permission for the push;
+A main that changed workflow files may need the App's `workflows` permission for the update;
 without it that PR is `failed`.
 
 | Input | Default | |

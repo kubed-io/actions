@@ -4,14 +4,12 @@
 // submodule pointer (the docs wiki) moves to its remote's head when that head holds both
 // sides, and the changelog's conflict hunks keep the base's lines, then the PR's. Any other
 // conflict is the PR's agent's, and an agent's PR (head `prefix*`) is handed to it as the
-// `agent-code` dispatch (reason `conflict`), naming the paths. The merge is pushed as the App,
-// never forced: a push the branch moved under is retried by the next merge.
+// `agent-code` dispatch (reason `conflict`), naming the paths. The merge commit is made
+// through the API as the App, so GitHub signs it, and the branch moves to it, never forced:
+// a branch that moved under it is retried by the next merge.
 
 const fs = require('fs');
 const path = require('path');
-
-// a push refused because the branch is ahead of what was merged
-const MOVED = /\((fetch first|non-fast-forward)\)/;
 
 async function git(exec, root, args, { env, ok = false } = {}) {
   const r = await exec.getExecOutput('git', ['-C', root, ...args], { silent: true, ignoreReturnCode: true, env });
@@ -27,14 +25,6 @@ function authEnv(core, token, server = 'https://github.com') {
   core.setSecret(header);
   const key = `http.${server}/.extraheader`;
   return { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: key, GIT_CONFIG_VALUE_0: '', GIT_CONFIG_KEY_1: key, GIT_CONFIG_VALUE_1: header };
-}
-
-// the bot's git identity: `<slug>[bot]` and its noreply address, which needs its user id
-async function identity(github, slug) {
-  const login = `${slug}[bot]`;
-  const { data } = await github.rest.users.getByUsername({ username: login });
-  const email = `${data.id}+${login}@users.noreply.github.com`;
-  return { GIT_AUTHOR_NAME: login, GIT_COMMITTER_NAME: login, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_EMAIL: email };
 }
 
 // `git ls-files -u -z`: each conflicted path and its stages (1 the merge base, 2 ours, 3 theirs)
@@ -136,6 +126,57 @@ async function resolveChangelog({ exec, root, env, conflict }) {
   return true;
 }
 
+// `git diff-tree -r -z` between two trees: each changed path, its new mode and object
+// (null when it went), and the mode it had
+function changes(out) {
+  const parts = out.split('\0');
+  const rows = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) {
+    const m = /^:(\d{6}) (\d{6}) \S+ (\S+) ([A-Z])/.exec(parts[i]);
+    if (m) rows.push({ path: parts[i + 1], was: m[1], mode: m[2], sha: m[4] === 'D' ? null : m[3] });
+  }
+  return rows;
+}
+
+// The merge in the index, as a commit GitHub signs. One pushed from here would carry no
+// signature, and a ruleset that wants every change attributed then holds the PR for an
+// extra approval (seen 2026-11-13 on selenium-flow#120). So the tree is rebuilt there on
+// the head's: a blob the base has is on GitHub already, any other (a changelog union, a
+// clean three-way merge) is sent; a pointer is just its commit. The branch then moves to
+// the commit, never forced. 'moved' when it moved meanwhile.
+async function signedMerge({ github, exec, root, env, owner, repo, base, branch, head, message }) {
+  const tree = (await git(exec, root, ['write-tree'], { env })).out.trim();
+  const headTree = (await git(exec, root, ['rev-parse', `${head}^{tree}`], { env })).out.trim();
+  const baseSha = (await git(exec, root, ['rev-parse', `refs/remotes/origin/${base}`], { env })).out.trim();
+  const entries = [];
+  for (const c of changes((await git(exec, root, ['diff-tree', '-r', '-z', '--no-renames', headTree, tree], { env })).out)) {
+    const mode = c.sha === null ? c.was : c.mode;
+    const type = mode === '160000' ? 'commit' : 'blob';
+    let sha = c.sha;
+    if (sha && type === 'blob') {
+      const onBase = (await git(exec, root, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${base}:${c.path}`], { env, ok: true })).out.trim();
+      if (onBase !== sha) {
+        const file = path.join(root, c.path);
+        const body = mode === '120000' ? Buffer.from(fs.readlinkSync(file)) : fs.readFileSync(file);
+        ({ data: { sha } } = await github.rest.git.createBlob({ owner, repo, content: body.toString('base64'), encoding: 'base64' }));
+      }
+    }
+    entries.push({ path: c.path, mode, type, sha });
+  }
+  if (entries.length) {
+    const { data: made } = await github.rest.git.createTree({ owner, repo, base_tree: headTree, tree: entries });
+    if (made.sha !== tree) throw new Error(`the tree GitHub built (${made.sha}) is not the merge's (${tree})`);
+  }
+  const { data: commit } = await github.rest.git.createCommit({ owner, repo, message, tree, parents: [head, baseSha] });
+  try {
+    await github.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: commit.sha, force: false });
+  } catch (e) {
+    if (e.status === 422) return 'moved';
+    throw e;
+  }
+  return 'pushed';
+}
+
 // the merge commit's message: what was resolved
 function messageOf({ base, branch, links, changelog }) {
   const done = [];
@@ -198,13 +239,10 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
     return { ...row, result: `${result} (dispatched)` };
   }
 
-  await git(exec, root, ['commit', '--quiet', '--no-verify', '-m', messageOf({ base, branch, links, changelog: resolvedChangelog })], { env });
+  const message = messageOf({ base, branch, links, changelog: resolvedChangelog });
+  const done = await signedMerge({ github, exec, root, env, owner, repo, base, branch, head, message });
   // never forced: a branch that moved meanwhile keeps its new commits
-  const push = await git(exec, root, ['push', 'origin', `HEAD:refs/heads/${branch}`], { env, ok: true });
-  if (push.code) {
-    if (MOVED.test(push.err)) return { ...row, result: 'moved during the update; next merge retries' };
-    throw new Error(`the push failed: ${push.err.trim() || `exit ${push.code}`}`);
-  }
+  if (done === 'moved') return { ...row, result: 'moved during the update; next merge retries' };
   const resolved = [...(links.length ? ['pointer'] : []), ...(resolvedChangelog ? ['changelog'] : [])];
   return { ...row, result: resolved.length ? `merged & resolved: ${resolved.join(', ')}` : 'merged' };
 }
@@ -246,16 +284,15 @@ function table(base, rows) {
 async function run({ github, context, core, exec }) {
   const env = process.env;
   if (!env.TOKEN) throw new Error('no token: the App token was not minted');
-  if (!env.APP_SLUG) throw new Error("no app slug: the App's bot commits the merges");
   const base = env.BASE || env.GITHUB_REF_NAME;
   if (!base) throw new Error('no base branch');
   const top = await git(exec, env.GITHUB_WORKSPACE || process.cwd(), ['rev-parse', '--show-toplevel'], { ok: true });
   if (top.code) throw new Error('no checkout: run actions/checkout first');
-  const gitEnv = { ...env, ...authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL), ...(await identity(github, env.APP_SLUG)) };
+  const gitEnv = { ...env, ...authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL) };
   const { owner, repo } = context.repo;
   const rows = await update({ github, core, exec, owner, repo, base, root: top.out.trim(), changelog: env.CHANGELOG || 'CHANGELOG.md', prefix: env.PREFIX ?? 'issue-', env: gitEnv });
   core.setOutput('results', JSON.stringify(rows));
   await core.summary.addRaw(table(base, rows)).write();
 }
 
-module.exports = { run, update, unionHunks, unmerged, messageOf, table, authEnv };
+module.exports = { run, update, unionHunks, unmerged, changes, messageOf, table, authEnv };

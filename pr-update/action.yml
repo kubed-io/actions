@@ -4,9 +4,10 @@ description: >
   first, else the base merged in the checkout, where a submodule pointer (the docs wiki)
   moves to its remote's head when that head holds both sides and the changelog's conflict
   hunks keep both sides' lines. Any other conflict is left for the PR's agent, and an agent's
-  PR is sent the `agent-code` dispatch (reason `conflict`) that says so. Pushes as the
-  App, never forced, so the PRs' workflows run. One PR's trouble is its row in the summary;
-  only a setup error fails the step.
+  PR is sent the `agent-code` dispatch (reason `conflict`) that says so. The merge commit is
+  made through the API as the App, so GitHub signs it and the PRs' workflows run, and the
+  branch moves to it, never forced. One PR's trouble is its row in the summary; only a setup
+  error fails the step.
 
 inputs:
   client-id:
@@ -54,7 +55,6 @@ runs:
     uses: actions/github-script@v9
     env:
       TOKEN: ${{ steps.app.outputs.token }}
-      APP_SLUG: ${{ steps.app.outputs.app-slug }}
       BASE: ${{ inputs.base }}
       CHANGELOG: ${{ inputs.changelog }}
       PREFIX: ${{ inputs.prefix }}
