@@ -127,7 +127,7 @@ test("agent-route: Copilot's review on a draft, before the approval, or one sayi
   const base = { ...routed({ actor: COPILOT, action: 'edited' }), draft: false, review: { user: { id: COPILOT } } };
   assert.equal((await outcome(setup({ ...base, draft: true })))[0], 'none');
   assert.equal((await outcome(setup({ ...base, approved: false })))[0], 'none');
-  for (const body of ['Copilot encountered an error and was unable to review this pull request.', "Copilot wasn't able to review any files in this pull request."]) {
+  for (const body of ['Copilot encountered an error and was unable to review this pull request.', "Copilot wasn't able to review any files in this pull request.", 'Copilot was unable to review this pull request because the user who requested the review has insufficient remaining quota.']) {
     assert.equal((await outcome(setup({ ...base, review: { user: { id: COPILOT }, body } })))[0], 'none');
   }
 });

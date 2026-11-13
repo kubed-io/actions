@@ -24,7 +24,8 @@ const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 
 // a review that says Copilot could not review (a cancelled or failed run, nothing it could
 // read): nothing to answer
-const failedReview = (review) => /^(?:<!--[\s\S]*?-->\s*)?Copilot (?:encountered an error|wasn't able to review)/.test(review?.body || '');
+// (seen 2026-11-13: "was unable to review … insufficient remaining quota", which woke a code turn)
+const failedReview = (review) => /^(?:<!--[\s\S]*?-->\s*)?Copilot (?:encountered an error|wasn't able to review|was unable to review)/.test(review?.body || '');
 
 const FINISHED = /^Agent: done$/m;
 
