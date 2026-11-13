@@ -85,10 +85,12 @@ commit and the working tree is left as it was, so changes it did not select stay
   the files. One in `submodules` with changes inside it (a wiki, which has no commit API)
   gets that commit here first: committed on its branch (`.gitmodules`' `branch`, else
   `master`) as the App's bot, rebased onto the remote head (a file both changed takes this
-  commit's version) and pushed with git. A submodule not listed is never pushed. That
-  commit goes through the Git Data API (blobs, a tree, a commit, a fast-forward of the
-  branch), because `createCommitOnBranch` cannot write a gitlink; without one it is used
-  as before.
+  commit's version) and pushed with git. A push refused because the branch moved again
+  meanwhile is fetched, rebased and pushed again, up to 3 tries a second or few apart; any
+  other failure, or a third refusal, fails the commit (and `keep_to` keeps it). A submodule
+  not listed is never pushed. That commit goes through the Git Data API (blobs, a tree, a
+  commit, a fast-forward of the branch), because `createCommitOnBranch` cannot write a
+  gitlink; without one it is used as before.
 - Other submodule changes cannot be committed from here: edits inside a submodule not in
   `submodules`, a pointer with no new commit, a deleted gitlink. Swept up by "every change", they are
   left out with a warning naming them; named in `files`, they fail.
