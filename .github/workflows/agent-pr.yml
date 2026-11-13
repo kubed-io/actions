@@ -215,7 +215,8 @@ jobs:
     concurrency:
       group: agent-pr-${{ needs.route.outputs.number }}
       cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
-    # the App token below lasts an hour; a turn past it cannot land (selenium-flow#104)
+    # past the App token's hour: what follows the turn is on a token minted after it
+    # (selenium-flow#104)
     timeout-minutes: 120
     permissions:
       issues: read
@@ -345,6 +346,25 @@ jobs:
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot],41898282,github-actions
         session_key: pr-${{ needs.route.outputs.number }}
         live_messages: true
+        # its steps after the turn post on a token minted as it ends
+        app_client_id: ${{ vars.GH_CLIENT_ID }}
+        app_private_key: ${{ secrets.GH_APP_KEY }}
+
+    # the turn may have outlasted the App token's hour: the commit, the ready mark, the answer
+    # and the rerun are on a fresh one. A failed mint leaves them on the first
+    - name: Fresh App Token
+      if: steps.still.outputs.stage == 'code'
+      id: fresh
+      continue-on-error: true
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+        # pr-checks/rerun
+        permission-actions: write
 
     # the turn's work, one signed commit. The run that finishes the plan says `Agent: done` on
     # it, so its push wakes nothing
@@ -355,7 +375,7 @@ jobs:
       continue-on-error: true
       uses: kubed-io/actions/git/commit@main
       with:
-        token: ${{ steps.app.outputs.token }}
+        token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
         message: ${{ fromJSON(steps.agent.outputs.output).commit_message }}
         trailers: "${{ fromJSON(steps.agent.outputs.output).done == true && 'Agent: done' || '' }}"
@@ -375,7 +395,7 @@ jobs:
         fromJSON(steps.agent.outputs.output || '{}').done == true
       uses: kubed-io/actions/git/pr@main
       with:
-        token: ${{ steps.app.outputs.token }}
+        token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
         branch: ${{ needs.route.outputs.head }}
         draft: false
 
@@ -383,7 +403,7 @@ jobs:
       if: steps.comment.outputs.comment_id != ''
       uses: kubed-io/actions/comment/end@main
       with:
-        github_token: ${{ steps.app.outputs.token }}
+        github_token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
         append: ${{ steps.commit.outputs.summary }}
@@ -398,7 +418,7 @@ jobs:
       if: steps.still.outputs.stage == 'code' && needs.route.outputs.run_id != '' && fromJSON(steps.agent.outputs.output || '{}').rerun == true
       uses: kubed-io/actions/pr-checks/rerun@main
       with:
-        github_token: ${{ steps.app.outputs.token }}
+        github_token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
         run_id: ${{ needs.route.outputs.run_id }}
 
     # the plan built: the fix rounds that follow carry its summary, not every step of it

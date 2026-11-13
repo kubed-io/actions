@@ -11,6 +11,17 @@ inputs:
   github_token:
     description: Token for the thread (issues, pull requests). The App's, so what it posts wakes workflows.
     required: true
+  app_client_id:
+    description: >
+      With app_private_key, the App's client id: a fresh App token is minted as the turn ends,
+      for the steps after it, so a turn past github_token's hour can still post. Empty: every
+      step uses github_token.
+    required: false
+    default: ""
+  app_private_key:
+    description: The App's private key, for the token minted as the turn ends. Never reaches the turn.
+    required: false
+    default: ""
   number:
     description: The issue or PR; defaults to the event's. Only for a run started off the thread.
     required: false
@@ -301,6 +312,21 @@ runs:
         ${{ steps.setup.outputs.args }}
         ${{ inputs.claude_args }}
 
+  # An App token lasts an hour, and a turn may run longer: the steps after it post on a fresh
+  # one, minted only now so the turn never has it within reach. A failed mint leaves them on
+  # github_token; a failed or cancelled turn still gets one, for the failure report
+  - name: Fresh Token
+    id: fresh
+    if: always() && inputs.app_private_key != '' && steps.gather.outputs.prompt != ''
+    continue-on-error: true
+    uses: actions/create-github-app-token@v3
+    with:
+      client-id: ${{ inputs.app_client_id }}
+      private-key: ${{ inputs.app_private_key }}
+      permission-contents: read
+      permission-issues: write
+      permission-pull-requests: write
+
   - name: Read the Reply
     id: read
     if: steps.gather.outputs.prompt != ''
@@ -318,7 +344,7 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/notes.js`).run({ github, context, core });
 
@@ -329,7 +355,7 @@ runs:
       NUMBER: ${{ steps.gather.outputs.number }}
       STRUCTURED_FILE: ${{ steps.read.outputs.structured_file }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/threads.js`).run({ github, context, core });
 
@@ -344,7 +370,7 @@ runs:
       DIFF_FILE: ${{ github.workspace }}/${{ inputs.scratch_dir }}/diff.json
       HEAD_SHA: ${{ steps.gather.outputs.head_sha }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/review.js`).run({ github, context, core, exec });
 
@@ -371,7 +397,7 @@ runs:
       BLOB: ${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.gather.outputs.head }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
 
@@ -397,7 +423,7 @@ runs:
       BLOB: ${{ github.server_url }}/${{ github.repository }}/blob/${{ steps.gather.outputs.head }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
 
@@ -413,7 +439,7 @@ runs:
       PROMPT: ${{ inputs.prompt_when == 'always' && inputs.prompt || '' }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ job.check_run_id && format('/job/{0}', job.check_run_id) || '' }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
 
@@ -427,7 +453,7 @@ runs:
       NUMBER: ${{ inputs.number || github.event.issue.number || github.event.pull_request.number }}
       COMMENT_ID: ${{ inputs.comment_id }}
     with:
-      github-token: ${{ inputs.github_token }}
+      github-token: ${{ steps.fresh.outputs.token || inputs.github_token }}
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/comment.js`).run({ github, context, core });
 

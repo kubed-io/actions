@@ -75,6 +75,7 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 | Input | Default | Description |
 |---|---|---|
 | `github_token` | required | Thread I/O; the App's, so what it posts wakes workflows |
+| `app_client_id`, `app_private_key` | `""` | The App's: the steps after the turn post on a token minted as it ends, for a turn past `github_token`'s hour |
 | `number` | the event's | For a run started off the thread |
 | `agent` | `""` | A Claude Code agent file, or a name Claude Code knows |
 | `schema` | `""` | The role's output schema, inline or a path; becomes `output` |
