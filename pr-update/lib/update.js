@@ -2,7 +2,8 @@
 // R-L9). GitHub's update-branch first; when it refuses (a conflict, or the head moved), the
 // base is merged in a checkout and the two conflicts every agent PR has are resolved: a
 // submodule pointer (the docs wiki) moves to its remote's head when that head holds both
-// sides, and the changelog's conflict hunks keep the base's lines, then the PR's. Any other
+// sides, else to a merge of the two pushed to the PR's own wiki branch, and the changelog's
+// conflict hunks keep the base's lines, then the PR's. Any other
 // conflict is the PR's agent's, and an agent's PR (head `prefix*`) is handed to it as the
 // `agent-code` dispatch (reason `conflict`), naming the paths. The merge commit is made
 // through the API as the App, so GitHub signs it, and the branch moves to it, never forced:
@@ -106,16 +107,42 @@ async function remoteHead({ exec, root, env, sub, heads }) {
   return heads.get(key);
 }
 
-// a pointer both sides moved: to the remote's head when it holds both, else left conflicted
-async function resolveLink({ exec, root, env, conflict, heads }) {
+// a pointer both sides moved: to the remote's head when it holds both ('head'), else to a merge
+// of the two made on the PR's own wiki branch ('merge', wikiMerge), else left conflicted (false)
+async function resolveLink({ exec, root, env, conflict, heads, branch }) {
   const head = await remoteHead({ exec, root, env, sub: conflict.path, heads });
-  if (!head) return false;
-  for (const side of [conflict.stages[2].sha, conflict.stages[3].sha]) {
+  let holds = Boolean(head);
+  for (const side of holds ? [conflict.stages[2].sha, conflict.stages[3].sha] : []) {
     const { code } = await git(exec, root, ['merge-base', '--is-ancestor', side, head], { env, ok: true });
-    if (code) return false;
+    if (code) holds = false;
   }
-  await git(exec, root, ['update-index', '--cacheinfo', `160000,${head},${conflict.path}`], { env });
-  return true;
+  const to = holds ? head : await wikiMerge({ exec, root, env, conflict, branch });
+  if (!to) return false;
+  await git(exec, root, ['update-index', '--cacheinfo', `160000,${to},${conflict.path}`], { env });
+  return holds ? 'head' : 'merge';
+}
+
+// The two sides' wiki commits merged, the PR's side taking a file both changed, and pushed to
+// the PR's own wiki branch: git/commit puts a branch's wiki commits there, never on the
+// wiki's master (the public wiki, which only main's wiki.yml publishes), so master no longer
+// holds both sides. A generated page both sides changed may then be stale, which the PR's
+// checks say and its agent regenerates. The push is never forced: a wiki branch that moved
+// meanwhile leaves the pointer conflicted, for the agent. The commit or null.
+async function wikiMerge({ exec, root, env, conflict, branch }) {
+  const mod = await submoduleOf(exec, root, conflict.path);
+  if (!mod || !branch) return null;
+  const ours = conflict.stages[2].sha;
+  const theirs = conflict.stages[3].sha;
+  if ((await git(exec, root, ['fetch', '--no-tags', '--quiet', mod.url, ours, theirs], { env, ok: true })).code) return null;
+  const tree = await git(exec, root, ['merge-tree', '--write-tree', '-X', 'ours', ours, theirs], { env, ok: true });
+  const treeSha = tree.out.split('\n')[0].trim();
+  if (tree.code || !treeSha) return null;
+  const made = await git(exec, root, [...IDENTITY, 'commit-tree', treeSha, '-p', ours, '-p', theirs,
+    '-m', `Merge the base's wiki into ${branch}`], { env, ok: true });
+  const commit = made.out.trim();
+  if (made.code || !commit) return null;
+  if ((await git(exec, root, ['push', '--quiet', mod.url, `${commit}:refs/heads/${branch}`], { env, ok: true })).code) return null;
+  return commit;
 }
 
 async function resolveChangelog({ exec, root, env, conflict }) {
@@ -182,8 +209,9 @@ async function signedMerge({ github, exec, root, env, owner, repo, base, branch,
 // the merge commit's message: what was resolved
 function messageOf({ base, branch, links, changelog }) {
   const done = [];
-  if (links.length === 1) done.push(`the ${links[0]} pointer at the wiki's head`);
-  if (links.length > 1) done.push(`the ${links.join(', ')} pointers at their heads`);
+  const at = (l) => (l.via === 'merge' ? 'at a merge of both sides\' wiki' : 'at the wiki\'s head');
+  if (links.length === 1) done.push(`the ${links[0].path} pointer ${at(links[0])}`);
+  if (links.length > 1) done.push(`the ${links.map((l) => l.path).join(', ')} pointers ${links.every((l) => l.via === 'head') ? 'at their heads' : 'at their merges'}`);
   if (changelog) done.push(`${changelog}'s entries from both`);
   return `Merge ${base} into ${branch}${done.length ? `: ${done.join('; ')}` : ''}`;
 }
@@ -229,7 +257,8 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   let resolvedChangelog = '';
   const left = [];
   for (const conflict of unmerged((await git(exec, root, ['ls-files', '-u', '-z'], { env })).out)) {
-    if (isLink(conflict.stages) && await resolveLink({ exec, root, env, conflict, heads })) links.push(conflict.path);
+    const via = isLink(conflict.stages) && await resolveLink({ exec, root, env, conflict, heads, branch });
+    if (via) links.push({ path: conflict.path, via });
     else if (conflict.path === changelog && isText(conflict.stages) && await resolveChangelog({ exec, root, env, conflict })) resolvedChangelog = changelog;
     else left.push(conflict.path);
   }

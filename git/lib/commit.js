@@ -310,7 +310,11 @@ async function commit({ github, context, core, exec }) {
   const ignoring = env.IGNORE ? matcher(lines(env.IGNORE)) : () => false;
   const subs = lines(env.SUBMODULES).map((p) => p.replace(/^\.\//, '').replace(/\/+$/, '')).filter((p) => reach(p) && !ignoring(p));
   if (subs.length) {
-    await submodules.push({ github, core, exec, root, subs, message, author: env.AUTHOR, auth: authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL) });
+    // the event names the default branch; a lookup that fails leaves it unknown, and then
+    // the wiki commit goes where it always did
+    const defaultBranch = context.payload?.repository?.default_branch
+      || (await github.rest.repos.get({ owner, repo }).catch(() => null))?.data?.default_branch;
+    await submodules.push({ github, core, exec, root, subs, message, author: env.AUTHOR, auth: authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL), target: branch, defaultBranch });
   }
 
   const changes = parseStatus(await git(exec, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));

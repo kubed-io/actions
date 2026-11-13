@@ -9,7 +9,7 @@ const fake = require('./fake');
 const REJECTED = (why) => ` ! [rejected]        HEAD -> master (${why})\nerror: failed to push some refs to 'https://github.com/kubed-io/x.wiki.git'\n`;
 
 // a checkout with a wiki changed inside it; `pushes` are what each push answers, in turn
-function setup(pushes) {
+function setup(pushes, { target, defaultBranch, fetchFails = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'git-submodule-'));
   fs.mkdirSync(path.join(root, 'wiki'));
   fs.writeFileSync(path.join(root, 'wiki/.git'), 'gitdir: x');
@@ -20,6 +20,7 @@ function setup(pushes) {
       const line = args.slice(2).join(' ');
       calls.push(line);
       if (line.startsWith('status')) return { exitCode: 0, stdout: ' M Home.md\n', stderr: '' };
+      if (line.startsWith('fetch') && fetchFails) return { exitCode: 128, stdout: '', stderr: "fatal: couldn't find remote ref issue-137\n" };
       if (line.startsWith('push')) {
         const [exitCode, stderr] = pushes.shift() || [0, ''];
         return { exitCode, stdout: '', stderr };
@@ -30,7 +31,7 @@ function setup(pushes) {
   const waits = [];
   const go = () => submodule.push({
     github: fake.github({ 'users.getByUsername': { id: 235398881 } }), core: fake.core(), exec, root,
-    subs: ['wiki'], message: 'docs: x', author: 'kubed-io', auth: {}, wait: async (ms) => waits.push(ms),
+    subs: ['wiki'], message: 'docs: x', author: 'kubed-io', auth: {}, target, defaultBranch, wait: async (ms) => waits.push(ms),
   });
   return { exec, waits, go };
 }
@@ -67,4 +68,28 @@ test('a push that lands first time waits for nothing', async () => {
   assert.deepEqual(await t.go(), ['wiki']);
   assert.deepEqual(tries(t.exec.calls), ['fetch', 'rebase', 'push']);
   assert.deepEqual(t.waits, []);
+});
+
+// where each push went
+const pushedTo = (calls) => calls.filter((c) => c.startsWith('push')).map((c) => c.split(' ').pop());
+
+test("a branch's wiki commit goes to the wiki branch of the same name, never to master", async () => {
+  const t = setup([], { target: 'issue-137', defaultBranch: 'main' });
+  assert.deepEqual(await t.go(), ['wiki']);
+  assert.deepEqual(pushedTo(t.exec.calls), ['HEAD:refs/heads/issue-137']);
+  assert.ok(t.exec.calls.some((c) => c === 'fetch --no-tags origin issue-137'));
+  assert.ok(t.exec.calls.some((c) => c === 'checkout -B issue-137'));
+});
+
+test("the default branch's wiki commit goes to the wiki's master, as before", async () => {
+  const t = setup([], { target: 'main', defaultBranch: 'main' });
+  await t.go();
+  assert.deepEqual(pushedTo(t.exec.calls), ['HEAD:refs/heads/master']);
+});
+
+test("a branch's first wiki commit starts its wiki branch from the pin: nothing to rebase onto", async () => {
+  const t = setup([], { target: 'issue-137', defaultBranch: 'main', fetchFails: true });
+  assert.deepEqual(await t.go(), ['wiki']);
+  assert.deepEqual(tries(t.exec.calls), ['fetch', 'push']);
+  assert.deepEqual(pushedTo(t.exec.calls), ['HEAD:refs/heads/issue-137']);
 });

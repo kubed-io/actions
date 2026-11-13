@@ -83,9 +83,13 @@ commit and the working tree is left as it was, so changes it did not select stay
   delete plus an add. Files land as regular files: a symlink fails.
 - A submodule checked out at a new commit moves its pointer in the same commit, beside
   the files. One in `submodules` with changes inside it (a wiki, which has no commit API)
-  gets that commit here first: committed on its branch (`.gitmodules`' `branch`, else
-  `master`) as the App's bot, rebased onto the remote head (a file both changed takes this
-  commit's version) and pushed with git. A push refused because the branch moved again
+  gets that commit here first, as the App's bot. It goes to the submodule branch named
+  after the branch being committed to (`issue-137` for `issue-137`), never to the wiki's
+  `master`: that is the public wiki, and only the repository's own publish (main's
+  wiki.yml) writes it, so a branch's pages reach it by merging. A commit to the default
+  branch goes to `.gitmodules`' `branch`, else `master`. It is rebased onto that branch's
+  remote head when there is one (a file both changed takes this commit's version), else
+  starts the branch from the pin, and is pushed with git. A push refused because the branch moved again
   meanwhile is fetched, rebased and pushed again, up to 3 tries a second or few apart; any
   other failure, or a third refusal, fails the commit (and `keep_to` keeps it). A submodule
   not listed is never pushed. That commit goes through the Git Data API (blobs, a tree, a

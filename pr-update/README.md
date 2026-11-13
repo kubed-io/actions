@@ -2,9 +2,10 @@
 
 Brings every open PR on a branch up to date after a merge into it. Each agent PR moves the
 `docs` pointer (the wiki) to its own wiki commit and adds lines under the changelog's
-`## [Unreleased]`, so once one merges the others conflict there. Specs and plans are
-committed straight to the wiki's master, so its head holds every PR's wiki commits: the
-pointer conflict resolves to it (cluster spec 2026-11-12, R-L9).
+`## [Unreleased]`, so once one merges the others conflict there. Each PR's wiki commits
+are on the wiki branch named after it (git/commit), not the wiki's master, so the pointer
+conflict resolves to a merge of the two sides made on that branch (cluster spec 2026-11-12,
+R-L9; the wiki branches 2026-11-13).
 
 For every open PR whose base is `base` and whose head is in this repository:
 
@@ -21,7 +22,11 @@ What the merge resolves:
 
 - **A submodule pointer** both sides moved: its remote (`.gitmodules`' url, at its
   `branch` or the remote's default) is fetched into the repository, and when its head holds
-  both sides' commits the pointer moves to that head. Otherwise it stays conflicted.
+  both sides' commits the pointer moves to that head. Otherwise the two sides' commits are
+  merged (`merge-tree -X ours`: the PR's side takes a file both changed) and the merge is
+  pushed, never forced, to the PR's own wiki branch, and the pointer moves to it. A generated
+  page both changed may then be stale, which the PR's checks catch for its agent. A merge
+  that conflicts or a push that is refused leaves the pointer conflicted.
 - **The changelog**: each conflict hunk becomes the base's lines, then the PR's, a PR line
   identical to one of the base's kept once. Nothing outside the hunks changes.
 

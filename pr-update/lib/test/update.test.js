@@ -135,8 +135,33 @@ test("a tree GitHub builds differently from the merge's is the PR's failure, and
   assert.deepEqual(called(t, 'git.createCommit'), []);
 });
 
-test("a pointer side the wiki's head does not hold is left for the PR's agent, and nothing is pushed", async () => {
-  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { 'merge-base --is-ancestor b0b': [1, ''] }) });
+// the wiki's head holds only the PR's side: the base's is on its own wiki branch now
+const NOT_HELD = { 'merge-base --is-ancestor b0b': [1, ''] };
+const COMMIT_TREE = '-c user.name=pr-update -c user.email=pr-update@users.noreply.github.com commit-tree';
+
+test("a pointer side the wiki's head does not hold is merged with the other on the PR's own wiki branch, and pointed at", async () => {
+  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { ...NOT_HELD, 'merge-tree': 'mtree\n', [COMMIT_TREE]: 'wikimerge\n' }) });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'merged & resolved: pointer' }]);
+  assert.deepEqual(ran(t, `fetch --no-tags --quiet ${WIKI} a11ce`), [`fetch --no-tags --quiet ${WIKI} a11ce b0b`]);
+  // the PR's side (stage 2) wins a file both changed
+  assert.deepEqual(ran(t, 'merge-tree'), ['merge-tree --write-tree -X ours a11ce b0b']);
+  assert.deepEqual(ran(t, COMMIT_TREE), [`${COMMIT_TREE} mtree -p a11ce -p b0b -m Merge the base's wiki into issue-5`]);
+  // to the PR's own wiki branch, never forced, never to master
+  assert.deepEqual(ran(t, 'push'), [`push --quiet ${WIKI} wikimerge:refs/heads/issue-5`]);
+  assert.deepEqual(ran(t, 'update-index'), ['update-index --cacheinfo 160000,wikimerge,docs']);
+  assert.equal(called(t, 'git.createCommit')[0].params.message, "Merge main into issue-5: the docs pointer at a merge of both sides' wiki");
+});
+
+test("a wiki merge whose push is refused (the PR's wiki branch moved) is left for the PR's agent", async () => {
+  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { ...NOT_HELD, 'merge-tree': 'mtree\n', [COMMIT_TREE]: 'wikimerge\n',
+    push: [1, '', ' ! [rejected] wikimerge -> issue-5 (non-fast-forward)'] }) });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: docs (dispatched)' }]);
+  assert.deepEqual(ran(t, 'update-index'), []);
+  assert.deepEqual(called(t, 'git.createCommit'), []);
+});
+
+test("a pointer the wiki's head does not hold and that will not merge is left for the PR's agent, and nothing is pushed", async () => {
+  const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { ...NOT_HELD, 'merge-tree': [1, 'mtree\n'] }) });
   assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: docs (dispatched)' }]);
   assert.deepEqual(called(t, 'repos.createDispatchEvent').map((c) => c.params), [{ owner: 'kubed-io', repo: 'x', event_type: 'agent-code',
     client_payload: { pull_request: 5, reason: 'conflict', base: 'main', paths: 'docs' } }]);

@@ -21,7 +21,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [pr-route](pr-route/) | Decides what a dispatch on an agent-built PR is: a plan turn, a code turn or nothing, and the kb prompt it starts with; an `agent-code` dispatch, or n8n's `agent-route` relay of a review, a push, a comment or the approval label |
 | [pr-checks/report](pr-checks/) | The checks workflow's last job: what failed in the run, for the code agent, as the step summary and the `checks-report` artifact |
 | [pr-checks/rerun](pr-checks/) | Re-runs a checks run's failed jobs once, when the failure was judged not the change's (a flaky test, an outage) |
-| [pr-update](pr-update/) | Brings every open PR on a branch up to date after a merge: update-branch, else the merge with its docs pointer moved to the wiki's head and the changelog's hunks unioned; any other conflict is the PR's agent's |
+| [pr-update](pr-update/) | Brings every open PR on a branch up to date after a merge: update-branch, else the merge with its docs pointer moved to a merge of both sides' wiki and the changelog's hunks unioned; any other conflict is the PR's agent's |
 | [review-route](review-route/) | Decides whether the review agent reviews a PR's head, as a commit status: red checks go to the code agent, a base merge or a passing review's applied suggestions keep the verdict; `review-route/verdict` sets the status from the review |
 | [app-token](app-token/) | Mints a kubed-io GitHub App token from GCP Secret Manager through Workload Identity Federation, exporting no GCP credential to the job |
 | [krm-setup](krm-setup/) | Installs the KRM toolchain (kubectl, kustomize, helm, krew, kompose, yq) and `kubed-krm` Python package |
