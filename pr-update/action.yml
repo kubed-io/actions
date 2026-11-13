@@ -3,7 +3,8 @@ description: >
   Brings every open PR on a branch up to date after a merge into it: GitHub's update-branch
   first, else the base merged in the checkout, where a submodule pointer (the docs wiki)
   moves to its remote's head when that head holds both sides and the changelog's conflict
-  hunks keep both sides' lines. Any other conflict is left for the PR's agent. Pushes as the
+  hunks keep both sides' lines. Any other conflict is left for the PR's agent, and an agent's
+  PR is sent the `agent-code` dispatch (reason `conflict`) that says so. Pushes as the
   App, never forced, so the PRs' workflows run. One PR's trouble is its row in the summary;
   only a setup error fails the step.
 
@@ -22,6 +23,12 @@ inputs:
     description: The changelog whose conflict hunks are unioned, from the repository's top.
     required: false
     default: CHANGELOG.md
+  prefix:
+    description: >
+      The head prefix of the agents' PRs: a conflict left on one is dispatched to its agent as
+      `agent-code`. Empty dispatches nothing.
+    required: false
+    default: issue-
 
 outputs:
   results:
@@ -50,6 +57,7 @@ runs:
       APP_SLUG: ${{ steps.app.outputs.app-slug }}
       BASE: ${{ inputs.base }}
       CHANGELOG: ${{ inputs.changelog }}
+      PREFIX: ${{ inputs.prefix }}
     with:
       github-token: ${{ steps.app.outputs.token }}
       script: |

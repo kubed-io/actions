@@ -13,7 +13,7 @@ For every open PR whose base is `base` and whose head is in this repository:
 | The base is already in the head | `current` |
 | GitHub's update-branch, from the head it was at, takes | `updated` |
 | Else the base is merged into the head in the checkout, and resolves | `merged`, or `merged & resolved: pointer, changelog` |
-| A conflict it does not resolve | `needs its agent: <paths>`, the merge aborted |
+| A conflict it does not resolve | `needs its agent: <paths>`, the merge aborted; ` (dispatched)` when the head is an agent's |
 | The branch moved before the push (the agent committed) | `moved during the update; next merge retries` |
 | Anything else that went wrong for that PR | `failed: <why>` |
 
@@ -25,7 +25,10 @@ What the merge resolves:
 - **The changelog**: each conflict hunk becomes the base's lines, then the PR's, a PR line
   identical to one of the base's kept once. Nothing outside the hunks changes.
 
-Any other conflicted path is the PR's agent's. The merge commit is the App's bot's
+Any other conflicted path is the PR's agent's. When the head starts with `prefix`
+(`issue-` by default; empty turns it off), the agent is told: an `agent-code` dispatch,
+`{pull_request, reason: conflict, base, paths}`, which pr-route makes a code turn that
+names the base and the paths. The merge commit is the App's bot's
 (`<slug>[bot]`, its noreply address), its message saying what was resolved, and it is
 pushed with the App's token, never forced, so the PR's workflows run on it. The summary is
 a table of every PR and its result, and `results` the same as JSON. Only a setup error (no

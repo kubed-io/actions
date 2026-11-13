@@ -18,7 +18,7 @@
 // It answers two dispatches. `agent-route` is n8n's relay of a review, a push, a comment or
 // the approval label, and routes like the event it carries; its payload is a pointer, so
 // who reviewed, commented or labelled is read back from GitHub. `agent-code` is the agents'
-// own: failed checks, a review asking for changes, a Bug's fix.
+// own: failed checks, a review asking for changes, a Bug's fix, a conflict pr-update left.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 
@@ -54,10 +54,15 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
 
 // What a turn with no words of its own starts with: a kb prompt, sent as a slash command,
 // so the methodology's own text drives the turn
-function promptOf({ dispatched, reason, labelled, pushed }, prefix) {
+function promptOf({ dispatched, reason, labelled, pushed, base, paths }, prefix) {
   const turn = (name) => `${prefix}${name}`;
   // fix: a Bug's change with no plan, started by its hand-off, built from the approved report
-  const reasons = { review: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved') };
+  // conflict: pr-update could not bring the branch up to date after a merge into its base
+  const reasons = {
+    review: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved'),
+    conflict: `${base ? `\`${base}\`` : 'The base'} moved, and merging it into this branch conflicts in ${paths || 'files the update could not settle'}. `
+      + 'Merge it in, resolve them so both sides\' changes stay, run the checks, and carry on.',
+  };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (labelled) return turn('plan-approved');
   if (pushed) return turn('next-task');
@@ -139,6 +144,8 @@ async function run({ github, context, core, env = process.env }) {
     draft: pr.draft,
     finished: FINISHED.test(head.commit.message),
     reason: e.client_payload?.reason,
+    base: e.client_payload?.base,
+    paths: e.client_payload?.paths,
   };
   const stage = stageOf(facts);
   core.setOutput('stage', stage);

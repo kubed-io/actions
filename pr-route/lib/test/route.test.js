@@ -74,6 +74,14 @@ test("a Bug's fix dispatch is the first code turn, built from the report by fix-
   assert.equal(t.core.outputs.takeover, 'false');
 });
 
+test("a conflict dispatch, pr-update's, is a code turn in words: the base and the paths it could not settle", async () => {
+  const t = setup(dispatch('conflict', { base: 'main', paths: 'src/x.py, docs' }));
+  assert.deepEqual(await outcome(t), ['code',
+    "`main` moved, and merging it into this branch conflicts in src/x.py, docs. Merge it in, resolve them so both sides' changes stay, run the checks, and carry on.",
+    'always']);
+  assert.equal(t.core.outputs.reason, 'conflict');
+});
+
 test('a review dispatch carries no run; an unknown reason says what woke it', async () => {
   const t = setup(dispatch('review', { review_id: 9 }));
   assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);

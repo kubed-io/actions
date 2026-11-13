@@ -3,8 +3,9 @@
 // base is merged in a checkout and the two conflicts every agent PR has are resolved: a
 // submodule pointer (the docs wiki) moves to its remote's head when that head holds both
 // sides, and the changelog's conflict hunks keep the base's lines, then the PR's. Any other
-// conflict is the PR's agent's. The merge is pushed as the App, never forced: a push the
-// branch moved under is retried by the next merge.
+// conflict is the PR's agent's, and an agent's PR (head `prefix*`) is handed to it as the
+// `agent-code` dispatch (reason `conflict`), naming the paths. The merge is pushed as the App,
+// never forced: a push the branch moved under is retried by the next merge.
 
 const fs = require('fs');
 const path = require('path');
@@ -145,7 +146,7 @@ function messageOf({ base, branch, links, changelog }) {
 }
 
 // one PR: the result row for the summary
-async function updatePr({ github, core, exec, owner, repo, base, root, changelog, env, heads, state, pr }) {
+async function updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr }) {
   const branch = pr.head.ref;
   const row = { number: pr.number, branch };
 
@@ -189,7 +190,12 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   }
   if (left.length) {
     await git(exec, root, ['merge', '--abort'], { env, ok: true });
-    return { ...row, result: `needs its agent: ${left.join(', ')}` };
+    const result = `needs its agent: ${left.join(', ')}`;
+    if (!prefix || !branch.startsWith(prefix)) return { ...row, result };
+    // the agent's one event interface; its route decides whether that is a turn
+    await github.rest.repos.createDispatchEvent({ owner, repo, event_type: 'agent-code',
+      client_payload: { pull_request: pr.number, reason: 'conflict', base, paths: left.join(', ') } });
+    return { ...row, result: `${result} (dispatched)` };
   }
 
   await git(exec, root, ['commit', '--quiet', '--no-verify', '-m', messageOf({ base, branch, links, changelog: resolvedChangelog })], { env });
@@ -204,7 +210,7 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
 }
 
 // every open PR on `base` whose head is in this repository; one PR's trouble is its row
-async function update({ github, core, exec, owner, repo, base, root, changelog = 'CHANGELOG.md', env = process.env }) {
+async function update({ github, core, exec, owner, repo, base, root, changelog = 'CHANGELOG.md', prefix = 'issue-', env = process.env }) {
   const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', base, per_page: 100 });
   changelog = changelog.replace(/^\.\//, '');
   const mine = prs.filter((pr) => pr.head?.repo?.full_name === `${owner}/${repo}`);
@@ -217,7 +223,7 @@ async function update({ github, core, exec, owner, repo, base, root, changelog =
   for (const pr of mine) {
     let row;
     try {
-      row = await updatePr({ github, core, exec, owner, repo, base, root, changelog, env, heads, state, pr });
+      row = await updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr });
     } catch (e) {
       row = { number: pr.number, branch: pr.head.ref, result: `failed: ${e.message.split('\n')[0]}` };
       core.warning(`#${pr.number}: ${e.message}`);
@@ -247,7 +253,7 @@ async function run({ github, context, core, exec }) {
   if (top.code) throw new Error('no checkout: run actions/checkout first');
   const gitEnv = { ...env, ...authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL), ...(await identity(github, env.APP_SLUG)) };
   const { owner, repo } = context.repo;
-  const rows = await update({ github, core, exec, owner, repo, base, root: top.out.trim(), changelog: env.CHANGELOG || 'CHANGELOG.md', env: gitEnv });
+  const rows = await update({ github, core, exec, owner, repo, base, root: top.out.trim(), changelog: env.CHANGELOG || 'CHANGELOG.md', prefix: env.PREFIX ?? 'issue-', env: gitEnv });
   core.setOutput('results', JSON.stringify(rows));
   await core.summary.addRaw(table(base, rows)).write();
 }

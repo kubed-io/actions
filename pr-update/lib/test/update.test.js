@@ -97,7 +97,9 @@ test("a docs pointer conflict moves the pointer to the wiki's head, which holds 
 
 test("a pointer side the wiki's head does not hold is left for the PR's agent, and nothing is pushed", async () => {
   const t = setup({ updateBranch: refused(), routes: conflicted(DOCS, { 'merge-base --is-ancestor b0b': [1, ''] }) });
-  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: docs' }]);
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: docs (dispatched)' }]);
+  assert.deepEqual(called(t, 'repos.createDispatchEvent').map((c) => c.params), [{ owner: 'kubed-io', repo: 'x', event_type: 'agent-code',
+    client_payload: { pull_request: 5, reason: 'conflict', base: 'main', paths: 'docs' } }]);
   assert.deepEqual(ran(t, 'update-index'), []);
   assert.deepEqual(ran(t, 'merge --abort'), ['merge --abort']);
   assert.deepEqual(ran(t, 'commit'), []);
@@ -133,9 +135,17 @@ test('a hunk cut off, or no hunk at all, is no union', () => {
 
 test("any other conflict aborts the merge: the PR's agent's, named, even beside a pointer that would resolve", async () => {
   const t = setup({ updateBranch: refused(), routes: conflicted([...DOCS, ...OTHER]) });
-  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: src/x.py' }]);
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'needs its agent: src/x.py (dispatched)' }]);
+  assert.equal(called(t, 'repos.createDispatchEvent')[0].params.client_payload.paths, 'src/x.py');
   assert.deepEqual(ran(t, 'merge --abort'), ['merge --abort']);
   assert.deepEqual(ran(t, 'push'), []);
+});
+
+test("a conflict on a PR that is not an agent's (another head prefix) is only its row: nothing is dispatched", async () => {
+  const human = { ...PR5, head: { ...PR5.head, ref: 'fix-typo' } };
+  const t = setup({ prs: [human], updateBranch: refused(), routes: conflicted(OTHER) });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'fix-typo', result: 'needs its agent: src/x.py' }]);
+  assert.deepEqual(called(t, 'repos.createDispatchEvent'), []);
 });
 
 test('a push refused because the agent committed meanwhile is moved, for the next merge', async () => {
