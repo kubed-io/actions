@@ -63,10 +63,22 @@ jobs:
       title: ${{ steps.route.outputs.title }}
     steps:
 
+    # a label waits for the family's make job, which the router looks for among the runs with
+    # this; a failed mint leaves the label's takeover as it was (R-L3)
+    - name: App Token
+      id: app
+      continue-on-error: true
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-actions: read
+
     - name: Route
       id: route
       uses: kubed-io/actions/issue-route@main
       with:
+        actions_token: ${{ steps.app.outputs.token }}
         # the kubed-runner plugin's superpowers server: its prompts' slash names
         prompts: /mcp__plugin_kubed-runner_superpowers__superpowers_
         owner: "4399427"
@@ -79,7 +91,8 @@ jobs:
     runs-on: claude
     environment: claude
     # one turn at a time in a family (an issue and its sub-issues): Dr K's comments queue, in
-    # order; a label takes the family over
+    # order; a label takes the family over, unless a sub-issue is being filed in it (R-L3).
+    # GitHub cancels by the incoming job's setting, so the router decides
     concurrency:
       group: agent-issue-${{ needs.route.outputs.family }}
       cancel-in-progress: ${{ needs.route.outputs.takeover == 'true' }}
@@ -511,7 +524,8 @@ jobs:
   # the agent writes the sub-issue whole, against its type's form, in the family's session;
   # the job files it under the parent (spec 2026-11-03 R-M11)
   make-sub-issue:
-    name: Make the Sub-issue
+    # the family in the name: issue-route finds it by it, and a label then waits (R-L3)
+    name: "Make the Sub-issue · #${{ needs.accept.outputs.family }}"
     needs: accept
     if: github.event_name == 'repository_dispatch' && needs.accept.outputs.ok == 'true'
     runs-on: claude

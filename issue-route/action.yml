@@ -9,6 +9,12 @@ inputs:
     description: A token that may read issues.
     required: false
     default: ${{ github.token }}
+  actions_token:
+    description: >-
+      A token that may read actions, for the look for the family's make job in flight; empty
+      skips it, and a label takes over.
+    required: false
+    default: ""
   owner:
     description: The owner's user id; their comments and labels are turns.
     required: true
@@ -62,7 +68,9 @@ outputs:
     description: "`lead` for `debug-report` and `sub-issue`, which lead the thread's unseen posts into the turn; else `quiet`."
     value: ${{ steps.route.outputs.prompt_when }}
   takeover:
-    description: "`true` for a label, which takes the issue over; a comment waits its turn."
+    description: >-
+      `true` for a label, which takes the issue over; a comment waits its turn, and so does a
+      label while its family's `Make the Sub-issue · #<family>` job is in flight.
     value: ${{ steps.route.outputs.takeover }}
 
 runs:
@@ -76,7 +84,8 @@ runs:
       OWNER_ID: ${{ inputs.owner }}
       APP_ID: ${{ inputs.app }}
       PROMPTS: ${{ inputs.prompts }}
+      ACTIONS_TOKEN: ${{ inputs.actions_token }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
-        await require(`${process.env.GITHUB_ACTION_PATH}/lib/route.js`).run({ github, context, core });
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/route.js`).run({ github, context, core, getOctokit });

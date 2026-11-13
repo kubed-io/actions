@@ -27,6 +27,7 @@ off. Without it, the change goes straight to the code, built from the report.
 | The owner's `spec` label, on an opted-in Feature | `spec`, `prompt` spec-draft, `writes`, `takeover` | `none` |
 | The owner's `spec approved` label, on an `agent` Feature | `handoff`, `takeover`, `plan` true | |
 | The owner's `spec approved` label, on an `agent` Bug | `handoff`, `takeover`, `plan` true with `needs plan` | |
+| The owner's `agent` or `spec` label while the family's sub-issue is being filed | as above, without `takeover` | |
 | Anything else (another type or none, the App's own comments, anyone else, any other label, `spec` on a Bug, a PR) | `none` | `none` |
 
 ```yaml
@@ -42,9 +43,17 @@ It answers n8n's `repository_dispatch` `agent-issue`: a label added or a comment
 the comment's author and the labeler are read back from GitHub). Anything else is nothing.
 The job's `if` gates who may dispatch. The token needs `issues: read`.
 
+A label's `takeover` cancels the family's running turn, so it waits while a sub-issue is being
+filed: when another of the workflow's runs, in progress or queued, has a job named `Make the
+Sub-issue · #<family>` not yet completed, the label queues like a comment and a notice says
+so. The look is on `actions_token`, which may read actions (an App token, so the caller's
+job needs no `actions: read`); without it the label takes over, as before, with a notice, and
+when the look fails, with a warning.
+
 | Input | Default | |
 |---|---|---|
 | `github_token` | `github.token` | |
+| `actions_token` | `""` | May read actions: the look for a make job in flight |
 | `owner` | | The owner's user id |
 | `app` | | The App's bot's user id |
 | `prompts` | `/mcp__superpowers__superpowers_` | |

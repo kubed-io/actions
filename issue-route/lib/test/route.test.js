@@ -6,7 +6,7 @@ const fake = require('../../../issue-agent/lib/test/fake');
 const DRK = 4399427;
 const APP = 235398881;
 const P = '/mcp__superpowers__superpowers_';
-const ENV = { OWNER_ID: String(DRK), APP_ID: String(APP), PROMPTS: P };
+const ENV = { OWNER_ID: String(DRK), APP_ID: String(APP), PROMPTS: P, GITHUB_WORKFLOW_REF: 'kubed-io/selenium-flow/.github/workflows/agent-issue.yml@refs/heads/main', ACTIONS_TOKEN: 'ghs_actions' };
 const ISSUE_URL = 'https://api.github.com/repos/kubed-io/selenium-flow/issues/5';
 const OPTED_IN = ['agent'];
 
@@ -16,7 +16,8 @@ const OPTED_IN = ['agent'];
 // the dispatch's read-backs.
 const PARENT = 'GET /repos/{owner}/{repo}/issues/{issue_number}/parent';
 // `parent`: #5's parent, whose own parent is none; `comments`: #5's comments
-function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [], subs }) {
+// `runs`: this workflow's runs in flight, by status, each with its `jobs`
+function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [], subs, runs = {}, env = ENV }) {
   const all = label && !gone && !labels.includes(label) ? [...labels, label] : labels;
   const github = fake.github({
     'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(subs ? { sub_issues_summary: { total: subs.length } } : {}), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
@@ -29,16 +30,25 @@ function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = 
       ...(label ? [{ event: 'labeled', actor: { id: by }, label: { name: label } }] : []),
     ],
   });
+  // the actions token's own client: the runs and their jobs
+  const actions = fake.github({
+    'actions.listWorkflowRuns': runs instanceof Error ? runs : ({ status }) => ({ workflow_runs: (runs[status] || []).map(({ id }) => ({ id })) }),
+    'actions.listWorkflowRunsForRepo': ({ status }) => ({ workflow_runs: (runs[status] || []).map(({ id }) => ({ id })) }),
+    'actions.listJobsForWorkflowRun': ({ run_id: id }) => ({ jobs: Object.values(runs).flat().find((r) => r.id === id)?.jobs || [] }),
+  });
+  const tokens = [];
+  const getOctokit = (token) => { tokens.push(token); return actions; };
   const pointer = label
     ? { number: 5, event: 'issues', action: 'labeled', actor: by, label }
     : { number: 5, event: 'issue_comment', action: 'created', actor: String(by), comment_id: 31 };
   const dispatch = { eventName: 'repository_dispatch', payload: { action: 'agent-issue', client_payload: pointer, sender: { id: APP } } };
   const go = async (ctx) => {
     const core = fake.core();
-    await route.run({ github, context: fake.context(ctx), core, env: ENV });
+    await route.run({ github, context: fake.context({ runId: 900, ...ctx }), core, getOctokit, env });
+    go.core = core;
     return core.outputs;
   };
-  return { github, dispatch: () => go(dispatch) };
+  return { github, actions, tokens, go, dispatch: () => go(dispatch) };
 }
 
 // the situation's outputs
@@ -249,4 +259,63 @@ test("spec approved on a parent opens the parent's change once its agent sub-iss
   const out = await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open', [])] });
   assert.deepEqual([out.stage, out.change], ['handoff', 'parent']);
   assert.equal((await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open')] })).stage, 'none');
+});
+
+// a run in flight with the family's make job in it, as the Actions API names a called job
+const making = (family, status = 'in_progress') => ({ id: 41, jobs: [
+  { id: 7, name: 'Agent / Accept', status: 'completed' },
+  { id: 8, name: `Agent / Make the Sub-issue · #${family}`, status, html_url: 'https://github.com/x/runs/41/job/8' },
+] });
+
+test('a label queues like a comment while its family has a sub-issue being filed, running or waiting', async () => {
+  for (const status of ['in_progress', 'queued']) {
+    const t = situation({ label: 'spec', parent: 3, comments: answered, runs: { [status]: [making(3, status === 'queued' ? 'pending' : 'in_progress')] } });
+    const out = await t.dispatch();
+    assert.deepEqual([out.stage, out.family, out.takeover], ['spec', '3', 'false']);
+    assert.match(t.go.core.notices[0], /spec queues behind Agent \/ Make the Sub-issue · #3/);
+  }
+});
+
+test("a label still takes over when the make job in flight is another family's, finished, or this run's own", async () => {
+  assert.equal((await both({ label: 'spec', runs: { in_progress: [making(3)] } })).takeover, 'true');
+  assert.equal((await both({ label: 'spec', parent: 3, comments: answered, runs: { in_progress: [making(3, 'completed')] } })).takeover, 'true');
+  assert.equal((await both({ label: 'spec', parent: 3, comments: answered, runs: { in_progress: [{ ...making(3), id: 900 }] } })).takeover, 'true');
+  // `#3` is not `#30`
+  assert.equal((await both({ label: 'spec', parent: 3, comments: answered, runs: { in_progress: [making(30)] } })).takeover, 'true');
+});
+
+test("the make-job look is the workflow's own runs, in flight; a comment or a hand-off never looks", async () => {
+  const t = situation({ label: 'agent', labels: [] });
+  await t.dispatch();
+  const looks = t.actions.calls.filter((c) => c.name === 'actions.listWorkflowRuns').map((c) => c.params);
+  assert.deepEqual(t.tokens, ['ghs_actions']);
+  assert.deepEqual(looks, [
+    { owner: 'kubed-io', repo: 'selenium-flow', status: 'in_progress', per_page: 100, workflow_id: 'agent-issue.yml' },
+    { owner: 'kubed-io', repo: 'selenium-flow', status: 'queued', per_page: 100, workflow_id: 'agent-issue.yml' },
+  ]);
+  for (const s of [{}, { label: 'spec approved', labels: [...OPTED_IN, 'spec'] }]) {
+    const u = situation(s);
+    await u.dispatch();
+    assert.deepEqual([u.tokens, u.actions.calls], [[], []]);
+  }
+});
+
+test('without the workflow ref the look is the repo-wide runs', async () => {
+  const t = situation({ label: 'spec', parent: 3, comments: answered, runs: { in_progress: [making(3)] }, env: { ...ENV, GITHUB_WORKFLOW_REF: '' } });
+  assert.equal((await t.dispatch()).takeover, 'false');
+  assert.equal(t.actions.calls.some((c) => c.name === 'actions.listWorkflowRunsForRepo'), true);
+});
+
+test("a failed look never blocks the route: the label takes over, as before, and says why", async () => {
+  const t = situation({ label: 'spec', parent: 3, comments: answered, runs: Object.assign(new Error('Resource not accessible by integration'), { status: 403 }) });
+  const out = await t.dispatch();
+  assert.deepEqual([out.stage, out.takeover], ['spec', 'true']);
+  assert.match(t.go.core.notices[0], /could not look for a make job in family #3 \(403 Resource not accessible/);
+});
+
+test('without an actions token there is no look: the label takes over, as before, and says so', async () => {
+  const t = situation({ label: 'spec', parent: 3, comments: answered, runs: { in_progress: [making(3)] }, env: { ...ENV, ACTIONS_TOKEN: '' } });
+  assert.equal((await t.dispatch()).takeover, 'true');
+  assert.deepEqual([t.tokens, t.actions.calls], [[], []]);
+  assert.match(t.go.core.notices[0], /no actions_token, so no look for a make job in family #3; spec takes over/);
 });
