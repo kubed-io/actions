@@ -91,6 +91,10 @@ commit and the working tree is left as it was, so changes it did not select stay
   not listed is never pushed. That commit goes through the Git Data API (blobs, a tree, a
   commit, a fast-forward of the branch), because `createCommitOnBranch` cannot write a
   gitlink; without one it is used as before.
+- A merge left uncommitted (`MERGE_HEAD`, resolved but not committed) becomes a merge
+  commit: the head, then `MERGE_HEAD`, as its parents, through the Git Data API too, even
+  when the merge changes nothing. Without the second parent the branch would never hold
+  what it merged, and its PR would stay behind its base.
 - Other submodule changes cannot be committed from here: edits inside a submodule not in
   `submodules`, a pointer with no new commit, a deleted gitlink. Swept up by "every change", they are
   left out with a warning naming them; named in `files`, they fail.

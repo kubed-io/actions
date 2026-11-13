@@ -1,7 +1,8 @@
 // git/commit: commits the checkout's changes to a branch through the API, so GitHub signs
 // the commit: createCommitOnBranch for files, or the Git Data API when a submodule's pointer
-// moves too, which createCommitOnBranch cannot write. Afterwards HEAD and the index are the
-// new commit; the working tree is untouched, so changes it did not select stay changed.
+// moves too or a merge needs its second parent, neither of which createCommitOnBranch can
+// write. Afterwards HEAD and the index are the new commit; the working tree is untouched,
+// so changes it did not select stay changed.
 //
 // It never overwrites: the commit goes on the branch's head as it is now, so when the branch
 // moved since the commit the checkout is at, and a path the commit writes changed there in
@@ -208,7 +209,8 @@ async function commitOnBranch({ github, core, owner, repo, branch, message, file
 // Files and moved submodules in one commit, through the Git Data API: blobs, a tree on the
 // branch head's, a commit with no author or committer (GitHub signs it as the token's App),
 // and the branch moved only by a fast forward. One try, then one more on the new head.
-async function commitTree({ github, core, owner, repo, branch, message, additions, deletions, links, check }) {
+// `merged` is a merge's other parent, MERGE_HEAD; with no change the tree is the head's.
+async function commitTree({ github, core, owner, repo, branch, message, additions, deletions, links, check, merged = '' }) {
   // the blobs once, after the first check passes: a refused commit uploads nothing
   let entries = null;
   const build = async () => {
@@ -230,8 +232,11 @@ async function commitTree({ github, core, owner, repo, branch, message, addition
     entries = entries || await build();
     try {
       const { data: parent } = await github.rest.git.getCommit({ owner, repo, commit_sha: head });
-      const { data: tree } = await github.rest.git.createTree({ owner, repo, base_tree: parent.tree.sha, tree: entries });
-      const { data: made } = await github.rest.git.createCommit({ owner, repo, message, tree: tree.sha, parents: [head] });
+      const tree = entries.length
+        ? (await github.rest.git.createTree({ owner, repo, base_tree: parent.tree.sha, tree: entries })).data.sha
+        : parent.tree.sha;
+      const parents = merged ? [head, merged] : [head];
+      const { data: made } = await github.rest.git.createCommit({ owner, repo, message, tree, parents });
       await github.rest.git.updateRef({ owner, repo, ref: `heads/${branch}`, sha: made.sha, force: false });
       return { oid: made.sha, url: made.html_url };
     } catch (e) {
@@ -322,7 +327,12 @@ async function commit({ github, context, core, exec }) {
   }
   core.setOutput('ignored', JSON.stringify(ignored));
 
-  if (!paths.length && !links.length && !allowEmpty) {
+  // a merge the turn left for the job to commit (`git merge` stopped, resolved, not
+  // committed): the commit keeps what was merged as its second parent, or the branch never
+  // has it and the PR stays behind its base. createCommitOnBranch takes one parent only.
+  const merged = (await git(exec, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { ignoreReturnCode: true })).trim();
+
+  if (!paths.length && !links.length && !allowEmpty && !merged) {
     core.notice('nothing to commit');
     core.setOutput('sha', '');
     core.setOutput('url', '');
@@ -336,8 +346,8 @@ async function commit({ github, context, core, exec }) {
   const local = (await git(exec, ['rev-parse', 'HEAD'], { ignoreReturnCode: true })).trim();
   const check = guard({ github, core, owner, repo, branch, local, paths: [...paths, ...links.map((l) => l.path)] });
   let commit;
-  if (links.length) {
-    commit = await commitTree({ github, core, owner, repo, branch, message, additions, deletions, links, check });
+  if (links.length || merged) {
+    commit = await commitTree({ github, core, owner, repo, branch, message, additions, deletions, links, check, merged });
   } else {
     // an empty commit still sends additions: GitHub refuses a commit with no fileChanges
     const plain = additions.map(({ path: p, contents }) => ({ path: p, contents }));

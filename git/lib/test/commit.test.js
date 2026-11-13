@@ -522,3 +522,36 @@ test('a changed submodule with no author fails before pushing anything', async (
   await assert.rejects(commit.run({ github: fake.github(routes()), context: fake.context(), core: fake.core(), exec }), /give author/);
   assert.ok(!exec.calls.some((c) => c[3] === 'push'));
 });
+
+test('a merge left uncommitted is a merge commit: the head, then MERGE_HEAD, through the Git Data API', async () => {
+  const root = setup({ files: { 'a.txt': 'a\n' } });
+  const github = fake.github(treeRoutes());
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core, exec: git(root, ['M  a.txt'], { 'rev-parse -q --verify MERGE_HEAD': 'main5\n' }) });
+  assert.ok(!call(github, 'graphql:createCommitOnBranch'), 'createCommitOnBranch makes one parent only');
+  assert.deepEqual(call(github, 'git.createTree').tree, [{ path: 'a.txt', mode: '100644', type: 'blob', sha: 'blob1' }]);
+  const made = call(github, 'git.createCommit');
+  assert.deepEqual(made.parents, ['head', 'main5']);
+  assert.equal(made.tree, 'newtree');
+  assert.equal(core.outputs.committed, 'true');
+});
+
+test('a merge that changes nothing is still committed, on the head\'s tree, with both parents', async () => {
+  const root = setup();
+  const github = fake.github(treeRoutes());
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core, exec: git(root, [], { 'rev-parse -q --verify MERGE_HEAD': 'main5\n' }) });
+  assert.ok(!call(github, 'git.createTree'), 'no change: no new tree');
+  const made = call(github, 'git.createCommit');
+  assert.equal(made.tree, 'tree-of-head');
+  assert.deepEqual(made.parents, ['head', 'main5']);
+  assert.equal(core.outputs.committed, 'true');
+});
+
+test('with no merge in progress a submodule commit still has one parent', async () => {
+  const root = setup({ files: { 'a.txt': 'a\n' } });
+  fs.mkdirSync(path.join(root, 'wiki'));
+  const github = fake.github(treeRoutes());
+  await commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, [' M wiki', '?? a.txt'], linked(root, { at: 'f00d' })) });
+  assert.deepEqual(call(github, 'git.createCommit').parents, ['head']);
+});
