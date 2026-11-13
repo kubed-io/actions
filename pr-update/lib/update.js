@@ -11,6 +11,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const IDENTITY = ['-c', 'user.name=pr-update', '-c', 'user.email=pr-update@users.noreply.github.com'];
+
 async function git(exec, root, args, { env, ok = false } = {}) {
   const r = await exec.getExecOutput('git', ['-C', root, ...args], { silent: true, ignoreReturnCode: true, env });
   if (r.exitCode && !ok) throw new Error(`git ${args[0]} failed: ${(r.stderr || r.stdout || '').trim() || `exit ${r.exitCode}`}`);
@@ -215,7 +217,9 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   if (!(await git(exec, root, ['merge-base', '--is-ancestor', `refs/remotes/origin/${base}`, head], { env, ok: true })).code) {
     return { ...row, result: 'current' };
   }
-  const merge = await git(exec, root, ['-c', 'merge.conflictStyle=merge', 'merge', '--no-commit', '--no-ff', '--quiet', `refs/remotes/origin/${base}`], { env, ok: true });
+  // git merge wants an identity even with --no-commit; the commit is the API's, so it is
+  // never recorded
+  const merge = await git(exec, root, [...IDENTITY, '-c', 'merge.conflictStyle=merge', 'merge', '--no-commit', '--no-ff', '--quiet', `refs/remotes/origin/${base}`], { env, ok: true });
   if (merge.code > 1) {
     await git(exec, root, ['merge', '--abort'], { env, ok: true });
     throw new Error(`the merge failed: ${(merge.err || merge.out).trim() || `exit ${merge.code}`}`);

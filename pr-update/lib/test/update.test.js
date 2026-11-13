@@ -38,7 +38,7 @@ function git(routes) {
 function conflicted(conflicts, over = {}) {
   return {
     'merge-base --is-ancestor refs/remotes/origin/main': [1, ''],
-    '-c merge.conflictStyle=merge merge': [1, 'CONFLICT (content)'],
+    '-c user.name=pr-update -c user.email=pr-update@users.noreply.github.com -c merge.conflictStyle=merge merge': [1, 'CONFLICT (content)'],
     'rev-parse refs/remotes/origin/': 'head5\n',
     'rev-parse FETCH_HEAD': 'wikihead\n',
     'ls-files -u -z': `${conflicts.join('\0')}\0`,
