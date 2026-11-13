@@ -1,0 +1,56 @@
+name: PR Update
+description: >
+  Brings every open PR on a branch up to date after a merge into it: GitHub's update-branch
+  first, else the base merged in the checkout, where a submodule pointer (the docs wiki)
+  moves to its remote's head when that head holds both sides and the changelog's conflict
+  hunks keep both sides' lines. Any other conflict is left for the PR's agent. Pushes as the
+  App, never forced, so the PRs' workflows run. One PR's trouble is its row in the summary;
+  only a setup error fails the step.
+
+inputs:
+  client-id:
+    description: The GitHub App's client id.
+    required: true
+  private-key:
+    description: The GitHub App's private key.
+    required: true
+  base:
+    description: The branch whose open PRs are updated; the pushed branch by default.
+    required: false
+    default: ${{ github.ref_name }}
+  changelog:
+    description: The changelog whose conflict hunks are unioned, from the repository's top.
+    required: false
+    default: CHANGELOG.md
+
+outputs:
+  results:
+    description: JSON list of `{number, branch, result}`, one per PR.
+    value: ${{ steps.update.outputs.results }}
+
+runs:
+  using: composite
+  steps:
+
+  # the App's token: its pushes wake the PRs' workflows, as GITHUB_TOKEN's would not
+  - name: Mint the Token
+    id: app
+    uses: actions/create-github-app-token@v3
+    with:
+      client-id: ${{ inputs.client-id }}
+      private-key: ${{ inputs.private-key }}
+      permission-contents: write
+      permission-pull-requests: write
+
+  - name: Update the PRs
+    id: update
+    uses: actions/github-script@v9
+    env:
+      TOKEN: ${{ steps.app.outputs.token }}
+      APP_SLUG: ${{ steps.app.outputs.app-slug }}
+      BASE: ${{ inputs.base }}
+      CHANGELOG: ${{ inputs.changelog }}
+    with:
+      github-token: ${{ steps.app.outputs.token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/lib/update.js`).run({ github, context, core, exec });

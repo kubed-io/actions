@@ -25,7 +25,7 @@ jobs:
         node-version: 24
 
     - name: Test
-      run: node --test 'issue-agent/lib/test/*.test.js' 'git/lib/test/*.test.js' 'pr-checks/lib/test/*.test.js' 'review-route/lib/test/*.test.js' 'pr-route/lib/test/*.test.js' 'issue-route/lib/test/*.test.js' 'k8s-summary/lib/test/*.test.js' 'kubectl/lib/test/*.test.js' 'comment/lib/test/*.test.js' 'issue-template/lib/test/*.test.js'
+      run: node --test 'issue-agent/lib/test/*.test.js' 'git/lib/test/*.test.js' 'pr-checks/lib/test/*.test.js' 'review-route/lib/test/*.test.js' 'pr-route/lib/test/*.test.js' 'issue-route/lib/test/*.test.js' 'k8s-summary/lib/test/*.test.js' 'kubectl/lib/test/*.test.js' 'comment/lib/test/*.test.js' 'issue-template/lib/test/*.test.js' 'pr-update/lib/test/*.test.js'
 
   # issue-template on a real runner: kubed-io/.github's forms, by type and as a catalog
   issue-template:
