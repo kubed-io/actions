@@ -366,6 +366,26 @@ jobs:
 
           ${{ env.CHANGE == 'sub' && format('Part of #{0}: merges into {1}.', needs.route.outputs.family, env.BASE) || env.CHANGE == 'parent' && 'The family''s work, each part merged here from its own sub-issue''s change.' || format('Starts from #{0}''s notes.', needs.route.outputs.number) }}
 
+    # A PR that opens conflicting with its base runs no checks (GitHub starts no
+    # pull_request workflow on one), so no agent would hear of it: "Fresh from the Base"
+    # only warns. pr-update does what a merge into the base does for every open PR there:
+    # update-branch, else the merge with the docs pointer and the changelog resolved, else
+    # the `agent-code` dispatch (reason `conflict`) naming the paths, for the agent to merge
+    # with git (selenium-flow#145, 2026-11-14).
+    - name: Checkout for the Update
+      if: steps.pr.outputs.number != '' && steps.ahead.outputs.by != '0'
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Bring It Up to Date
+      if: steps.pr.outputs.number != ''
+      uses: kubed-io/actions/pr-update@main
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        base: ${{ env.BASE }}
+
     # a fix with no plan starts at the code: the code agent's own event, its first turn
     # built from the report (pr-route's `fix` reason)
     - name: Start the Fix
