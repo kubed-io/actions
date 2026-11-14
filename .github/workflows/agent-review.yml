@@ -98,6 +98,9 @@ jobs:
       # pr-checks: the alerts and the annotations
       checks: read
       security-events: read
+    env:
+      # the agent-flow channel's token: n8n's messages reach the running review, as every turn's
+      AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
 
     # a queued review checks it is still wanted as it starts: when the head has moved on, that
@@ -150,6 +153,8 @@ jobs:
       with:
         github_token: ${{ github.token }}
         number: ${{ needs.route.outputs.number }}
+        # never moved: n8n reposts a live placeholder as the App, and this one is
+        # github-actions[bot]'s, which comment/end must still edit. A reply lands below it.
         live: false
         prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_review
 
@@ -173,6 +178,7 @@ jobs:
         # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot],41898282,github-actions
         session_key: review-${{ needs.route.outputs.number }}
+        live_messages: true
 
     # the answer, once: one comment, or with line comments one review with them under it
     - name: Answer
