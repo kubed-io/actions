@@ -10,7 +10,7 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
 | Copilot's review, `submitted` or `edited`, however it was asked for | | `code`, in its own words like the owner's; `none` on a draft or when it says Copilot could not review |
-| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `fix` → fix-approved |
+| An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `fix` → fix-approved, `conflict` → merge the base in the checkout, uncommitted |
 | An `agent-route` dispatch | routes like the review, push, comment or `plan approved` label it carries, the owner's only, and Copilot's, read back from the review |
 | Anything else (the App's own thread replies, a push out of draft) | `none` | `none` |
 

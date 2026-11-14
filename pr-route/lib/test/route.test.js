@@ -77,7 +77,8 @@ test("a Bug's fix dispatch is the first code turn, built from the report by fix-
 test("a conflict dispatch, pr-update's, is a code turn in words: the base and the paths it could not settle", async () => {
   const t = setup(dispatch('conflict', { base: 'main', paths: 'src/x.py, docs' }));
   assert.deepEqual(await outcome(t), ['code',
-    "`main` moved, and merging it into this branch conflicts in src/x.py, docs. Merge it in, resolve them so both sides' changes stay, run the checks, and carry on.",
+    "`main` moved, and merging it into this branch conflicts in src/x.py, docs. Merge it in, resolve them so both sides' changes stay, run the checks, and carry on. "
+      + "Merge in this checkout (`git merge --no-commit --no-ff origin/main`), `git add` what you resolved and leave it uncommitted: the job commits it as a real merge.",
     'always']);
   assert.equal(t.core.outputs.reason, 'conflict');
 });

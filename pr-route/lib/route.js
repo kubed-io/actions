@@ -61,7 +61,9 @@ function promptOf({ dispatched, reason, labelled, pushed, base, paths }, prefix)
   const reasons = {
     review: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved'),
     conflict: `${base ? `\`${base}\`` : 'The base'} moved, and merging it into this branch conflicts in ${paths || 'files the update could not settle'}. `
-      + 'Merge it in, resolve them so both sides\' changes stay, run the checks, and carry on.',
+      + 'Merge it in, resolve them so both sides\' changes stay, run the checks, and carry on. '
+      + `Merge in this checkout (\`git merge --no-commit --no-ff origin/${base || '<base>'}\`), `
+      + '`git add` what you resolved and leave it uncommitted: the job commits it as a real merge.',
   };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (labelled) return turn('plan-approved');
