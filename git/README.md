@@ -61,7 +61,7 @@ commit and the working tree is left as it was, so changes it did not select stay
 | `token` | yes | — | Writes contents |
 | `message` | yes | — | First line is the headline, the rest the body |
 | `files` | no | every change | Paths, directories or globs (`**`, `*`, `?`) from the repository root, one per line |
-| `ignore` | no | — | Paths or globs left out even when changed, with a warning; for example workflow files the token cannot write |
+| `ignore` | no | — | Paths or globs left out even when changed, with a warning; for example workflow files the token cannot write. A merge that brings one in is refused instead: committed without it, the merge would undo it |
 | `branch` | no | the checkout's | Must exist (`git/branch` makes it) |
 | `allow_empty` | no | `false` | Commit with no changes, so a PR can open on a new branch |
 | `trailers` | no | — | `Key: value` lines after the message, a blank line between (`Agent: done`) |

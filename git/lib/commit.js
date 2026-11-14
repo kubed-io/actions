@@ -336,6 +336,15 @@ async function commit({ github, context, core, exec }) {
   // has it and the PR stays behind its base. createCommitOnBranch takes one parent only.
   const merged = (await git(exec, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'], { ignoreReturnCode: true })).trim();
 
+  // A merge cannot leave a path out. The commit names what was merged as a parent, so a
+  // change it brought in and `ignore` dropped (a base's workflow file this token may not
+  // write) would be undone by the merge, and git would never bring it back: it counts as
+  // merged. Refused, for a person to merge (selenium-flow#145 undid main's wiki.yml so).
+  if (merged && ignored.length) {
+    throw new Error(`this merge brings in ${ignored.join(', ')}, which \`ignore\` leaves out: `
+      + 'committing it without them would undo them on this branch. A person has to merge it');
+  }
+
   if (!paths.length && !links.length && !allowEmpty && !merged) {
     core.notice('nothing to commit');
     core.setOutput('sha', '');

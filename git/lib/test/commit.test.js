@@ -548,6 +548,25 @@ test('a merge that changes nothing is still committed, on the head\'s tree, with
   assert.equal(core.outputs.committed, 'true');
 });
 
+test('a merge that brings in a path `ignore` leaves out is refused, not committed without it', async () => {
+  // the code agent's merge of main dropped main's .github/workflows/wiki.yml (selenium-flow#145)
+  const root = setup({ files: { 'a.txt': 'a\n', '.github/workflows/wiki.yml': 'x' }, env: { IGNORE: '.github/workflows/**' } });
+  const github = fake.github(treeRoutes());
+  const exec = git(root, ['M  a.txt', 'M  .github/workflows/wiki.yml'], { 'rev-parse -q --verify MERGE_HEAD': 'main5\n' });
+  await assert.rejects(commit.run({ github, context: fake.context(), core: fake.core(), exec }),
+    /brings in \.github\/workflows\/wiki\.yml, which `ignore` leaves out: .*A person has to merge it/);
+  assert.ok(!call(github, 'git.createCommit'), 'no merge commit that would undo the workflow');
+});
+
+test('an ordinary commit still leaves an ignored path out, with a warning', async () => {
+  const root = setup({ files: { 'a.txt': 'a\n', '.github/workflows/wiki.yml': 'x' }, env: { IGNORE: '.github/workflows/**' } });
+  const github = fake.github(routes());
+  const core = fake.core();
+  await commit.run({ github, context: fake.context(), core, exec: git(root, ['M  a.txt', 'M  .github/workflows/wiki.yml']) });
+  assert.equal(core.outputs.committed, 'true');
+  assert.deepEqual(JSON.parse(core.outputs.ignored), ['.github/workflows/wiki.yml']);
+});
+
 test('with no merge in progress a submodule commit still has one parent', async () => {
   const root = setup({ files: { 'a.txt': 'a\n' } });
   fs.mkdirSync(path.join(root, 'wiki'));
