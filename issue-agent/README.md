@@ -40,7 +40,7 @@ The `agent` is a Claude Code agent file (frontmatter and body). It is loaded wit
 system prompt. Then the action's contract and `append_system_prompt` are appended.
 
 On the claude runner, a role's agent comes from a plugin instead, and its `settings` say
-which (kubed-io/claude-control's `kubed-runner`). Each role's settings sit beside its schema:
+which (kubed-io/talent-show's `kubed-runner`). Each role's settings sit beside its schema:
 
 ```yaml
     settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json   # turns kubed-runner on, agent kubed-runner:plan

@@ -263,7 +263,7 @@ test('on without the token, the callback URL or the channel profile: a warning, 
 });
 
 // a role's settings on the claude runner: the plugin to turn on and the agent to run
-const ROLE = { agent: 'kubed-runner:plan', enabledPlugins: { 'kubed-runner@kubed-control': true }, disableClaudeAiConnectors: true };
+const ROLE = { agent: 'kubed-runner:plan', enabledPlugins: { 'kubed-runner@talent-show': true }, disableClaudeAiConnectors: true };
 
 test('mergeSettings: the job\'s settings, with the channel\'s hooks added after its own', () => {
   const own = [{ hooks: [{ type: 'command', command: 'own' }] }];
