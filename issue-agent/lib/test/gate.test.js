@@ -44,6 +44,15 @@ test('an empty opt_in_label checks nothing, posts nothing and lets the turn run'
   assert.deepEqual(github.calls, []);
 });
 
+test("an opt_in_label of 'none' checks nothing, posts nothing and lets the turn run", async () => {
+  env({ OPT_IN_LABEL: 'none' });
+  const github = fake.github({});
+  const core = fake.core();
+  await gate.run({ github, context: fake.context(), core });
+  assert.equal(core.outputs.allowed, 'true');
+  assert.deepEqual(github.calls, []);
+});
+
 test('max_runs pauses with one note', async () => {
   env({ OPT_IN_LABEL: '', MAX_RUNS: '2' });
   const agent = { user: { login: 'github-actions[bot]', type: 'Bot' } };

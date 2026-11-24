@@ -40,7 +40,8 @@ async function run({ github, context, core }) {
 
   if (!issue_number) return allow(true);
 
-  if (env.OPT_IN_LABEL) {
+  // 'none' is how a caller says no label, since an empty input falls back to a default in expressions
+  if (env.OPT_IN_LABEL && env.OPT_IN_LABEL !== 'none') {
     const events = await github.paginate(github.rest.issues.listEventsForTimeline, { owner, repo, issue_number, per_page: 100 });
     const actor = lastLabeledBy(events, env.OPT_IN_LABEL);
     if (!actor || !ids.includes(String(actor.id))) {

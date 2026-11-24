@@ -80,7 +80,7 @@ inputs:
     required: false
     default: ""
   opt_in_label:
-    description: The run happens only if this label was last added by a trusted id.
+    description: The run happens only if this label was last added by a trusted id. Empty or `none` checks no label.
     required: false
     default: ""
   max_runs:
