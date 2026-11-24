@@ -51,6 +51,7 @@ jobs:
       contents: read
       pull-requests: read
       issues: read
+      id-token: write
     env:
       # the agent-flow channel's token: n8n's messages reach the running turn
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
@@ -116,10 +117,10 @@ jobs:
     - name: App Token
       if: steps.pr.outputs.wanted == 'true'
       id: app
-      uses: actions/create-github-app-token@v3
+      uses: kubed-io/actions/app-token@main
       with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.GH_APP_KEY }}
+        project: ${{ vars.GCP_PROJECT }}
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
         permission-contents: write
         permission-pull-requests: write
         permission-issues: write
@@ -300,10 +301,10 @@ jobs:
       if: steps.pr.outputs.wanted == 'true'
       id: fresh
       continue-on-error: true
-      uses: actions/create-github-app-token@v3
+      uses: kubed-io/actions/app-token@main
       with:
-        client-id: ${{ vars.GH_CLIENT_ID }}
-        private-key: ${{ secrets.GH_APP_KEY }}
+        project: ${{ vars.GCP_PROJECT }}
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
         permission-contents: write
         permission-pull-requests: write
         permission-issues: write
