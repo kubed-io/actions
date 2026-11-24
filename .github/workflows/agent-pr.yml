@@ -158,14 +158,14 @@ jobs:
         repository: ${{ job.workflow_repository }}
         ref: ${{ job.workflow_sha }}
         path: .agent-flow
-        sparse-checkout: .github/agents
+        sparse-checkout: .github/roles
         persist-credentials: false
 
     - name: Role Files Out of the Tree
       if: steps.still.outputs.stage == 'plan'
       run: |
         mv .agent-flow "$RUNNER_TEMP/agent-flow"
-        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
 
     - name: Plan Agent
       if: steps.still.outputs.stage == 'plan'
@@ -348,14 +348,14 @@ jobs:
         repository: ${{ job.workflow_repository }}
         ref: ${{ job.workflow_sha }}
         path: .agent-flow
-        sparse-checkout: .github/agents
+        sparse-checkout: .github/roles
         persist-credentials: false
 
     - name: Role Files Out of the Tree
       if: steps.still.outputs.stage == 'code'
       run: |
         mv .agent-flow "$RUNNER_TEMP/agent-flow"
-        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
 
     - name: Code Agent
       if: steps.still.outputs.stage == 'code'
