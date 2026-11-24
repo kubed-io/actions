@@ -47,7 +47,7 @@
     },
     "report": {
       "type": "string",
-      "description": "Only on a sub-issue, when the parent has something to act on: your homework is done, your spec is ready, or you are stuck. What you did, where your spec stands, and what you need from the parent. Posted on the parent, which it wakes."
+      "description": "Only on a sub-issue, when the parent has something to act on: your homework is done, your spec is ready, or you are stuck. What you did, where your spec stands, and what you need from the parent. Posted on the parent, which it wakes. Or on a downstream issue (one adopting an upstream epic's release): posted on the epic, which it wakes; your questions about the release go here."
     },
     "actions": {
       "type": "array",
@@ -64,13 +64,20 @@
               "approve_spec",
               "approve_plan",
               "open_pr",
-              "ask_owner"
+              "ask_owner",
+              "prerelease",
+              "release_level"
             ],
-            "description": "file {type, title, ask}: a new sub-issue. message {number, text}: words for one sub-issue's agent, or for the code agent of the family's open pull request to main. approve_spec {number}: a sub-issue's spec is ready; its pull request opens. approve_plan {number}: the plan on a sub-issue's pull request is ready; its code starts. open_pr {}: open the family's pull request to main, ready and in review, or refresh the one open; sub-issues may still be open. ask_owner {question}: the last resort; it stops the family until Dr K answers."
+            "description": "file {type, title, ask}: a new sub-issue. message {number, text, repo?}: words for one sub-issue's agent, or for the code agent of the family's open pull request to main; with repo, for a downstream issue's agent there. approve_spec {number, repo?}: a sub-issue's spec is ready; its pull request opens; with repo, a downstream issue's. approve_plan {number, repo?}: the plan on a sub-issue's pull request is ready; its code starts; with repo, the plan on a downstream issue's pull request. open_pr {}: open the family's pull request to main, ready and in review, or refresh the one open; sub-issues may still be open. ask_owner {question}: the last resort; it stops the family until Dr K answers. release_level {level}: the release this family's merge makes, set as its release label, at the latest by the first prerelease. prerelease {summary}: cut a pre-release (an rc) from the family's branch for the downstream projects to adopt; the first opens one upgrade issue in each, a later one is a message to them. One epic per upstream may have rcs out at a time."
           },
           "number": {
             "type": "integer",
-            "description": "message: the sub-issue, or the family's open pull request to main. approve_spec, approve_plan: the sub-issue."
+            "description": "message: the sub-issue, the family's open pull request to main, or with repo the downstream issue. approve_spec, approve_plan: the sub-issue, or with repo the downstream issue."
+          },
+          "repo": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+            "description": "message, approve_spec, approve_plan: a downstream repo, owner/name, whose issue number names; leave it out for this repo."
           },
           "type": {
             "type": "string",
@@ -95,6 +102,19 @@
           "question": {
             "type": "string",
             "description": "ask_owner: the question for Dr K."
+          },
+          "summary": {
+            "type": "string",
+            "description": "prerelease: what this rc brings the downstream projects, in a few lines; it goes in their upgrade issues."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "patch",
+              "minor",
+              "major"
+            ],
+            "description": "release_level: the release level."
           }
         },
         "required": [

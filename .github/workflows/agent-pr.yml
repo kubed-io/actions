@@ -193,6 +193,26 @@ jobs:
         comment_id: ${{ steps.agent.outputs.comment_id }}
         append: ${{ steps.commit.outputs.summary }}
 
+    # a downstream change's plan is the epic's to approve: it hears the plan is ready (R-UR9),
+    # naming the downstream issue, the head's issue-<N>
+    - name: The Downstream Issue
+      id: issue
+      if: steps.still.outputs.upstream != '' && steps.commit.outcome == 'success'
+      env:
+        HEAD: ${{ needs.route.outputs.head }}
+      run: echo "number=${HEAD#issue-}" >> "$GITHUB_OUTPUT"
+
+    - name: Hand Back the Plan
+      if: steps.still.outputs.upstream != '' && steps.commit.outcome == 'success'
+      continue-on-error: true
+      uses: kubed-io/actions/issue-agent/handback@main
+      with:
+        output: ${{ steps.agent.outputs.output }}
+        kin: downstream-plan
+        number: ${{ steps.issue.outputs.number }}
+        pull_request: ${{ needs.route.outputs.number }}
+        upstream: ${{ steps.still.outputs.upstream }}
+
     - name: The Commit Failed
       if: steps.commit.outcome == 'failure'
       run: echo "::error::the commit failed; its answer says why" && exit 1
@@ -386,10 +406,12 @@ jobs:
         keep_to: .issue/scratch/uncommitted
 
     # done: out of draft, after the commit and on the App's token, so ready_for_review starts
-    # the checks and the review once, on the final commit
+    # the checks and the review once, on the final commit. A downstream PR is `held` in draft
+    # until its epic's final (R-UR19); only an explicit 'false' lets it go
     - name: Mark Ready
       if: >-
         steps.still.outputs.stage == 'code' && steps.commit.outcome != 'failure' &&
+        steps.still.outputs.held == 'false' &&
         fromJSON(steps.agent.outputs.output || '{}').done == true
       uses: kubed-io/actions/git/pr@main
       with:

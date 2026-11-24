@@ -24,6 +24,13 @@ name: 🧭 Agent · Issue
 # change from issue-<family> to the default branch, opened ready while sub-issues may still be
 # open, or refreshed when it is open (R-SM30). Dr K's `spec approved` on a parent is the same.
 #
+# An upstream epic carries its downstream projects along (spec 2026-11-24 upstream releases). A
+# downstream issue carries the epic's marker; its turns (`kin` `downstream`, woken by
+# `upstream-start` and `upstream-message`) report to the epic as `upstream-report`, and so does
+# its PR's plan turn, saying the plan is ready. Its PR's body carries the marker too. The epic's
+# turn on such a report is `downstream-reported`. The family's change carries the parent's
+# `release:*` label, and the parent is labelled `epic` when its first sub-issue is filed.
+#
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
 # kubed-io App (n8n's dispatches). Who else counts inside a run comes from the claude
@@ -77,6 +84,8 @@ jobs:
       item_type: ${{ steps.route.outputs.item_type }}
       opt_in_label: ${{ steps.route.outputs.opt_in_label }}
       open_sub_issues: ${{ steps.route.outputs.open_sub_issues }}
+      upstream: ${{ steps.route.outputs.upstream }}
+      release_label: ${{ steps.route.outputs.release_label }}
     steps:
 
     # a label waits for the family's make job, which the router looks for among the runs with
@@ -251,12 +260,14 @@ jobs:
         append: ${{ steps.commit.outputs.summary }}
 
     # a sub-issue hands back to its parent with `report` (a Feature's or a Bug's); a parent's
-    # turn ends in `actions`. n8n posts the one and carries out the other (R-SM17, R-SM21); its
-    # answer never fails the turn. A turn whose commit failed hands nothing back: it fails
+    # turn ends in `actions`; a downstream issue's `report` goes to its epic (R-UR9). n8n posts
+    # the reports and carries out the actions (R-SM17, R-SM21); its answer never fails the turn.
+    # A turn whose commit failed hands nothing back: it fails
     - name: Hand Back
       if: >-
         steps.commit.outcome != 'failure' && (
         needs.route.outputs.kin == 'sub-issue' && fromJSON(steps.agent.outputs.output || '{}').report ||
+        needs.route.outputs.kin == 'downstream' && fromJSON(steps.agent.outputs.output || '{}').report ||
         needs.route.outputs.kin == 'parent' && fromJSON(steps.agent.outputs.output || '{}').actions[0])
       continue-on-error: true
       uses: kubed-io/actions/issue-agent/handback@main
@@ -265,6 +276,7 @@ jobs:
         kin: ${{ needs.route.outputs.kin }}
         number: ${{ needs.route.outputs.number }}
         parent: ${{ needs.route.outputs.family }}
+        upstream: ${{ needs.route.outputs.upstream }}
 
     # the parent's open questions, kept on it and on the family's pull request to main when
     # that is open (R-SM22a), with a token of their own: the turn's never writes pull requests
@@ -371,6 +383,9 @@ jobs:
       branch: ${{ env.BRANCH }}
       change: ${{ env.CHANGE }}
       plan: ${{ env.PLAN }}
+      # a downstream change's epic and issue, for its plan's hand-back (R-UR9)
+      upstream: ${{ needs.route.outputs.upstream }}
+      number: ${{ needs.route.outputs.number }}
     steps:
 
     - name: App Token
@@ -467,9 +482,10 @@ jobs:
     # sub-issues' changes: it opens ready, with `plan approved` from the App (which wakes no
     # code turn), so its checks run and the review agent reviews it whole. It may open while
     # sub-issues are still open, and one already open is found and left as it is, but ready
-    # (R-SM30; R-B8a's draft rule is gone). A sub-issue's
-    # change merges into the family's branch, where `Closes` closes nothing: the merge's
-    # close is by hand.
+    # (R-SM30; R-B8a's draft rule is gone). It carries the parent's one `release:*` label, which
+    # the merge releases at (R-UR1). A sub-issue's change merges into the family's branch, where
+    # `Closes` closes nothing: the merge's close is by hand. A downstream change (`upstream`) is
+    # `own`, so a draft, and its body ends in the epic's marker (R-UR7).
     - name: Pull Request
       id: pr
       uses: kubed-io/actions/git/pr@main
@@ -482,13 +498,17 @@ jobs:
         # the agents' PR: the label wakes the review agent, and switches the agents off. A
         # fix with no plan is approved already: Dr K approved its report
         labels: >-
-          ${{ env.CHANGE == 'parent' && 'agent,plan approved' ||
+          ${{ env.CHANGE == 'parent' && format('agent,plan approved{0}', needs.route.outputs.release_label != '' && format(',{0}', needs.route.outputs.release_label) || '') ||
           env.FIX == 'true' && env.PLAN != 'true' && 'agent,bug,plan approved' ||
           env.FIX == 'true' && 'agent,bug' || 'agent' }}
         body: |
           Closes #${{ needs.route.outputs.number }}
 
           ${{ env.CHANGE == 'sub' && format('Part of #{0}: merges into {1}.', needs.route.outputs.family, env.BASE) || env.CHANGE == 'parent' && 'The family''s work, each part merged here from its own sub-issue''s change.' || format('Starts from #{0}''s notes.', needs.route.outputs.number) }}
+
+          ${{ needs.route.outputs.upstream != '' && format('Adopts a release of {0}.', needs.route.outputs.upstream) || '' }}
+
+          ${{ needs.route.outputs.upstream != '' && format('<!-- upstream: {0} -->', needs.route.outputs.upstream) || '' }}
 
     # the family's pull request carries the parent's open questions, the list its last turn
     # kept, for Dr K to answer there (R-SM22a), and the `agent` sub-issues still open (R-SM30),
@@ -637,6 +657,18 @@ jobs:
         comment_id: ${{ steps.agent.outputs.comment_id }}
         append: ${{ steps.commit.outputs.summary }}
 
+    # a downstream change's plan is the epic's to approve: it hears the plan is ready (R-UR9)
+    - name: Hand Back the Plan
+      if: needs.handoff.outputs.upstream != '' && steps.commit.outcome == 'success'
+      continue-on-error: true
+      uses: kubed-io/actions/issue-agent/handback@main
+      with:
+        output: ${{ steps.agent.outputs.output }}
+        kin: downstream-plan
+        number: ${{ needs.handoff.outputs.number }}
+        pull_request: ${{ needs.handoff.outputs.pull_request }}
+        upstream: ${{ needs.handoff.outputs.upstream }}
+
     - name: The Commit Failed
       if: steps.commit.outcome == 'failure'
       run: echo "::error::the commit failed; its answer says why" && exit 1
@@ -783,6 +815,14 @@ jobs:
         parent: ${{ env.MAKE_PARENT }}
         labels: agent
         number: ${{ env.MAKE_NUMBER }}
+
+    # a parent is an epic once its first sub-issue is filed (Decided 11); adding it again is nothing
+    - name: Label the Epic
+      if: steps.file.outputs.created == 'true'
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ steps.app.outputs.token }}
+      run: gh api "repos/${GITHUB_REPOSITORY}/issues/${MAKE_FAMILY}/labels" -f "labels[]=epic" --silent
 
     - name: Answer
       if: steps.comment.outputs.comment_id != ''

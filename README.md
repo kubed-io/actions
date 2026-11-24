@@ -85,7 +85,18 @@ agent-issue.yml's caller lists the dispatch types it runs on: `agent-issue` and
 hand-backs go to the agent-flow callback with the channel's token: a sub-issue's
 `{type: "report", repo, parent, number, report, run_id}`, from the spec or the debug agent, a
 parent's `{type: "actions", repo, parent, run_id, actions}`, and make-sub-issue's
-`{type: "filed", repo, parent, number, run_id}`, on which n8n starts the new sub-issue.
+`{type: "filed", repo, parent, number, run_id}`, on which n8n starts the new sub-issue. The
+parent is labelled `epic` when its first sub-issue is filed, and the family's change to main
+carries the parent's one `release:*` label.
+
+An upstream epic (a library's parent issue) carries its downstream projects along. Its actions
+add `release_level {level}` and `prerelease {summary}`, and `message`, `approve_spec` and
+`approve_plan` take a downstream `repo`. A downstream issue carries the epic's marker,
+`<!-- upstream: <owner>/<repo>#<P> -->`, and so does its PR's body. Its turns are woken by
+`upstream-start` and `upstream-message`, the epic's by `downstream-reported`. They hand back
+`{type: "upstream-report", repo, number, upstream, report, pull_request?, run_id}`, from a
+turn's `report` or, on the PR's plan turns, saying the plan is ready. The PR stays draft until
+the epic's final: agent-pr.yml's Mark Ready runs only on pr-route's `held` `false`.
 
 agent-review.yml reviews a sub-issue's PR (base `issue-<P>`) with the `review-sub-issue`
 prompt, and hands its verdict to the same callback after the check, as
