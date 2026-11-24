@@ -4,8 +4,11 @@
 // field is empty, and n8n's answer never fails the job: a refusal or no answer is a warning.
 // A body made elsewhere (review-route's `verdict`, R-SM4) goes as it is, in place of these.
 // make-sub-issue hands back the number it filed (`filed`, R-SM25), and n8n starts its first turn.
+// A downstream issue's turn reports to its upstream epic (`upstream-report`, spec 2026-11-24
+// upstream releases, R-UR9), and so does its PR's plan turn, saying its plan is ready.
 
 const TIMEOUT = 10000;
+const REF = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[1-9]\d*$/;
 
 function parse(text) {
   try {
@@ -15,10 +18,22 @@ function parse(text) {
   }
 }
 
-// the body for the turn's kin, or null: a sub-issue reports, a parent acts
-function bodyOf({ kin, output, repo, number, parent, runId }) {
+// the body for the turn's kin, or null: a sub-issue reports, a parent acts, a downstream issue
+// reports to its epic
+function bodyOf({ kin, output, repo, number, parent, upstream, pullRequest, runId }) {
   const { report, actions } = output || {};
   if (kin === 'filed') return filed({ type: 'filed', repo, parent, number, run_id: runId });
+  if (kin === 'downstream' || kin === 'downstream-plan') {
+    if (!REF.test(upstream || '') || !id(number)) return null;
+    if (kin === 'downstream' && typeof report === 'string' && report.trim()) {
+      return { type: 'upstream-report', repo, number, upstream, report: report.trim(), run_id: runId };
+    }
+    const plan = typeof output?.plan_path === 'string' ? output.plan_path.trim() : '';
+    if (kin === 'downstream-plan' && plan && id(pullRequest)) {
+      return { type: 'upstream-report', repo, number, upstream, report: `The plan is ready on #${pullRequest}: \`${plan}\`.`, pull_request: pullRequest, run_id: runId };
+    }
+    return null;
+  }
   if (kin === 'sub-issue' && typeof report === 'string' && report.trim()) {
     return { type: 'report', repo, parent, number, report: report.trim(), run_id: runId };
   }
@@ -29,7 +44,7 @@ function bodyOf({ kin, output, repo, number, parent, runId }) {
 }
 
 // the bodies n8n's callback takes
-const TYPES = ['verdict', 'report', 'actions', 'filed'];
+const TYPES = ['verdict', 'report', 'actions', 'filed', 'upstream-report'];
 
 // a filed body names the new sub-issue and its parent, two different issues
 const id = (n) => Number.isInteger(n) && n > 0;
@@ -52,6 +67,8 @@ async function run({ context, core, fetch = globalThis.fetch, env = process.env 
     repo: `${owner}/${repo}`,
     number: Number(env.NUMBER) || 0,
     parent: Number(env.PARENT) || 0,
+    upstream: (env.UPSTREAM || '').trim(),
+    pullRequest: Number(env.PULL_REQUEST) || 0,
     runId: Number(context.runId) || 0,
   });
   if (!body) return core.info('nothing to hand back');

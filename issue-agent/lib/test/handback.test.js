@@ -1,13 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const handback = require('../handback');
+const { bodyOf } = handback;
 const fake = require('./fake');
 
 const ENV = { AGENT_FLOW_CALLBACK_URL: 'http://n8n/cb', AGENT_FLOW_N8N_TOKEN: 'tok' };
 const ACTIONS = [{ kind: 'message', number: 15, text: 'Keep the tab.' }, { kind: 'approve_spec', number: 16 }];
 
 // a turn's hand-back: `fetch` records each POST and answers `status`, or throws
-function handBack({ kin, output, body, number = '15', parent = '12', status = 200, env = ENV, fails }) {
+function handBack({ kin, output, body, number = '15', parent = '12', upstream = '', pullRequest = '', status = 200, env = ENV, fails }) {
   const posts = [];
   const fetch = async (url, init) => {
     posts.push({ url, headers: init.headers, body: JSON.parse(init.body) });
@@ -17,7 +18,7 @@ function handBack({ kin, output, body, number = '15', parent = '12', status = 20
   const core = fake.core();
   const run = handback.run({
     context: fake.context({ runId: 900 }), core, fetch,
-    env: { ...env, KIN: kin, OUTPUT: output === undefined ? '' : JSON.stringify(output), NUMBER: number, PARENT: parent, BODY: body || '' },
+    env: { ...env, KIN: kin, OUTPUT: output === undefined ? '' : JSON.stringify(output), NUMBER: number, PARENT: parent, UPSTREAM: upstream, PULL_REQUEST: pullRequest, BODY: body || '' },
   });
   return run.then(() => ({ posts, core }));
 }
@@ -81,7 +82,7 @@ test("a body made elsewhere (a review's verdict) goes to n8n as it is; an empty 
   for (const body of ['not json', '{}', '[]', '{"type":"merge","number":7}', '{"type":7}']) {
     const none = await handBack({ body });
     assert.equal(none.posts.length, 0, body);
-    assert.match(none.core.notices[0], /not one n8n takes \(verdict, report, actions, filed\)/, body);
+    assert.match(none.core.notices[0], /not one n8n takes \(verdict, report, actions, filed, upstream-report\)/, body);
     assert.equal(none.core.outputs.sent, undefined, body);
   }
   const down = await handBack({ body: JSON.stringify(VERDICT), fails: new Error('connect ECONNREFUSED') });
@@ -108,4 +109,41 @@ test('a made filed body goes as it is only with its numbers', async () => {
     assert.equal(none.posts.length, 0, JSON.stringify(bad));
     assert.match(none.core.notices[0], /not one n8n takes/);
   }
+});
+
+// upstream releases (spec 2026-11-24, R-UR9): a downstream issue's turn reports to its epic
+test("a downstream turn's report goes to its epic as upstream-report", () => {
+  assert.deepEqual(bodyOf({ kin: 'downstream', output: { report: ' Which tool name? ' }, repo: 'kubed-io/selenium-flow', number: 210, upstream: 'kubed-io/quick-mcp#16', runId: 5 }),
+    { type: 'upstream-report', repo: 'kubed-io/selenium-flow', number: 210, upstream: 'kubed-io/quick-mcp#16', report: 'Which tool name?', run_id: 5 });
+});
+
+test('a downstream plan turn says its plan is ready', () => {
+  const b = bodyOf({ kin: 'downstream-plan', output: { plan_path: 'docs/superpowers/plans/x.md' }, repo: 'kubed-io/selenium-flow', number: 210, upstream: 'kubed-io/quick-mcp#16', pullRequest: 212, runId: 5 });
+  assert.equal(b.report, 'The plan is ready on #212: `docs/superpowers/plans/x.md`.');
+  assert.equal(b.pull_request, 212);
+  assert.deepEqual([b.type, b.repo, b.number, b.upstream, b.run_id], ['upstream-report', 'kubed-io/selenium-flow', 210, 'kubed-io/quick-mcp#16', 5]);
+});
+
+test('no upstream, or no report, sends nothing', () => {
+  const at = { repo: 'kubed-io/selenium-flow', number: 210, pullRequest: 212, runId: 5 };
+  for (const [kin, output, upstream] of [
+    ['downstream', { report: 'Which tool name?' }, ''],
+    ['downstream', { report: 'Which tool name?' }, 'quick-mcp#16'],
+    ['downstream', { report: '  ' }, 'kubed-io/quick-mcp#16'],
+    ['downstream', { actions: [{ kind: 'message' }] }, 'kubed-io/quick-mcp#16'],
+    ['downstream-plan', {}, 'kubed-io/quick-mcp#16'],
+    ['downstream-plan', { plan_path: 'docs/x.md' }, ''],
+  ]) {
+    assert.equal(bodyOf({ ...at, kin, output, upstream }), null, JSON.stringify([kin, output, upstream]));
+  }
+  // a plan with no PR number is no plan's hand-back
+  assert.equal(bodyOf({ ...at, pullRequest: 0, kin: 'downstream-plan', output: { plan_path: 'docs/x.md' }, upstream: 'kubed-io/quick-mcp#16' }), null);
+});
+
+test('the job hands a downstream report back from its env', async () => {
+  const { posts, core } = await handBack({ kin: 'downstream', number: '210', parent: '210', upstream: 'kubed-io/quick-mcp#16', output: { report: 'Spec ready.' } });
+  assert.deepEqual(posts.map((p) => p.body), [{ type: 'upstream-report', repo: 'kubed-io/selenium-flow', number: 210, upstream: 'kubed-io/quick-mcp#16', report: 'Spec ready.', run_id: 900 }]);
+  assert.equal(core.outputs.sent, 'upstream-report');
+  const plan = await handBack({ kin: 'downstream-plan', number: '210', upstream: 'kubed-io/quick-mcp#16', pullRequest: '212', output: { plan_path: 'docs/p.md' } });
+  assert.equal(plan.posts[0].body.pull_request, 212);
 });
