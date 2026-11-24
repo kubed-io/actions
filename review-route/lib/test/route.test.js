@@ -386,3 +386,38 @@ test('the checks dispatch, green after red on the same head (a re-run), brings t
   await t.go();
   assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
 });
+
+// a sub-issue's PR stalled at a cap hands back to the parent (spec 2026-11-24 R-SM28)
+const FAMILY_PR = { base: { ref: 'issue-12' } };
+
+test("a family PR at the review cap hands n8n a needs-a-human verdict; a default PR's hands nothing", async () => {
+  const statuses = { [A]: [mine('failure', 'changes requested')], [B]: [mine('failure', 'changes requested')], [C]: [mine('failure', 'changes requested')] };
+  const D = 'd'.repeat(40);
+  const capped = setup({ commits: [A, B, C, D], statuses, pr: FAMILY_PR });
+  await capped.go();
+  assert.deepEqual(capped.posted(), ['failure: needs a human: 3 reviews without a pass']);
+  assert.deepEqual(JSON.parse(capped.core.outputs.handback), {
+    type: 'verdict', repo: 'kubed-io/selenium-flow', number: 7, sha: D, verdict: 'needs a human',
+    summary: 'needs a human: 3 reviews without a pass', review_id: 0, run_id: 5,
+  });
+  const other = setup({ commits: [A, B, C, D], statuses });
+  await other.go();
+  assert.equal(other.core.outputs.handback, '');
+});
+
+test("a family PR at the fix cap hands n8n a needs-a-human verdict; under it, nothing", async () => {
+  const red = (ref) => [mine('failure', 'checks failed (fix 1 of 3)', 'https://run/1')];
+  const D = 'd'.repeat(40);
+  const statuses = { [A]: red(A), [B]: red(B), [C]: red(C) };
+  const capped = setup({ commits: [A, B, C, D], statuses, conclusion: 'failure', pr: FAMILY_PR });
+  await capped.go();
+  assert.deepEqual(capped.posted(), ['failure: needs a human: checks failed on 4 commits']);
+  const body = JSON.parse(capped.core.outputs.handback);
+  assert.deepEqual([body.type, body.sha, body.verdict, body.summary, body.review_id], ['verdict', D, 'needs a human', 'needs a human: checks failed on 4 commits', 0]);
+  const under = setup({ conclusion: 'failure', pr: FAMILY_PR });
+  await under.go();
+  assert.equal(under.core.outputs.handback, '');
+  const other = setup({ commits: [A, B, C, D], statuses, conclusion: 'failure' });
+  await other.go();
+  assert.equal(other.core.outputs.handback, '');
+});

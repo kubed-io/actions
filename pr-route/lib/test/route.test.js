@@ -247,3 +247,40 @@ test('agent-route: any other label is an unknown event', async () => {
   assert.equal(t.github.calls.some((c) => c.name === 'issues.listEvents'), false);
   assert.equal((await outcome(setup(approval({ label: undefined }))))[0], 'none');
 });
+
+// the parent's approve_plan (spec 2026-11-24 R-SM24): the App's label on a sub-issue's PR, into
+// its family's branch issue-<P>, well after the PR opened
+const at = (event, id, name, when) => ({ event, actor: { id }, label: { name }, created_at: when });
+const OPENED = [at('labeled', APP, 'agent', '2026-11-24T10:00:00Z')];
+const byParent = [...OPENED, at('labeled', APP, 'plan approved', '2026-11-24T10:30:00Z')];
+
+test("agent-route: the App's approval on a sub-issue's PR into issue-<P> starts the code, as the owner's does", async () => {
+  const t = setup({ ...approval({ actor: APP }), events: byParent, pr: { base: { ref: 'issue-3' } } });
+  assert.deepEqual(await outcome(t), ['code', `${P}plan-approved`, 'quiet']);
+  assert.equal(t.core.outputs.takeover, 'true');
+});
+
+test("agent-route: the App's approval into the default branch, or a branch not issue-<P>, is nothing", async () => {
+  for (const ref of ['main', 'issue-3x', 'issue-', 'feature-3']) {
+    assert.equal((await outcome(setup({ ...approval({ actor: APP }), events: byParent, pr: { base: { ref } } })))[0], 'none', ref);
+  }
+});
+
+test("agent-route: the App's approval at the PR's opening, a fix's own label, is nothing", async () => {
+  for (const when of ['2026-11-24T10:00:00Z', '2026-11-24T10:00:04Z']) {
+    const events = [...OPENED, at('labeled', APP, 'bug', '2026-11-24T10:00:00Z'), at('labeled', APP, 'plan approved', when)];
+    assert.equal((await outcome(setup({ ...approval({ actor: APP }), events, pr: { base: { ref: 'issue-3' } } })))[0], 'none', when);
+  }
+});
+
+test("agent-route: the owner's approval into issue-<P> or main is unchanged", async () => {
+  for (const ref of ['issue-3', 'main']) {
+    assert.equal((await outcome(setup({ ...approval(), pr: { base: { ref } } })))[0], 'code', ref);
+  }
+});
+
+test("agent-route: the App's comments, reviews and pushes on a family PR are still nothing", async () => {
+  const pr = { base: { ref: 'issue-3' } };
+  assert.equal((await outcome(setup({ ...said({ actor: APP }), pr, got: { user: { id: APP }, issue_url: ISSUE_URL } })))[0], 'none');
+  assert.equal((await outcome(setup({ ...routed({ actor: APP }), pr, review: { user: { id: APP } } })))[0], 'none');
+});

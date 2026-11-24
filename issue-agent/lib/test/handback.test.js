@@ -81,9 +81,31 @@ test("a body made elsewhere (a review's verdict) goes to n8n as it is; an empty 
   for (const body of ['not json', '{}', '[]', '{"type":"merge","number":7}', '{"type":7}']) {
     const none = await handBack({ body });
     assert.equal(none.posts.length, 0, body);
-    assert.match(none.core.notices[0], /not one n8n takes \(verdict, report, actions\)/, body);
+    assert.match(none.core.notices[0], /not one n8n takes \(verdict, report, actions, filed\)/, body);
     assert.equal(none.core.outputs.sent, undefined, body);
   }
   const down = await handBack({ body: JSON.stringify(VERDICT), fails: new Error('connect ECONNREFUSED') });
   assert.match(down.core.notices[0], /the verdict was not sent: connect ECONNREFUSED/);
+});
+
+test("make-sub-issue's filing goes to n8n as the filed body: the new number and its parent", async () => {
+  const { posts, core } = await handBack({ kin: 'filed', number: '17', parent: '12' });
+  assert.deepEqual(posts.map((p) => p.body), [{ type: 'filed', repo: 'kubed-io/selenium-flow', parent: 12, number: 17, run_id: 900 }]);
+  assert.equal(core.outputs.sent, 'filed');
+  // nothing filed, or no parent, sends nothing
+  for (const s of [{ kin: 'filed', number: '', parent: '12' }, { kin: 'filed', number: '17', parent: '' }, { kin: 'filed', number: '12', parent: '12' }]) {
+    const none = await handBack(s);
+    assert.deepEqual(none.posts, [], JSON.stringify(s));
+  }
+});
+
+test('a made filed body goes as it is only with its numbers', async () => {
+  const FILED = { type: 'filed', repo: 'kubed-io/selenium-flow', parent: 12, number: 17, run_id: 5 };
+  const { posts } = await handBack({ body: JSON.stringify(FILED) });
+  assert.deepEqual(posts.map((p) => p.body), [FILED]);
+  for (const bad of [{ ...FILED, number: 0 }, { ...FILED, parent: 'x' }, { ...FILED, number: 12 }]) {
+    const none = await handBack({ body: JSON.stringify(bad) });
+    assert.equal(none.posts.length, 0, JSON.stringify(bad));
+    assert.match(none.core.notices[0], /not one n8n takes/);
+  }
 });

@@ -55,3 +55,16 @@ test('a default review, or one that did not finish, hands nothing back', async (
     assert.equal((await set(over)).handback, '', JSON.stringify(over));
   }
 });
+
+test("a family's last allowed review asking for changes hands back needs a human (R-SM28)", async () => {
+  const last = await set({ TARGET: 'family', OUTPUT: '{"verdict":"changes requested","summary":"The tab is lost on reload."}', LAST: 'true', REVIEW_ID: '99' });
+  assert.match(last.description, /^changes requested, last review/);
+  const body = JSON.parse(last.handback);
+  assert.deepEqual([body.verdict, body.summary, body.review_id], ['needs a human', 'The tab is lost on reload.', 99]);
+  // without a summary, the status says why
+  const bare = JSON.parse((await set({ TARGET: 'family', OUTPUT: '{"verdict":"changes requested"}', LAST: 'true' })).handback);
+  assert.deepEqual([bare.verdict, bare.summary], ['needs a human', 'changes requested, last review: over to a human']);
+  // not the last: changes requested, as it was
+  const early = JSON.parse((await set({ TARGET: 'family', OUTPUT: '{"verdict":"changes requested"}' })).handback);
+  assert.equal(early.verdict, 'changes requested');
+});

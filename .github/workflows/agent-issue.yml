@@ -18,8 +18,9 @@ name: 🧭 Agent · Issue
 # issue-<family>/<number>, forked from the parent's issue-<family>, and hands back with
 # `report`; the parent's turns end in `actions` and keep `open_questions`. n8n carries them
 # out and wakes the next turn with an `agent-issue` dispatch whose `family_event` says why:
-# `sub-issue-closed`, `sub-issue-reported` and `parent-message` are spec turns,
-# `sub-issue-file` the make-sub-issue turn.
+# `sub-issue-closed`, `sub-issue-reported`, `parent-message` and `sub-issue-start` (a filed
+# sub-issue's first turn: make-sub-issue hands n8n the number) are spec turns, `sub-issue-file`
+# the make-sub-issue turn.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
@@ -766,6 +767,17 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ env.MAKE_NUMBER }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
+
+    # the new sub-issue starts by itself: n8n takes its number and wakes its first turn
+    # (`sub-issue-start`, R-SM25); one the parent already had is not filed again, nor started
+    - name: Hand Back the Filing
+      if: steps.file.outputs.created == 'true' && steps.file.outputs.number != ''
+      continue-on-error: true
+      uses: kubed-io/actions/issue-agent/handback@main
+      with:
+        kin: filed
+        number: ${{ steps.file.outputs.number }}
+        parent: ${{ env.MAKE_FAMILY }}
 
     - name: Save the Scratchpad
       if: always() && steps.scratch.outcome == 'success'

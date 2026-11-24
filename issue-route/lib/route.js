@@ -32,10 +32,11 @@
 // issue is read live; the payload is a pointer, so the comment's author and the labeler are
 // read back from GitHub. n8n's family wake-ups come as the same dispatch, named by the
 // payload's `family_event` (spec 2026-11-03 R-E2), so a caller lists no new type:
-// `sub-issue-closed` and `sub-issue-reported` are the parent's turns, `parent-message` the
-// sub-issue's, `sub-issue-file` the make-sub-issue turn on the parent's `file` action (stage
-// `file`). Their pointers are read back the same way. Without `family_event`, the dispatch is
-// a label or a comment, as it always was.
+// `sub-issue-closed` and `sub-issue-reported` are the parent's turns, `parent-message` and
+// `sub-issue-start` (a filed sub-issue's first turn, R-SM25) the sub-issue's, `sub-issue-file`
+// the make-sub-issue turn on the parent's `file` action (stage `file`). Their pointers are
+// read back the same way. Without `family_event`, the dispatch is a label or a comment, as it
+// always was. A sub-issue's first turn opens with the sub-issue prompt however it was woken.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 const { parentOf, familyOf } = require('../../issue-agent/lib/family');
@@ -55,7 +56,17 @@ const FAMILY = {
   'sub-issue-reported': 'sub-issue-reported',
   'parent-message': 'parent-message',
   'sub-issue-file': 'make-sub-issue',
+  'sub-issue-start': 'sub-issue',
 };
+
+// the prompt a sub-issue's first turn opens with: a Bug's is debug-report
+const openingOf = (type) => (type === 'Bug' ? 'debug-report' : 'sub-issue');
+
+// a sub-issue's first turn: nothing the agent wrote on it yet (the App's own answer)
+async function firstTurn(github, context, cfg, number) {
+  const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: number, per_page: 100 });
+  return !comments.some((c) => c.user?.type === 'Bot' && String(c.user?.id) === cfg.app && isAgent(c.body));
+}
 
 function settings(env) {
   return { owner: env.OWNER_ID, app: env.APP_ID, prompts: env.PROMPTS, workflowRef: env.GITHUB_WORKFLOW_REF || '', actionsToken: env.ACTIONS_TOKEN || '' };
@@ -129,9 +140,10 @@ function sessionOf(core, { number, family, parent }) {
 }
 
 // A family wake-up from n8n: the parent's turn on a sub-issue's close or report, the
-// sub-issue's on the parent's message, the make-sub-issue turn on the parent's `file`. The
-// sender is the App (the job's `if`); the pointer is read back: the issue, its family, the
-// sub-issue it names, and the comment the turn answers, which must be the App's, there.
+// sub-issue's on the parent's message or its filing, the make-sub-issue turn on the parent's
+// `file`. The sender is the App (the job's `if`); the pointer is read back: the issue, its
+// family, the sub-issue it names, and the comment the turn answers, which must be the App's,
+// there. A sub-issue's turn names its parent, which must be its family's top issue.
 async function familyTurn({ github, context, core, cfg, ev }) {
   const { kind } = ev;
   const none = (why) => {
@@ -139,12 +151,14 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     core.setOutput('why', why);
     return core.info(`${kind}: none (${why})`);
   };
-  // the parent's turns name the sub-issue as `number`; the message is the sub-issue's own
-  const number = kind === 'parent-message' ? ev.number : ev.parent;
+  // the parent's turns name the sub-issue as `number`; the message and the start are the
+  // sub-issue's own
+  const onSub = kind === 'parent-message' || kind === 'sub-issue-start';
+  const number = onSub ? ev.number : ev.parent;
   const names = kind === 'sub-issue-closed' || kind === 'sub-issue-reported';
   const about = names ? ev.number : 0;
   const answers = kind === 'sub-issue-reported' || kind === 'parent-message';
-  if (!number || (names && !about)) return none('no issue');
+  if (!number || (names && !about) || (onSub && !ev.parent)) return none('no issue');
   if (answers && !ev.commentId) return none('no comment');
 
   const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: number });
@@ -153,11 +167,13 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   if (issue.pull_request) return none('a pull request, not a work item');
   if (!labels.includes('agent')) return none('not opted in');
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
+  if (kind === 'sub-issue-start' && issue.state !== 'open') return none(`#${number} is closed`);
   // a message past the spec is dropped: the change's own PR carries on (a limitation, for now)
   if (labels.includes(APPROVED)) return none(`PAST-SPEC: #${number} has ${APPROVED}; its change carries on`);
   const family = await familyOf(github, context.repo, number);
-  if (kind === 'parent-message' && family === number) return none('not a sub-issue');
-  if (kind !== 'parent-message' && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
+  if (onSub && family === number) return none('not a sub-issue');
+  if (onSub && family !== ev.parent) return none(`#${number} is not #${ev.parent}'s sub-issue`);
+  if (!onSub && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
   if (about && (about === number || (await familyOf(github, context.repo, about)) !== number)) return none(`#${about} is not #${number}'s sub-issue`);
   if (kind === 'sub-issue-closed') {
     const { data: closed } = await github.rest.issues.get({ ...context.repo, issue_number: about });
@@ -174,7 +190,9 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     if (!got.issue_url?.endsWith(`/issues/${number}`)) return none(`comment ${ev.commentId} is not on #${number}`);
     if (String(got.user?.id) !== cfg.app) return none(`comment ${ev.commentId} is not the App's`);
   }
-  let prompt = `${cfg.prompts}${FAMILY[kind]}`;
+  // a sub-issue's first turn opens with the sub-issue prompt, however it was woken (R-SM25)
+  const first = onSub && (kind === 'sub-issue-start' || (await firstTurn(github, context, cfg, number)));
+  let prompt = `${cfg.prompts}${first ? openingOf(type) : FAMILY[kind]}`;
   if (kind === 'sub-issue-file') {
     if (!ROLES[ev.type]) return none(`a ${ev.type || 'missing'} type: a sub-issue is a Feature or Bug`);
     if (!ev.title) return none('no title');
@@ -198,7 +216,7 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   // a machine's turn waits its turn in the family's queue
   core.setOutput('takeover', 'false');
   sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
-  core.info(`#${number}: ${kind}${about ? ` of #${about}` : ''}${family !== number ? `, family #${family}` : ''}`);
+  core.info(`#${number}: ${kind}${about ? ` of #${about}` : ''}${family !== number ? `, family #${family}${first ? ', first turn' : ''}` : ''}`);
 }
 
 async function run({ github, context, core, getOctokit, env = process.env }) {
@@ -253,10 +271,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
   let first = false;
   if (stage !== 'none') {
     family = await familyOf(github, context.repo, number);
-    if (family !== number) {
-      const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: number, per_page: 100 });
-      first = !comments.some((c) => c.user?.type === 'Bot' && String(c.user?.id) === cfg.app && isAgent(c.body));
-    }
+    if (family !== number) first = await firstTurn(github, context, cfg, number);
   }
   core.setOutput('family', String(family));
   sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
@@ -288,7 +303,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
   // a label's turn is a kb prompt: the `spec` label's spec-draft, and a Bug's first, on
   // `agent`, debug-report, which leads the opening post; a sub-issue's first turn leads with
   // sub-issue; a comment is answered in its own words
-  const opening = type === 'Bug' ? 'debug-report' : 'sub-issue';
+  const opening = openingOf(type);
   const prompt = label === 'spec' ? 'spec-draft'
     : first ? opening
       : type === 'Bug' && label === 'agent' ? 'debug-report' : '';

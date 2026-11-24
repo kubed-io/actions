@@ -3,6 +3,7 @@
 // in order. Each goes to the agent-flow callback with the channel's token. Nothing goes when the
 // field is empty, and n8n's answer never fails the job: a refusal or no answer is a warning.
 // A body made elsewhere (review-route's `verdict`, R-SM4) goes as it is, in place of these.
+// make-sub-issue hands back the number it filed (`filed`, R-SM25), and n8n starts its first turn.
 
 const TIMEOUT = 10000;
 
@@ -17,6 +18,7 @@ function parse(text) {
 // the body for the turn's kin, or null: a sub-issue reports, a parent acts
 function bodyOf({ kin, output, repo, number, parent, runId }) {
   const { report, actions } = output || {};
+  if (kin === 'filed') return filed({ type: 'filed', repo, parent, number, run_id: runId });
   if (kin === 'sub-issue' && typeof report === 'string' && report.trim()) {
     return { type: 'report', repo, parent, number, report: report.trim(), run_id: runId };
   }
@@ -27,12 +29,17 @@ function bodyOf({ kin, output, repo, number, parent, runId }) {
 }
 
 // the bodies n8n's callback takes
-const TYPES = ['verdict', 'report', 'actions'];
+const TYPES = ['verdict', 'report', 'actions', 'filed'];
+
+// a filed body names the new sub-issue and its parent, two different issues
+const id = (n) => Number.isInteger(n) && n > 0;
+const filed = (body) => (id(body.number) && id(body.parent) && body.number !== body.parent ? body : null);
 
 // a body that came made: sent only when it is one of the callback's types
 function made(text, core) {
   const body = parse(text);
-  if (body && typeof body === 'object' && TYPES.includes(body.type)) return body;
+  const typed = body && typeof body === 'object' && TYPES.includes(body.type);
+  if (typed && (body.type !== 'filed' || filed(body))) return body;
   core.warning(`the body is not one n8n takes (${TYPES.join(', ')}): nothing is sent`);
   return null;
 }

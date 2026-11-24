@@ -20,8 +20,10 @@ name: 🔍 Agent · Review
 # prompt, review-sub-issue, whose pass carries a `summary` for the parent, and its verdict
 # POSTed to the agent-flow callback after the check, which n8n merges on (spec 2026-11-24
 # R-SM1 to R-SM4). A pass carried to a new head is POSTed too, from the claude runner, the
-# one that reaches the callback (R-SM10a). Any other PR, the family's own to main included,
-# is reviewed as before.
+# one that reaches the callback (R-SM10a). A sub-issue's PR stopped at the review or fix cap,
+# or whose last allowed review asks for changes, hands back `needs a human` the same way,
+# for the parent to answer (R-SM28). Any other PR, the family's own to main included, is
+# reviewed as before.
 #
 # Copilot never stands in: asked for on a change, its review is a second opinion that wakes
 # the code agent through agent-pr.yml, and the review agent reviews as always.
@@ -87,8 +89,9 @@ jobs:
         max_reviews: ${{ env.MAX_REVIEWS }}
         max_fixes: ${{ env.MAX_FIXES }}
 
-  # a family pass carried to a new head tells n8n, as a review's own does: the callback is in
-  # the cluster, so this runs on the claude runner, and runs no Claude
+  # a family pass carried to a new head, or a family PR stopped at a cap, tells n8n, as a
+  # review's own verdict does: the callback is in the cluster, so this runs on the claude
+  # runner, and runs no Claude
   carried:
     name: Carried Verdict
     needs: route

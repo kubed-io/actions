@@ -49,7 +49,8 @@ outputs:
   handback:
     description: >
       For a `family` review that finished, its `verdict` body for n8n (issue-agent/handback's
-      `body`), with the output's `summary`. Empty otherwise.
+      `body`), with the output's `summary`; the last allowed review asking for changes is
+      `needs a human`. Empty otherwise.
     value: ${{ steps.verdict.outputs.handback }}
 
 runs:

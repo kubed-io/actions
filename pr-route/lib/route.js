@@ -9,6 +9,11 @@
 // The owner's approval is no turn, before the plan is approved or after: it says the change
 // is done, and the merge follows. A comment or a request for changes keeps it going.
 //
+// The parent approves its sub-issues' plans (spec 2026-11-24 R-SM24): the App's `plan
+// approved` counts as the owner's on a PR into its family's branch (base issue-<P>), and
+// nowhere else. Not at the PR's opening either: a fix with no plan opens with the App's label,
+// together with `agent`, and its code starts from its own dispatch.
+//
 // Copilot's review is a second opinion, however it was asked for: out of draft, every one
 // that says something is a turn, in its own words like the owner's. Copilot's newer reviews
 // reach the relay as `edited` only, so its `edited` counts as its review; anyone else's edit
@@ -29,6 +34,27 @@ const failedReview = (review) => /^(?:<!--[\s\S]*?-->\s*)?Copilot (?:encountered
 
 const FINISHED = /^Agent: done$/m;
 
+// the PR's opening labels arrive together: a label within this of the App's `agent` is one
+const OPENING_MS = 10000;
+
+// the latest `labeled` event for the label, unless it came off again
+function lastLabeled(events, label) {
+  let last = null;
+  for (const e of events) {
+    if (e.label?.name !== label) continue;
+    if (e.event === 'labeled') last = e;
+    if (e.event === 'unlabeled') last = null;
+  }
+  return last;
+}
+
+// the App's label came with the PR's opening: the App's `agent` was added at the same time
+function atOpening(events, label, app) {
+  const t = Date.parse(label.created_at);
+  return events.some((e) => e.event === 'labeled' && e.label?.name === 'agent' && String(e.actor?.id) === app
+    && Math.abs(Date.parse(e.created_at) - t) <= OPENING_MS);
+}
+
 function settings(env) {
   return {
     owner: env.OWNER_ID,
@@ -41,14 +67,14 @@ function settings(env) {
 }
 
 // The stage an event is for, from who caused it and what it was
-function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished }) {
+function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished, byParent = false }) {
   if (dispatched) return approved ? 'code' : 'none';
   if (!approved) return byOwner && !pushed ? 'plan' : 'none';
   // a review wakes the code agent when it is the owner's or Copilot's: the agent's own
   // thread replies arrive as reviews too, by the App, and must not wake it again
   if (review) return byOwner || (byCopilot && copilotOk) ? 'code' : 'none';
-  // a comment, the label: the owner's, read back from GitHub
-  if (!pushed) return byOwner ? 'code' : 'none';
+  // a comment, the label: the owner's, read back from GitHub; the label the parent's too
+  if (!pushed) return byOwner || byParent ? 'code' : 'none';
   return draft && (byOwner || byApp) && !finished ? 'code' : 'none';
 }
 
@@ -127,11 +153,18 @@ async function run({ github, context, core, env = process.env }) {
     if (!got || !here || String(got.user?.id) !== actor) actor = 'unknown';
   }
   const approved = pr.labels.some((l) => l.name === cfg.label);
+  let byParent = false;
   if (labelled) {
     // gone again: nothing to approve
     if (!approved) return core.info(`agent-route: ${cfg.label} is no longer on #${number}`);
     const events = await github.paginate(github.rest.issues.listEvents, { ...context.repo, issue_number: number, per_page: 100 });
     actor = String(lastLabeledBy(events, cfg.label)?.id ?? 'unknown');
+    // the App's, for the parent: into issue-<P> only, and after the PR opened
+    if (actor === cfg.app) {
+      const family = /^\d+$/.test((pr.base?.ref || '').slice(cfg.prefix.length)) && pr.base.ref.startsWith(cfg.prefix);
+      byParent = family && !atOpening(events, lastLabeled(events, cfg.label), cfg.app);
+      if (!byParent) core.info(`#${number}: the App's ${cfg.label} ${family ? 'came with the opening' : `on a PR into ${pr.base?.ref || 'nothing'}`}: not the parent's`);
+    }
   }
   // the run that finished the plan said so on its commit: its push wakes nothing
   const { data: head } = await github.rest.repos.getCommit({ ...context.repo, ref: pr.head.sha });
@@ -143,6 +176,7 @@ async function run({ github, context, core, env = process.env }) {
     byOwner: actor === cfg.owner,
     byApp: actor === cfg.app,
     byCopilot: actor === cfg.copilot,
+    byParent,
     draft: pr.draft,
     finished: FINISHED.test(head.commit.message),
     reason: e.client_payload?.reason,

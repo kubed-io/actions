@@ -8,6 +8,7 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | The owner's comment or review | `plan` | `code` |
 | The owner's approval | `none` | `none`: the merge follows, not a turn |
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
+| The App's `plan approved`, the parent's (R-SM24) | | as the owner's, on a PR into `issue-<P>` only and not at its opening (a fix's own label); `none` elsewhere |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
 | Copilot's review, `submitted` or `edited`, however it was asked for | | `code`, in its own words like the owner's; `none` on a draft or when it says Copilot could not review |
 | An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `fix` → fix-approved, `conflict` → merge the base in the checkout, uncommitted |

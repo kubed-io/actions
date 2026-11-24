@@ -2,7 +2,9 @@
 // `looks good` passes. Set as the reviewer (github-actions[bot]), since review-route
 // reads only its statuses back. A `family` review (a sub-issue's PR into `issue-<P>`) also
 // hands its verdict to n8n, which merges a pass into the family's branch (spec 2026-11-24
-// R-SM4): this makes the body, and issue-agent/handback sends it.
+// R-SM4): this makes the body, and issue-agent/handback sends it. The last allowed review
+// asking for changes hands back `needs a human` (R-SM28): no review follows, so the parent
+// must hear of it.
 
 function outputOf(output) {
   try { return JSON.parse(output || '{}') || {}; } catch { return {}; }
@@ -35,9 +37,12 @@ async function run({ github, context, core, env = process.env }) {
   const [state, description] = statusOf(verdict, LAST === 'true');
   await github.rest.repos.createCommitStatus({ ...context.repo, sha: SHA, state, description, target_url, context: CHECK });
   core.setOutput('verdict', verdict);
+  const stalled = verdict === 'changes requested' && LAST === 'true';
+  const summary = typeof output.summary === 'string' ? output.summary.trim() : '';
   const handback = TARGET === 'family' && verdict ? verdictBody({
-    repo: `${context.repo.owner}/${context.repo.repo}`, number: NUMBER, sha: SHA, verdict,
-    summary: output.summary, reviewId: REVIEW_ID, runId: context.runId,
+    repo: `${context.repo.owner}/${context.repo.repo}`, number: NUMBER, sha: SHA,
+    verdict: stalled ? 'needs a human' : verdict,
+    summary: stalled && !summary ? description : summary, reviewId: REVIEW_ID, runId: context.runId,
   }) : null;
   core.setOutput('handback', handback ? JSON.stringify(handback) : '');
   core.info(`${SHA}: ${state}, ${description}`);

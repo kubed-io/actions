@@ -67,7 +67,8 @@ outputs:
       The turn's prompt: `spec-draft` for the `spec` label; on a sub-issue's first turn,
       `sub-issue`, or `debug-report` for a Bug; `debug-report` for a Bug's `agent` label; a
       family wake-up's own (`sub-issue-closed`, `sub-issue-reported`, `parent-message`, and
-      `make-sub-issue <type>: <title>` with an `Ask: ` line for `sub-issue-file`); else empty.
+      `make-sub-issue <type>: <title>` with an `Ask: ` line for `sub-issue-file`), a sub-issue's
+      first turn's opening for `sub-issue-start` and any first `parent-message`; else empty.
     value: ${{ steps.route.outputs.prompt }}
   prompt_when:
     description: >-

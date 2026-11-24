@@ -1,6 +1,7 @@
 name: Issue Agent · Hand-back
 description: >
-  A family turn's hand-back to n8n: a sub-issue's `report`, or a parent's `actions`, POSTed to
+  A family turn's hand-back to n8n: a sub-issue's `report`, a parent's `actions`, or the
+  number make-sub-issue filed (`filed`, so n8n starts its first turn), POSTed to
   the agent-flow callback (AGENT_FLOW_CALLBACK_URL on the runner, AGENT_FLOW_N8N_TOKEN in the
   job's env). Nothing is sent when the field is empty, and n8n's answer never fails the job.
   A `body` made elsewhere, a review's `verdict` (review-route), is sent as it is instead.
@@ -11,11 +12,13 @@ inputs:
     required: false
     default: ""
   kin:
-    description: "issue-route's `kin`: `sub-issue` sends `report`, `parent` sends `actions`; anything else sends nothing."
+    description: >
+      issue-route's `kin`: `sub-issue` sends `report`, `parent` sends `actions`; `filed` sends the
+      filed sub-issue `number` under `parent`; anything else sends nothing.
     required: false
     default: ""
   number:
-    description: The issue the turn was on.
+    description: The issue the turn was on; for `filed`, the sub-issue filed.
     required: false
     default: ""
   parent:
@@ -31,7 +34,7 @@ inputs:
 
 outputs:
   sent:
-    description: "The body's `type` (`report`, `actions`, `verdict`) when n8n took it; empty otherwise."
+    description: "The body's `type` (`report`, `actions`, `verdict`, `filed`) when n8n took it; empty otherwise."
     value: ${{ steps.post.outputs.sent }}
 
 runs:

@@ -9,7 +9,9 @@
 // The review's target (spec 2026-11-24 R-SM1): `family` for a sub-issue's PR into its
 // family's branch `issue-<P>`, `default` for a PR to the default branch, the family's own
 // included. A family pass carried to a new head is handed to n8n as the review's own is
-// (R-SM10a): the `handback` output is its `verdict` body, which the workflow sends.
+// (R-SM10a): the `handback` output is its `verdict` body, which the workflow sends. So is a
+// family PR stopped at the review or fix cap, as `needs a human` (R-SM28): no one watches a
+// sub-issue's PR, so the parent hears of it.
 
 const { verdictBody } = require('./verdict');
 
@@ -141,6 +143,14 @@ async function run({ github, context, core, env = process.env }) {
   const status = (state, description, target_url = runUrl) => github.rest.repos.createCommitStatus({
     ...repo, sha, state, description, target_url, context: cfg.check,
   });
+  // a cap: over to a human, and on a family PR the parent hears of it, the status its summary
+  const stalled = async (description, target_url) => {
+    await status('failure', description, target_url);
+    if (target !== 'family') return;
+    core.setOutput('handback', JSON.stringify(verdictBody({
+      repo: `${repo.owner}/${repo.repo}`, number, sha, verdict: 'needs a human', summary: description, runId: context.runId,
+    })));
+  };
 
   const ours = pr.head.repo?.full_name === `${repo.owner}/${repo.repo}`;
   const labels = pr.labels.map((l) => l.name);
@@ -189,7 +199,7 @@ async function run({ github, context, core, env = process.env }) {
   if (checks === 'failed') {
     const fixes = judged.filter(failedChecks).length;
     if (fixes >= cfg.maxFixes) {
-      await status('failure', `needs a human: checks failed on ${fixes + 1} commits`, checksRun.html_url);
+      await stalled(`needs a human: checks failed on ${fixes + 1} commits`, checksRun.html_url);
       return core.info(`checks failed on ${fixes + 1} commits: over to a human`);
     }
     await status('failure', `checks failed (fix ${fixes + 1} of ${cfg.maxFixes})`, checksRun.html_url);
@@ -241,7 +251,7 @@ async function run({ github, context, core, env = process.env }) {
   // the owner's own dispatch is never capped
   const capped = !(dispatched && actor === cfg.owner);
   if (capped && done >= cfg.maxReviews) {
-    await status('failure', `needs a human: ${done} reviews without a pass`);
+    await stalled(`needs a human: ${done} reviews without a pass`);
     return core.info(`${done} reviews without a pass: over to a human`);
   }
   await status('pending', `reviewing (${done + 1} of ${cfg.maxReviews})`);

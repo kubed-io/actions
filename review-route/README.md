@@ -72,6 +72,8 @@ pass carried to a new head (base merged in, suggestions applied) sets `handback`
 `verdict` body for n8n, for issue-agent/handback's `body`: the new head, the carried verdict,
 and the summary read back from the review the status links to, between its header's
 `<!-- review-summary -->` markers (empty when it cannot be read; n8n keeps the one it has).
+A `family` PR stopped at the review or fix cap sets `handback` too, as `needs a human` with the
+status as its summary (R-SM28), so n8n hands it back to the parent.
 
 ## Verdict
 
@@ -98,4 +100,5 @@ comment, or one review when it has line comments.
 
 Outputs: `verdict`, and `handback`: for a `family` target, the review's body for n8n,
 `{type: "verdict", repo, number, sha, verdict, summary, review_id, run_id}` with the output's
-`summary`; empty for `default` or a review that did not finish.
+`summary`; empty for `default` or a review that did not finish. The last allowed review
+asking for changes (`last`) is handed back as `needs a human` (R-SM28).

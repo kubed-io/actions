@@ -70,8 +70,8 @@ outputs:
   handback:
     description: >
       A `family` pass carried to the new head: its `verdict` body for n8n (issue-agent/handback's
-      `body`), with the carried head and the summary read back from the earlier review. Empty
-      otherwise.
+      `body`), with the carried head and the summary read back from the earlier review. A
+      `family` PR at the review or fix cap: a `needs a human` body. Empty otherwise.
     value: ${{ steps.route.outputs.handback }}
 
 runs:

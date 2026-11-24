@@ -386,13 +386,15 @@ const FAMILY_ISSUES = {
   9: { number: 9, title: 'Alone', labels: ['agent'], type: 'Feature' },
   12: { number: 12, title: 'Other', labels: ['agent'], type: 'Feature', subs: 1 },
   13: { number: 13, title: 'Other part', labels: ['agent'], type: 'Feature' },
+  7: { number: 7, title: 'Flows remember the size', labels: ['agent'], type: 'Feature', state: 'open' },
 };
-const UP = { 5: 3, 6: 3, 13: 12 };
+const UP = { 5: 3, 6: 3, 7: 3, 13: 12 };
 const url = (n) => `https://api.github.com/repos/kubed-io/selenium-flow/issues/${n}`;
 // 40: the 📨 report on #3, 41: the parent's message on #5, both the App's
 const FAMILY_COMMENTS = { 40: { id: 40, user: { id: APP }, issue_url: url(3) }, 41: { id: 41, user: { id: APP }, issue_url: url(5) } };
 
-function dispatched(kind, payload, { issues = {}, comments = {} } = {}) {
+// `threads`: an issue's comments, by number; a sub-issue with none of the App's answers is on its first turn
+function dispatched(kind, payload, { issues = {}, comments = {}, threads = { 5: answered, 6: answered } } = {}) {
   const all = { ...FAMILY_ISSUES, ...issues };
   const notes = { ...FAMILY_COMMENTS, ...comments };
   const github = fake.github({
@@ -403,7 +405,7 @@ function dispatched(kind, payload, { issues = {}, comments = {} } = {}) {
     },
     'issues.getComment': ({ comment_id: id }) => notes[id] || fake.notFound(),
     [PARENT]: ({ issue_number: n }) => (UP[n] ? { number: UP[n] } : fake.notFound()),
-    'issues.listComments': [],
+    'issues.listComments': ({ issue_number: n }) => threads[n] || [],
     'issues.listEvents': [],
   });
   const go = async () => {
@@ -430,7 +432,7 @@ test("sub-issue-reported is a parent turn with sub-issue-reported, on the App's 
 });
 
 test("parent-message is the sub-issue's turn with parent-message, in its own session forked from the parent's", async () => {
-  assert.deepEqual(await send('parent-message', { number: 5, comment_id: 41 }),
+  assert.deepEqual(await send('parent-message', { parent: 3, number: 5, comment_id: 41 }),
     { ...PARENT_TURN, number: '5', title: 'Flows remember the window', prompt: `${P}parent-message`, session: 'issue-3/5', fork_from: 'issue-3', kin: 'sub-issue' });
 });
 
@@ -479,9 +481,9 @@ test("a parent turn is on a family's top issue only: a sub-issue named as the pa
 });
 
 test("parent-message is on a sub-issue only: a top-level issue or a parent is nothing", async () => {
-  const top = await send('parent-message', { number: 9, comment_id: 41 }, { comments: { 41: { id: 41, user: { id: APP }, issue_url: url(9) } } });
+  const top = await send('parent-message', { parent: 9, number: 9, comment_id: 41 }, { comments: { 41: { id: 41, user: { id: APP }, issue_url: url(9) } } });
   assert.deepEqual([top.stage, top.why], ['none', 'not a sub-issue']);
-  const parent = await send('parent-message', { number: 3, comment_id: 40 });
+  const parent = await send('parent-message', { parent: 3, number: 3, comment_id: 40 });
   assert.equal(parent.stage, 'none');
 });
 
@@ -491,8 +493,8 @@ test("the report or message must be the App's comment on the thread the turn is 
     ['sub-issue-reported', { parent: 3, number: 5, comment_id: 40 }, { 40: { id: 40, user: { id: APP }, issue_url: url(5) } }],
     ['sub-issue-reported', { parent: 3, number: 5, comment_id: 77 }, {}],
     ['sub-issue-reported', { parent: 3, number: 5 }, {}],
-    ['parent-message', { number: 5, comment_id: 41 }, { 41: { id: 41, user: { id: 12345 }, issue_url: url(5) } }],
-    ['parent-message', { number: 5, comment_id: 40 }, {}],
+    ['parent-message', { parent: 3, number: 5, comment_id: 41 }, { 41: { id: 41, user: { id: 12345 }, issue_url: url(5) } }],
+    ['parent-message', { parent: 3, number: 5, comment_id: 40 }, {}],
   ]) {
     const out = await send(kind, payload, { comments });
     assert.equal(out.stage, 'none', `${kind} ${JSON.stringify(payload)}`);
@@ -501,7 +503,7 @@ test("the report or message must be the App's comment on the thread the turn is 
 
 test('a parent-message to a sub-issue past its spec is dropped as PAST-SPEC: its change carries on', async () => {
   const issues = { 5: { ...FAMILY_ISSUES[5], labels: ['agent', 'spec approved'] } };
-  const out = await send('parent-message', { number: 5, comment_id: 41 }, { issues });
+  const out = await send('parent-message', { parent: 3, number: 5, comment_id: 41 }, { issues });
   assert.equal(out.stage, 'none');
   assert.match(out.why, /^PAST-SPEC: /);
 });
@@ -547,10 +549,49 @@ test('a family dispatch without its numbers reads nothing', async () => {
     ['sub-issue-closed', { parent: 3 }],
     ['sub-issue-reported', { parent: 3, comment_id: 40 }],
     ['parent-message', { comment_id: 41 }],
+    ['parent-message', { number: 5, comment_id: 41 }],
     ['sub-issue-file', { type: 'Feature', title: 'x' }],
+    ['sub-issue-start', { number: 7 }],
+    ['sub-issue-start', { parent: 3 }],
   ]) {
     const t = dispatched(kind, payload);
     assert.equal((await t.go()).stage, 'none');
     assert.deepEqual(t.github.calls, []);
+  }
+});
+
+test("parent-message names the family: another family's parent is nothing", async () => {
+  const out = await send('parent-message', { parent: 12, number: 5, comment_id: 41 });
+  assert.deepEqual([out.stage, out.why], ['none', '#5 is not #12\'s sub-issue']);
+});
+
+test("a sub-issue's first turn, woken by the parent's message, opens with the sub-issue prompt", async () => {
+  const out = await send('parent-message', { parent: 3, number: 5, comment_id: 41 }, { threads: {} });
+  assert.deepEqual([out.stage, out.prompt, out.prompt_when, out.session, out.fork_from], ['spec', `${P}sub-issue`, 'lead', 'issue-3/5', 'issue-3']);
+  // a Bug's first turn opens with debug-report, as on Dr K's comment
+  const bug = await send('parent-message', { parent: 3, number: 6, comment_id: 42 }, { threads: {}, comments: { 42: { id: 42, user: { id: APP }, issue_url: url(6) } } });
+  assert.deepEqual([bug.role, bug.prompt], ['debug', `${P}debug-report`]);
+});
+
+test("sub-issue-start is a filed sub-issue's first turn: the sub-issue prompt, in its own session forked from the parent's", async () => {
+  assert.deepEqual(await send('sub-issue-start', { parent: 3, number: 7 }, { threads: {} }),
+    { ...PARENT_TURN, number: '7', title: 'Flows remember the size', prompt: `${P}sub-issue`, session: 'issue-3/7', fork_from: 'issue-3', kin: 'sub-issue' });
+  const bug = await send('sub-issue-start', { parent: 3, number: 6 }, { threads: {} });
+  assert.deepEqual([bug.stage, bug.role, bug.prompt, bug.prompt_when], ['spec', 'debug', `${P}debug-report`, 'lead']);
+});
+
+test("sub-issue-start reads its pointer back: an open agent sub-issue of the parent, before spec approved", async () => {
+  for (const [payload, issues, why] of [
+    [{ parent: 3, number: 13 }, {}, /is not #3's sub-issue/],
+    [{ parent: 3, number: 9 }, {}, /not a sub-issue/],
+    [{ parent: 5, number: 6 }, {}, /is not #5's sub-issue/],
+    [{ parent: 3, number: 5 }, {}, /#5 is closed/],
+    [{ parent: 3, number: 7 }, { 7: { ...FAMILY_ISSUES[7], labels: ['agent', 'spec approved'] } }, /^PAST-SPEC: /],
+    [{ parent: 3, number: 7 }, { 7: { ...FAMILY_ISSUES[7], labels: [] } }, /not opted in/],
+    [{ parent: 3, number: 7 }, { 7: { ...FAMILY_ISSUES[7], pr: true } }, /a pull request/],
+  ]) {
+    const out = await send('sub-issue-start', payload, { issues, threads: {} });
+    assert.equal(out.stage, 'none', JSON.stringify(payload));
+    assert.match(out.why, why, JSON.stringify(payload));
   }
 });
