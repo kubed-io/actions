@@ -69,7 +69,9 @@ outputs:
       `sub-issue`, or `debug-report` for a Bug; `debug-report` for a Bug's `agent` label; a
       family wake-up's own (`sub-issue-closed`, `sub-issue-reported`, `parent-message`, and
       `make-sub-issue <type>: <title>` with an `Ask: ` line for `sub-issue-file`), a sub-issue's
-      first turn's opening for `sub-issue-start` and any first `parent-message`; else empty.
+      first turn's opening for `sub-issue-start` and any first `parent-message`,
+      `upstream-release`, `upstream-message` and `downstream-reported` for the upstream wake-ups;
+      else empty.
     value: ${{ steps.route.outputs.prompt }}
   prompt_when:
     description: >-
@@ -85,8 +87,19 @@ outputs:
     description: "On a sub-issue, `issue-<family>`: a new session starts as a fork of the parent's. Else empty."
     value: ${{ steps.route.outputs.fork_from }}
   kin:
-    description: "`sub-issue`, `parent` (it has sub-issues) or `alone`."
+    description: >-
+      `sub-issue`, `parent` (it has sub-issues; an epic's `downstream-reported` turn too),
+      `downstream` (an issue alone carrying an upstream epic's marker) or `alone`.
     value: ${{ steps.route.outputs.kin }}
+  upstream:
+    description: >-
+      On a `downstream` turn, the epic its marker names, `<owner>/<repo>#<P>`; empty otherwise.
+    value: ${{ steps.route.outputs.upstream }}
+  release_label:
+    description: >-
+      On the parent's hand-off (`change: parent`), its one `release:patch`, `release:minor` or
+      `release:major` label, for the family's change; empty with none, or two.
+    value: ${{ steps.route.outputs.release_label }}
   item_type:
     description: On the `file` stage, the new sub-issue's type, `Feature` or `Bug`.
     value: ${{ steps.route.outputs.item_type }}

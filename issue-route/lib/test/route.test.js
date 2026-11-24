@@ -15,12 +15,15 @@ const OPTED_IN = ['agent'];
 // `by` who did it, `gone` takes it off again before the route reads it. GitHub answers
 // the dispatch's read-backs.
 const PARENT = 'GET /repos/{owner}/{repo}/issues/{issue_number}/parent';
+// the C1 marker of quick-mcp's epic #16 (spec 2026-11-24 upstream releases, R-UR7)
+const MARK = '<!-- upstream: kubed-io/quick-mcp#16 -->';
 // `parent`: #5's parent, whose own parent is none; `comments`: #5's comments
 // `runs`: this workflow's runs in flight, by status, each with its `jobs`
-function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [], subs, runs = {}, env = ENV }) {
+// `marked`: #5 is the App's, its body carrying the C1 marker for kubed-io/quick-mcp#16
+function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = false, events, got, gone = false, parent = 0, comments = [], subs, runs = {}, env = ENV, marked = false }) {
   const all = label && !gone && !labels.includes(label) ? [...labels, label] : labels;
   const github = fake.github({
-    'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(subs ? { sub_issues_summary: { total: subs.length } } : {}), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
+    'issues.get': { number: 5, title: 'Flows remember the window', labels: all.map((name) => ({ name })), ...(marked ? { user: { id: APP }, body: `Adopts a release.\n${MARK}\n` } : {}), ...(subs ? { sub_issues_summary: { total: subs.length } } : {}), ...(type ? { type: { name: type } } : {}), ...(pr ? { pull_request: { url: 'x' } } : {}) },
     'issues.getComment': got ?? { id: 31, user: { id: by }, issue_url: ISSUE_URL },
     'GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues': subs || [],
     [PARENT]: ({ issue_number: n }) => (n === 5 && parent ? { number: parent } : fake.notFound()),
@@ -54,7 +57,7 @@ function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = 
 // the situation's outputs
 const both = (s) => situation(s).dispatch();
 
-const SPEC = { opt_in_label: 'agent', number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true', session: 'issue-5', fork_from: '', kin: 'alone' };
+const SPEC = { opt_in_label: 'agent', number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true', session: 'issue-5', fork_from: '', kin: 'alone', upstream: '' };
 
 test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
@@ -389,7 +392,7 @@ const FAMILY_ISSUES = {
   13: { number: 13, title: 'Other part', labels: ['agent'], type: 'Feature' },
   7: { number: 7, title: 'Flows remember the size', labels: ['agent'], type: 'Feature', state: 'open' },
 };
-const UP = { 5: 3, 6: 3, 7: 3, 13: 12 };
+const UP = { 5: 3, 6: 3, 7: 3, 13: 12, 17: 16 };
 const url = (n) => `https://api.github.com/repos/kubed-io/selenium-flow/issues/${n}`;
 // 40: the 📨 report on #3, 41: the parent's message on #5, both the App's
 const FAMILY_COMMENTS = { 40: { id: 40, user: { id: APP }, issue_url: url(3) }, 41: { id: 41, user: { id: APP }, issue_url: url(5) } };
@@ -402,7 +405,7 @@ function dispatched(kind, payload, { issues = {}, comments = {}, threads = { 5: 
     'issues.get': ({ issue_number: n }) => {
       const i = all[n];
       if (!i) return fake.notFound();
-      return { number: i.number, title: i.title, state: i.state || 'open', labels: i.labels.map((name) => ({ name })), ...(i.type ? { type: { name: i.type } } : {}), ...(i.subs ? { sub_issues_summary: { total: i.subs } } : {}), ...(i.pr ? { pull_request: { url: 'x' } } : {}) };
+      return { number: i.number, title: i.title, state: i.state || 'open', labels: i.labels.map((name) => ({ name })), ...(i.type ? { type: { name: i.type } } : {}), ...(i.subs ? { sub_issues_summary: { total: i.subs } } : {}), ...(i.pr ? { pull_request: { url: 'x' } } : {}), ...(i.user ? { user: { id: i.user } } : {}), ...(i.body ? { body: i.body } : {}) };
     },
     'issues.getComment': ({ comment_id: id }) => notes[id] || fake.notFound(),
     [PARENT]: ({ issue_number: n }) => (UP[n] ? { number: UP[n] } : fake.notFound()),
@@ -421,7 +424,7 @@ function dispatched(kind, payload, { issues = {}, comments = {}, threads = { 5: 
 }
 const send = async (kind, payload, over) => dispatched(kind, payload, over).go();
 
-const PARENT_TURN = { stage: 'spec', opt_in_label: 'agent', number: '3', family: '3', change: 'own', plan: 'true', label: '', title: 'Flows', role: 'spec', writes: 'false', prompt_when: 'lead', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent' };
+const PARENT_TURN = { stage: 'spec', opt_in_label: 'agent', number: '3', family: '3', change: 'own', plan: 'true', label: '', title: 'Flows', role: 'spec', writes: 'false', prompt_when: 'lead', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent', upstream: '' };
 
 test('sub-issue-closed is a parent turn with sub-issue-closed, leading, queued', async () => {
   assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }),
@@ -640,7 +643,7 @@ test('a parent with spec approved still takes its family wake-ups', async () => 
 // R-SM30: the parent's open_pr, n8n's family-pr wake-up, is the hand-off of the family's change
 const FAMILY_PR = {
   stage: 'handoff', opt_in_label: 'agent', number: '3', family: '3', change: 'parent', plan: 'true', label: '', title: 'Flows',
-  role: 'spec', writes: 'false', prompt: '', prompt_when: 'quiet', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent',
+  role: 'spec', writes: 'false', prompt: '', prompt_when: 'quiet', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent', upstream: '', release_label: '',
   open_sub_issues: JSON.stringify([{ number: 6, title: 'Flows remember the tab' }, { number: 7, title: 'Flows remember the size' }]),
 };
 
@@ -670,4 +673,135 @@ test('family-pr is on a family top issue with sub-issues only', async () => {
   assert.deepEqual([alone.stage, alone.why], ['none', '#9 has no sub-issues']);
   assert.equal((await send('family-pr', { parent: 3 }, { issues: { 3: { ...FAMILY_ISSUES[3], type: 'Task' } } })).stage, 'none');
   assert.equal((await send('family-pr', { parent: 3 }, { issues: { 3: { ...FAMILY_ISSUES[3], pr: true } } })).stage, 'none');
+});
+
+// Upstream releases (spec 2026-11-24, R-UR6 to R-UR13): #210 is selenium-flow's downstream issue
+// for quick-mcp's epic #16, the App's, with the C1 marker; #16 is the epic, opted in by its
+// `agent` sub-issue #17. 50 and 51: the App's message and rc note on #210; 60: the App's
+// downstream report on #16
+const EPIC = 'kubed-io/quick-mcp#16';
+const DS = {
+  210: { number: 210, title: 'Upgrade `kubed-mcp` to 0.2.0', labels: ['agent'], type: 'Feature', state: 'open', user: APP, body: `Adopts a release of ${EPIC}.\n\n${MARK}\n` },
+  16: { number: 16, title: 'Telemetry', labels: [], type: 'Feature', state: 'open', subs: 1 },
+  17: { number: 17, title: 'Spans', labels: ['agent'], type: 'Feature', state: 'open' },
+};
+const DS_COMMENTS = {
+  50: { id: 50, user: { id: APP }, issue_url: url(210), body: `<!-- upstream-message {"upstream": "${EPIC}"} -->\nKeep the tool name.` },
+  51: { id: 51, user: { id: APP }, issue_url: url(210), body: `<!-- upstream-release {"upstream": "${EPIC}", "version": "0.2.0-rc.2", "final": false} -->\n🚀` },
+  60: { id: 60, user: { id: APP }, issue_url: url(16), body: '<!-- downstream-report {"repo": "kubed-io/selenium-flow", "number": 210} -->\n📨 Which tool name?' },
+};
+const ds = (kind, payload, { issues = {}, comments = {}, threads = {} } = {}) => send(kind, payload, { issues: { ...DS, ...issues }, comments: { ...DS_COMMENTS, ...comments }, threads });
+const DOWNSTREAM_TURN = { ...PARENT_TURN, number: '210', family: '210', title: DS[210].title, session: 'issue-210', kin: 'downstream', upstream: EPIC };
+
+test('upstream-start: a marked open agent Feature starts in a fresh session with upstream-release', async () => {
+  const out = await ds('upstream-start', { number: 210, upstream: EPIC });
+  assert.deepEqual(out, { ...DOWNSTREAM_TURN, prompt: `${P}upstream-release` });
+  assert.deepEqual([out.stage, out.kin, out.upstream, out.session, out.fork_from, out.prompt_when, out.takeover],
+    ['spec', 'downstream', EPIC, 'issue-210', '', 'lead', 'false']);
+  // the payload's ref may differ in case: the issue's own marker is the output
+  assert.equal((await ds('upstream-start', { number: 210, upstream: 'Kubed-IO/Quick-MCP#16' })).upstream, EPIC);
+});
+
+test('upstream-start: no marker, another epic in the marker, a stranger issue, closed, no agent, or spec approved is none', async () => {
+  const marked = (body) => ({ 210: { ...DS[210], body } });
+  for (const [payload, issues, why] of [
+    [{ number: 210, upstream: EPIC }, marked('Adopts a release.'), /no upstream marker/],
+    [{ number: 210, upstream: EPIC }, marked('<!-- upstream: kubed-io/quick-mcp#160 -->'), /kubed-io\/quick-mcp#160/],
+    [{ number: 210, upstream: EPIC }, marked('<!-- upstream: kubed-io/quick-mcp-x#16 -->'), /kubed-io\/quick-mcp-x#16/],
+    [{ number: 210, upstream: 'kubed-io/quick-mcp#12' }, {}, /not kubed-io\/quick-mcp#12/],
+    [{ number: 210, upstream: EPIC }, { 210: { ...DS[210], user: 12345 } }, /no upstream marker/],
+    [{ number: 210, upstream: EPIC }, { 210: { ...DS[210], state: 'closed' } }, /#210 is closed/],
+    [{ number: 210, upstream: EPIC }, { 210: { ...DS[210], labels: [] } }, /not opted in/],
+    [{ number: 210, upstream: EPIC }, { 210: { ...DS[210], labels: ['agent', 'spec approved'] } }, /^PAST-SPEC: /],
+    [{ number: 210, upstream: EPIC }, { 210: { ...DS[210], type: 'Bug' } }, /not a Feature/],
+    [{ number: 210, upstream: EPIC }, { 210: { ...DS[210], pr: true } }, /a pull request/],
+  ]) {
+    const out = await ds('upstream-start', payload, { issues });
+    assert.equal(out.stage, 'none', JSON.stringify([payload, issues]));
+    assert.match(out.why, why, JSON.stringify([payload, issues]));
+  }
+});
+
+test('upstream-message: the App comment opening with this epic upstream-message or upstream-release is a turn; any other comment is none', async () => {
+  assert.deepEqual(await ds('upstream-message', { number: 210, upstream: EPIC, comment_id: 50 }), { ...DOWNSTREAM_TURN, prompt: `${P}upstream-message` });
+  assert.equal((await ds('upstream-message', { number: 210, upstream: EPIC, comment_id: 51 })).stage, 'spec');
+  for (const [id, comment] of [
+    [52, { id: 52, user: { id: DRK }, issue_url: url(210), body: DS_COMMENTS[50].body }],
+    [53, { id: 53, user: { id: APP }, issue_url: url(210), body: 'Hello.' }],
+    [54, { id: 54, user: { id: APP }, issue_url: url(210), body: '<!-- upstream-message {"upstream": "kubed-io/quick-mcp#12"} -->' }],
+    [55, { id: 55, user: { id: APP }, issue_url: url(210), body: `hi\n<!-- upstream-message {"upstream": "${EPIC}"} -->` }],
+    [56, { id: 56, user: { id: APP }, issue_url: url(9), body: DS_COMMENTS[50].body }],
+    [57, null],
+  ]) {
+    const out = await ds('upstream-message', { number: 210, upstream: EPIC, comment_id: id }, { comments: comment ? { [id]: comment } : {} });
+    assert.equal(out.stage, 'none', String(id));
+  }
+  assert.equal((await ds('upstream-message', { number: 210, upstream: EPIC })).stage, 'none');
+});
+
+test("the App's spec approved on a marked downstream issue hands off its own change; on an unmarked top-level issue it is still none", async () => {
+  const out = await both({ ...APPROVE, by: APP, marked: true });
+  assert.deepEqual([out.stage, out.change, out.kin, out.upstream], ['handoff', 'own', 'downstream', EPIC]);
+  const bare = situation({ ...APPROVE, by: APP });
+  assert.deepEqual([(await bare.dispatch()).stage, bare.go.core.outputs.why], ['none', "the App's spec approved on a top-level issue"]);
+  // on a marked parent it is still only Dr K's that opens the family's change
+  const parent = await both({ ...APPROVE, by: APP, marked: true, subs: [sub(6, 'closed')] });
+  assert.equal(parent.stage, 'none');
+});
+
+test("Dr K's comment on a marked issue is a spec turn with kin downstream and its upstream", async () => {
+  assert.deepEqual(await both({ marked: true }),
+    { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false', kin: 'downstream', upstream: EPIC });
+  // the App's own comment there is still nothing: n8n's notes come as upstream-message
+  assert.equal((await both({ by: APP, marked: true })).stage, 'none');
+});
+
+test('downstream-reported: the open epic wakes with downstream-reported, opted in by an agent sub-issue', async () => {
+  const payload = { parent: 16, repo: 'kubed-io/selenium-flow', number: 210, comment_id: 60 };
+  assert.deepEqual(await ds('downstream-reported', payload),
+    { ...PARENT_TURN, number: '16', family: '16', title: 'Telemetry', session: 'issue-16', opt_in_label: 'none', prompt: `${P}downstream-reported` });
+  // with agent on the epic itself, its own label is the gate's
+  assert.equal((await ds('downstream-reported', payload, { issues: { 16: { ...DS[16], labels: ['agent'] } } })).opt_in_label, 'agent');
+  for (const [over, p, why] of [
+    [{ issues: { 16: { ...DS[16], state: 'closed' } } }, payload, /#16 is closed/],
+    [{ issues: { 17: { ...DS[17], labels: [] } } }, payload, /not opted in/],
+    [{}, { ...payload, parent: 17 }, /is a sub-issue of #16/],
+    [{ comments: { 60: { ...DS_COMMENTS[60], user: { id: DRK } } } }, payload, /not the App's/],
+    [{ comments: { 60: { ...DS_COMMENTS[60], body: '📨 Which tool name?' } } }, payload, /no downstream report/],
+    [{ comments: { 60: { ...DS_COMMENTS[60], issue_url: url(210) } } }, payload, /not on #16/],
+    [{}, { ...payload, number: 211 }, /not the report of kubed-io\/selenium-flow#211/],
+    [{}, { ...payload, repo: 'kubed-io/mcp-kb' }, /not the report of kubed-io\/mcp-kb#210/],
+  ]) {
+    const out = await ds('downstream-reported', p, over);
+    assert.equal(out.stage, 'none', JSON.stringify([over, p]));
+    assert.match(out.why, why, JSON.stringify([over, p]));
+  }
+});
+
+test('downstream wake-ups without their pointers read nothing', async () => {
+  for (const [kind, payload] of [
+    ['upstream-start', { number: 210 }],
+    ['upstream-start', { upstream: EPIC }],
+    ['upstream-start', { number: 210, upstream: 'quick-mcp#16' }],
+    ['upstream-message', { number: 210, upstream: EPIC }],
+    ['downstream-reported', { parent: 16, number: 210, comment_id: 60 }],
+    ['downstream-reported', { parent: 16, repo: 'kubed-io/selenium-flow', comment_id: 60 }],
+    ['downstream-reported', { repo: 'kubed-io/selenium-flow', number: 210, comment_id: 60 }],
+    ['downstream-reported', { parent: 16, repo: 'kubed-io/selenium-flow', number: 210 }],
+  ]) {
+    const t = dispatched(kind, payload, { issues: DS, comments: DS_COMMENTS });
+    assert.equal((await t.go()).stage, 'none', JSON.stringify([kind, payload]));
+    assert.deepEqual(t.github.calls, [], JSON.stringify([kind, payload]));
+  }
+});
+
+test('release_label: the parent hand-off carries its one release label; none or two is empty', async () => {
+  const minor = { 3: { ...FAMILY_ISSUES[3], labels: ['agent', 'release:minor'] } };
+  assert.equal((await send('family-pr', { parent: 3 }, { issues: minor })).release_label, 'release:minor');
+  const drk = await both({ ...APPROVE, labels: [...APPROVE.labels, 'release:minor'], subs: [sub(6, 'closed')] });
+  assert.deepEqual([drk.change, drk.release_label], ['parent', 'release:minor']);
+  const two = { 3: { ...FAMILY_ISSUES[3], labels: ['agent', 'release:minor', 'release:major'] } };
+  assert.equal((await send('family-pr', { parent: 3 }, { issues: two })).release_label, '');
+  assert.equal((await send('family-pr', { parent: 3 })).release_label, '');
+  assert.equal((await both({ ...APPROVE, labels: [...APPROVE.labels, 'release:other'], subs: [sub(6, 'closed')] })).release_label, '');
 });

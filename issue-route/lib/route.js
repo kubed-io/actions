@@ -40,10 +40,19 @@
 // of the family's change on the parent's `open_pr` (stage `handoff`). Their pointers are
 // read back the same way. Without `family_event`, the dispatch is a label or a comment, as it
 // always was. A sub-issue's first turn opens with the sub-issue prompt however it was woken.
+//
+// An upstream epic's downstream issues (spec 2026-11-24 upstream releases, R-UR6 to R-UR13) carry
+// the epic's marker (issue-agent/lib/upstream.js), and their turns are `kin` `downstream`, with the
+// epic as `upstream`. n8n wakes them with `upstream-start` (the first rc opened the issue) and
+// `upstream-message` (the epic's message, or a later rc's note, the App's comment on the issue),
+// and the epic with `downstream-reported` (a downstream turn's report, which n8n posted on it). The
+// App's `spec approved` on a marked issue hands off its change, as Dr K's does (R-UR11). A parent's
+// hand-off carries its one `release:*` label (`release_label`, R-UR1) for the family's change.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 const { parentOf, familyOf } = require('../../issue-agent/lib/family');
 const { isAgent } = require('../../issue-agent/lib/state');
+const { markerOf, noteOf, sameRef } = require('../../issue-agent/lib/upstream');
 
 // the issue types the flow takes, and the agent each one gets
 const ROLES = { Feature: 'spec', Bug: 'debug' };
@@ -62,9 +71,23 @@ const FAMILY = {
   'sub-issue-start': 'sub-issue',
   // no turn: the hand-off opens or refreshes the family's change (R-SM30)
   'family-pr': '',
+  // a downstream issue's, for its upstream epic (R-UR6, R-UR8), and the epic's on a report (R-UR9)
+  'upstream-start': 'upstream-release',
+  'upstream-message': 'upstream-message',
+  'downstream-reported': 'downstream-reported',
 };
+const DOWNSTREAM = ['upstream-start', 'upstream-message'];
+const RELEASE = /^release:(patch|minor|major)$/;
+const REPO = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const REF = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+#[1-9]\d*$/;
 
 const labelsOf = (i) => (i.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+
+// the issue's one release label, for the family's change; none, or two, is empty (R-UR1)
+const releaseLabelOf = (labels) => {
+  const found = labels.filter((l) => RELEASE.test(l));
+  return found.length === 1 ? found[0] : '';
+};
 
 // the parent's `agent` sub-issues still open, for the family change's body (R-SM30)
 const openSubIssues = (subs) => JSON.stringify((subs || [])
@@ -108,8 +131,9 @@ async function makingIn({ actions: github, context, family, workflowRef }) {
 
 // The stage an event is for, and why when it is nothing. `parented`: the issue has a parent,
 // read only for the App's `spec approved`; `parent`: it has sub-issues. The App's counts on a
-// leaf sub-issue only, never on a parent at any depth
-function stageOf({ comment, label, labels, type, isPR, byOwner, byApp, parented = false, parent = false }) {
+// leaf sub-issue only, never on a parent at any depth, and on an issue that carries an upstream
+// epic's marker (`marked`, R-UR11), if it is no parent
+function stageOf({ comment, label, labels, type, isPR, byOwner, byApp, parented = false, parent = false, marked = false }) {
   const none = (why) => ({ stage: 'none', why });
   const has = (name) => labels.includes(name);
   if (isPR) return none('a pull request, not a work item');
@@ -117,7 +141,7 @@ function stageOf({ comment, label, labels, type, isPR, byOwner, byApp, parented 
   if (!comment && label !== APPROVED && !TURNS.includes(label)) return none(`the ${label} label wakes nothing`);
   const forDrK = byApp && label === APPROVED;
   if (!byOwner && !forDrK) return none(byApp ? "the App's own" : 'not the owner');
-  if (forDrK && (!parented || parent)) return none(parent ? `the App's ${APPROVED} on a parent: only Dr K's opens the family's change` : `the App's ${APPROVED} on a top-level issue`);
+  if (forDrK && (parent || (!parented && !marked))) return none(parent ? `the App's ${APPROVED} on a parent: only Dr K's opens the family's change` : `the App's ${APPROVED} on a top-level issue`);
   if (!has('agent')) return none('not opted in');
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
   if (type === 'Bug' && label === 'spec') return none('a Bug has no spec');
@@ -137,18 +161,22 @@ function eventOf(context) {
   if (p.family_event != null && p.family_event !== '') {
     // an unknown one is nothing, never read as a label or a comment
     if (!(p.family_event in FAMILY)) return { event: 'family', action: String(p.family_event) };
-    return { kind: p.family_event, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask) };
+    return { kind: p.family_event, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask), upstream: line(p.upstream), repo: line(p.repo) };
   }
   return { event: p.event, action: p.action, number: Number(p.number) || 0, label: p.label || '', actor: String(p.actor), commentId: Number(p.comment_id) || 0 };
 }
 
 // the session a turn thinks in: a sub-issue's own, forked from its family's; any other issue's
-// is issue-<number> (spec 2026-11-24 R-SM12, R-SM13)
-function sessionOf(core, { number, family, parent }) {
+// is issue-<number> (spec 2026-11-24 R-SM12, R-SM13). An issue alone that carries an upstream
+// epic's marker is `downstream`, and the epic is its `upstream` (R-UR9); a sub-issue or a parent
+// stays one, whatever its body says
+function sessionOf(core, { number, family, parent, upstream = '' }) {
   const sub = family !== number;
+  const kin = sub ? 'sub-issue' : parent ? 'parent' : upstream ? 'downstream' : 'alone';
   core.setOutput('session', sub ? `issue-${family}/${number}` : `issue-${number}`);
   core.setOutput('fork_from', sub ? `issue-${family}` : '');
-  core.setOutput('kin', sub ? 'sub-issue' : parent ? 'parent' : 'alone');
+  core.setOutput('kin', kin);
+  core.setOutput('upstream', kin === 'downstream' ? upstream : '');
 }
 
 // A family wake-up from n8n: the parent's turn on a sub-issue's close or report, the
@@ -163,15 +191,19 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     core.setOutput('why', why);
     return core.info(`${kind}: none (${why})`);
   };
+  if (DOWNSTREAM.includes(kind)) return downstreamTurn({ github, context, core, cfg, ev, none });
   // the parent's turns name the sub-issue as `number`; the message and the start are the
   // sub-issue's own
   const onSub = kind === 'parent-message' || kind === 'sub-issue-start';
   const number = onSub ? ev.number : ev.parent;
   const names = kind === 'sub-issue-closed' || kind === 'sub-issue-reported';
   const about = names ? ev.number : 0;
-  const answers = kind === 'sub-issue-reported' || kind === 'parent-message';
+  // the epic's turn on a downstream issue's report names an issue in another repo, never read
+  const reported = kind === 'downstream-reported';
+  const answers = kind === 'sub-issue-reported' || kind === 'parent-message' || reported;
   const familyPr = kind === 'family-pr';
   if (!number || (names && !about) || (onSub && !ev.parent)) return none('no issue');
+  if (reported && (!REPO.test(ev.repo) || !ev.number)) return none('no downstream issue');
   if (answers && !ev.commentId) return none('no comment');
 
   const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: number });
@@ -190,13 +222,15 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     if (names) {
       ({ data: named } = await github.rest.issues.get({ ...context.repo, issue_number: about }));
       viaSub = labelsOf(named).includes('agent');
-    } else if (kind === 'sub-issue-file' || familyPr) {
+    } else if (kind === 'sub-issue-file' || familyPr || reported) {
       viaSub = (subs || (await listSubs())).some((i) => labelsOf(i).includes('agent'));
     }
     if (!viaSub) return none('not opted in');
   }
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
   if (kind === 'sub-issue-start' && issue.state !== 'open') return none(`#${number} is closed`);
+  // a closed epic no longer hears its downstream (R-UR21)
+  if (reported && issue.state !== 'open') return none(`#${number} is closed`);
   // a message past the spec is dropped: the change's own PR carries on (a limitation, for now).
   // A parent's family turns go on: `spec approved` there is Dr K asking for the family's change
   // (R-SM32)
@@ -221,6 +255,11 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     if (!got) return none(`comment ${ev.commentId} is gone`);
     if (!got.issue_url?.endsWith(`/issues/${number}`)) return none(`comment ${ev.commentId} is not on #${number}`);
     if (String(got.user?.id) !== cfg.app) return none(`comment ${ev.commentId} is not the App's`);
+    if (reported) {
+      const note = noteOf(got.body);
+      if (note?.kind !== 'report') return none(`comment ${ev.commentId} is no downstream report`);
+      if (note.repo.toLowerCase() !== ev.repo.toLowerCase() || note.number !== ev.number) return none(`comment ${ev.commentId} is not the report of ${ev.repo}#${ev.number}`);
+    }
   }
   if (familyPr) return familyChange({ core, issue, number, viaSub, subs });
   // a sub-issue's first turn opens with the sub-issue prompt, however it was woken (R-SM25)
@@ -250,8 +289,62 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   core.setOutput('prompt_when', kind === 'sub-issue-file' ? 'always' : 'lead');
   // a machine's turn waits its turn in the family's queue
   core.setOutput('takeover', 'false');
-  sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
-  core.info(`#${number}: ${kind}${about ? ` of #${about}` : ''}${family !== number ? `, family #${family}${first ? ', first turn' : ''}` : ''}`);
+  // the epic runs its downstream as a parent runs its family: its turn ends in actions
+  sessionOf(core, { number, family, parent: reported || !!issue.sub_issues_summary?.total });
+  core.info(`#${number}: ${kind}${about ? ` of #${about}` : ''}${reported ? ` of ${ev.repo}#${ev.number}` : ''}${family !== number ? `, family #${family}${first ? ', first turn' : ''}` : ''}`);
+}
+
+// A downstream issue's turn for its upstream epic (R-UR6, R-UR8): `upstream-start`, the first
+// rc's, and `upstream-message`, the epic's message or a later rc's note. The issue is open, an
+// `agent` Feature, top-level, before `spec approved`, and carries the marker of the epic the
+// payload names, on an issue by the App or Dr K. The message is the App's comment on it, opening
+// with n8n's note for that epic. A fresh session, never a fork (Decided 7)
+async function downstreamTurn({ github, context, core, cfg, ev, none }) {
+  const { kind, number } = ev;
+  if (!number || !REF.test(ev.upstream)) return none('no issue');
+  if (kind === 'upstream-message' && !ev.commentId) return none('no comment');
+  const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: number });
+  const labels = labelsOf(issue);
+  const type = issue.type?.name || '';
+  if (issue.pull_request) return none('a pull request, not a work item');
+  if (issue.state !== 'open') return none(`#${number} is closed`);
+  if (!labels.includes('agent')) return none('not opted in');
+  if (type !== 'Feature') return none(`${type ? `a ${type}` : 'no type'}, not a Feature`);
+  const marker = markerOf(issue, cfg);
+  if (!marker) return none(`#${number} has no upstream marker by the App or Dr K`);
+  if (!sameRef(marker.ref, ev.upstream)) return none(`#${number} is marked for ${marker.ref}, not ${ev.upstream}`);
+  if (labels.includes(APPROVED)) return none(`PAST-SPEC: #${number} has ${APPROVED}; its change carries on`);
+  if (kind === 'upstream-message') {
+    let got = null;
+    try {
+      ({ data: got } = await github.rest.issues.getComment({ ...context.repo, comment_id: ev.commentId }));
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+    if (!got) return none(`comment ${ev.commentId} is gone`);
+    if (!got.issue_url?.endsWith(`/issues/${number}`)) return none(`comment ${ev.commentId} is not on #${number}`);
+    if (String(got.user?.id) !== cfg.app) return none(`comment ${ev.commentId} is not the App's`);
+    const note = noteOf(got.body);
+    if (!['message', 'release'].includes(note?.kind) || !sameRef(note.upstream, marker.ref)) return none(`comment ${ev.commentId} is no note of ${marker.ref}`);
+  }
+  const family = await familyOf(github, context.repo, number);
+  if (family !== number) return none(`#${number} is a sub-issue of #${family}`);
+
+  core.setOutput('opt_in_label', 'agent');
+  core.setOutput('stage', 'spec');
+  core.setOutput('number', String(number));
+  core.setOutput('family', String(number));
+  core.setOutput('change', 'own');
+  core.setOutput('plan', 'true');
+  core.setOutput('label', '');
+  core.setOutput('title', issue.title || '');
+  core.setOutput('role', ROLES[type]);
+  core.setOutput('writes', String(labels.includes('spec')));
+  core.setOutput('prompt', `${cfg.prompts}${FAMILY[kind]}`);
+  core.setOutput('prompt_when', 'lead');
+  core.setOutput('takeover', 'false');
+  sessionOf(core, { number, family: number, parent: !!issue.sub_issues_summary?.total, upstream: marker.ref });
+  core.info(`#${number}: ${kind} of ${marker.ref}`);
 }
 
 // The family's change on the parent's `open_pr` (R-SM30): the hand-off opens it from
@@ -274,6 +367,7 @@ function familyChange({ core, issue, number, viaSub, subs }) {
   core.setOutput('prompt_when', 'quiet');
   core.setOutput('takeover', 'false');
   core.setOutput('open_sub_issues', openSubIssues(subs));
+  core.setOutput('release_label', releaseLabelOf(labels));
   sessionOf(core, { number, family: number, parent: true });
   core.info(`#${number}: family-pr, the family's change`);
 }
@@ -311,8 +405,11 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
 
   const labels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
   const type = issue.type?.name || '';
-  // the App's `spec approved` counts on a sub-issue only, so its parent is read for it alone
-  const parented = label === APPROVED && actor === cfg.app && !issue.pull_request
+  // an upstream epic's downstream issue, from the issue already read (R-UR7)
+  const marker = issue.pull_request ? null : markerOf(issue, cfg);
+  // the App's `spec approved` counts on a sub-issue only, so its parent is read for it alone; on
+  // a marked issue it counts too (R-UR11)
+  const parented = label === APPROVED && actor === cfg.app && !issue.pull_request && !marker
     ? (await parentOf(github, context.repo, number)) > 0
     : false;
   const { stage, why } = stageOf({
@@ -321,6 +418,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
     byOwner: actor === cfg.owner,
     byApp: actor === cfg.app,
     parent: !!issue.sub_issues_summary?.total,
+    marked: !!marker,
   });
   core.setOutput('stage', stage);
   if (why) core.setOutput('why', why);
@@ -333,7 +431,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
     if (family !== number) first = await firstTurn(github, context, cfg, number);
   }
   core.setOutput('family', String(family));
-  sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
+  sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total, upstream: marker?.ref || '' });
   // what `spec approved` opens: a sub-issue's change into its family's branch, a parent's
   // change, its sub-issues open or closed (Dr K's `family-pr`, R-SM33), or a change of its own
   let change = 'own';
@@ -342,6 +440,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
     else if (issue.sub_issues_summary?.total) {
       const { data: subs } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 });
       core.setOutput('open_sub_issues', openSubIssues(subs));
+      core.setOutput('release_label', releaseLabelOf(labels));
       change = 'parent';
     }
   }

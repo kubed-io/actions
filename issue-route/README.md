@@ -15,8 +15,8 @@ of the parent's (`fork_from` `issue-<family>`); the parent, and an issue alone, 
 `sub-issue` prompt (`lead`), or `debug-report` on a Bug.
 
 `change` says what a hand-off opens: `sub`, a sub-issue's change into its family's branch
-`issue-<family>`; `parent`, the parent's change into the default branch, once every `agent`
-sub-issue is closed (while one is open, `spec approved` is `none`); `own` otherwise.
+`issue-<family>`; `parent`, the parent's change into the default branch, its `agent` sub-issues
+open or closed, with the parent's one `release:*` label as `release_label`; `own` otherwise.
 
 `plan` says whether the change starts with a plan turn: always on a Feature; on a Bug only
 with `needs plan`, which the debug agent adds for a nasty bug and the owner may add or take
@@ -38,7 +38,11 @@ off. Without it, the change goes straight to the code, built from the report.
 | `parent-message`: on the sub-issue | `spec`, its prompt (`lead`), or on its first turn `sub-issue` | `none` |
 | `sub-issue-start`: on the sub-issue just filed | `spec`, `sub-issue` (`lead`; a Bug's `debug-report`) | `none` |
 | `sub-issue-file`: on the parent | `file`, `make-sub-issue` (`always`), `item_type` | the same (R-SM32) |
-| `family-pr`: on the parent (its `open_pr`, or Dr K's `spec approved` on an unlabelled parent) | `handoff`, `change` parent, `open_sub_issues` | the same |
+| `family-pr`: on the parent (its `open_pr`, or Dr K's `spec approved` on an unlabelled parent) | `handoff`, `change` parent, `open_sub_issues`, `release_label` | the same |
+| `upstream-start`, `upstream-message`: on a downstream issue | `spec`, its prompt (`lead`), `kin` downstream, `upstream` | `none` |
+| `downstream-reported`: on the open epic | `spec`, `downstream-reported` (`lead`), `kin` parent | |
+| The owner's comment or label on a downstream issue | as on any issue, `kin` downstream, `upstream` | |
+| The App's `spec approved` label on a downstream issue (the epic's `approve_spec`) | `handoff`, `change` own | |
 | Anything else (another type or none, the App's own comments, anyone else, any other label, `spec` on a Bug, a PR) | `none` | `none` |
 
 ```yaml
@@ -67,6 +71,15 @@ an unknown one is nothing:
 | `sub-issue-start` | `parent`, `number` | the filed sub-issue's first turn, `sub-issue` | `number` is in `parent`'s family and still open |
 | `sub-issue-file` | `parent`, `type`, `title`, `ask` | the make-sub-issue turn on the parent | `type` is a Feature or Bug, and there is a title |
 | `family-pr` | `parent` | no turn: the hand-off opens the family's change, or refreshes the one open | `parent` is a family's top issue with sub-issues |
+| `upstream-start` | `number`, `upstream` | the downstream issue's first turn, `upstream-release`, in a fresh session | `number` is open, an `agent` Feature, top-level, and carries `upstream`'s marker |
+| `upstream-message` | `number`, `upstream`, `comment_id` | the downstream issue's, `upstream-message` | as above, and the comment is the App's, on it, opening with `upstream`'s note |
+| `downstream-reported` | `parent`, `repo`, `number`, `comment_id` | the epic's, `downstream-reported` | `parent` is open and a family's top issue, and the comment is the App's report of `repo#number` on it |
+
+A downstream issue (spec 2026-11-24 upstream releases) carries one hidden line naming the epic
+whose release it adopts, `<!-- upstream: <owner>/<repo>#<P> -->`. It counts only on an issue the
+App or Dr K wrote, and two different markers are none (`issue-agent/lib/upstream.js`). Such an
+issue alone is `kin` `downstream`, with the epic as `upstream`: its turn's `report` goes to the
+epic. The repo of `upstream` compares case-insensitively, the number exactly.
 
 The issue the turn is on carries `agent` and is a Feature or Bug; the parent's turns need
 `parent` to be its family's top issue, and so do a sub-issue's, whose `parent` names it. A
@@ -97,4 +110,4 @@ when the look fails, with a warning.
 
 Outputs: `stage` (`spec`, `handoff`, `file`, `none`), `why`, `number`, `family`, `change`,
 `plan`, `title`, `label`, `role`, `writes`, `prompt`, `prompt_when`, `takeover`, `session`,
-`fork_from`, `kin`, `item_type`.
+`fork_from`, `kin`, `item_type`, `open_sub_issues`, `opt_in_label`, `upstream`, `release_label`.
