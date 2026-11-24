@@ -371,8 +371,8 @@ test("Dr K's labels route as before, on a sub-issue and on a parent", async () =
   assert.equal(t.github.calls.filter((c) => c.name === PARENT).length, 1);
 });
 
-// n8n's family dispatches (spec 2026-11-24 R-SM10, R-SM17, R-SM19, R-E2): each a type of its
-// own and a pointer the route reads back. #3 is the parent, #5 and #6 its sub-issues, #9 an
+// n8n's family wake-ups (spec 2026-11-24 R-SM10, R-SM17, R-SM19, R-E2): an `agent-issue`
+// dispatch whose `family_event` names it, and a pointer the route reads back. #3 is the parent, #5 and #6 its sub-issues, #9 an
 // issue alone, #12 a parent of another family (#13)
 const FAMILY_ISSUES = {
   3: { number: 3, title: 'Flows', labels: ['agent'], type: 'Feature', subs: 2 },
@@ -403,7 +403,7 @@ function dispatched(kind, payload, { issues = {}, comments = {} } = {}) {
   });
   const go = async () => {
     const core = fake.core();
-    const context = fake.context({ eventName: 'repository_dispatch', payload: { action: kind, client_payload: payload, sender: { id: APP } } });
+    const context = fake.context({ eventName: 'repository_dispatch', payload: { action: 'agent-issue', client_payload: { family_event: kind, ...payload }, sender: { id: APP } } });
     await route.run({ github, context, core, getOctokit: () => { throw new Error('no look'); }, env: ENV });
     go.core = core;
     return core.outputs;
@@ -471,6 +471,28 @@ test("the report or message must be the App's comment on the thread the turn is 
   ]) {
     const out = await send(kind, payload, { comments });
     assert.equal(out.stage, 'none', `${kind} ${JSON.stringify(payload)}`);
+  }
+});
+
+test('a parent-message to a sub-issue past its spec is dropped as PAST-SPEC: its change carries on', async () => {
+  const issues = { 5: { ...FAMILY_ISSUES[5], labels: ['agent', 'spec approved'] } };
+  const out = await send('parent-message', { number: 5, comment_id: 41 }, { issues });
+  assert.equal(out.stage, 'none');
+  assert.match(out.why, /^PAST-SPEC: /);
+});
+
+test('an agent-issue dispatch without family_event routes as before; an unknown one, or a family type of its own, is nothing', async () => {
+  // the owner's comment, exactly as today
+  assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
+  for (const payload of [
+    { action: 'agent-issue', client_payload: { family_event: 'sub-issue-opened', parent: 3, number: 5 } },
+    { action: 'sub-issue-closed', client_payload: { parent: 3, number: 5, merged: true } },
+    { action: 'sub-issue-file', client_payload: { parent: 3, type: 'Feature', title: 'x' } },
+  ]) {
+    const github = fake.github({});
+    const core = fake.core();
+    await route.run({ github, context: fake.context({ eventName: 'repository_dispatch', payload: { ...payload, sender: { id: APP } } }), core, env: ENV });
+    assert.deepEqual([core.outputs.stage, github.calls], ['none', []], JSON.stringify(payload));
   }
 });
 

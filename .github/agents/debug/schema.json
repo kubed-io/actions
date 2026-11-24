@@ -10,6 +10,10 @@
     "plan": {
       "type": "boolean",
       "description": "true only when the fix needs a plan before the code: a particularly nasty bug, whose fix spans several components or a migration, must be done in a safe order, or has design choices for Dr K. Leave it out for any fix the report can state as a cause, a change and a regression test."
+    },
+    "report": {
+      "type": "string",
+      "description": "Only on a sub-issue, when the parent has something to act on: your assessment is done, or you are stuck. What you found, where it stands, and what you need from the parent. Posted on the parent, which it wakes."
     }
   },
   "required": ["status"]

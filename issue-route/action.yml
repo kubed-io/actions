@@ -2,8 +2,8 @@ name: Issue Route
 description: >
   Decides what an event on a work item is for the agents: a spec turn, the hand-off to a
   plan, the make-sub-issue turn or nothing, the kb prompt the turn starts with and the session
-  it thinks in. Reads the issue only; runs no Claude. Answers n8n's `agent-issue` dispatch and
-  its family dispatches, re-reading who caused them.
+  it thinks in. Reads the issue only; runs no Claude. Answers n8n's `agent-issue` dispatch, its
+  family wake-ups (`family_event`) among them, re-reading who caused it.
 
 inputs:
   github_token:
@@ -66,12 +66,12 @@ outputs:
     description: >-
       The turn's prompt: `spec-draft` for the `spec` label; on a sub-issue's first turn,
       `sub-issue`, or `debug-report` for a Bug; `debug-report` for a Bug's `agent` label; a
-      family dispatch's own (`sub-issue-closed`, `sub-issue-reported`, `parent-message`, and
+      family wake-up's own (`sub-issue-closed`, `sub-issue-reported`, `parent-message`, and
       `make-sub-issue <type>: <title>` with an `Ask: ` line for `sub-issue-file`); else empty.
     value: ${{ steps.route.outputs.prompt }}
   prompt_when:
     description: >-
-      `lead` for `debug-report`, `sub-issue` and the family dispatches' spec turns, which lead the
+      `lead` for `debug-report`, `sub-issue` and the family wake-ups' spec turns, which lead the
       thread's unseen posts into the turn; `always` for `sub-issue-file`; else `quiet`.
     value: ${{ steps.route.outputs.prompt_when }}
   session:

@@ -18,7 +18,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
 | [issue-agent/handback](issue-agent/) | A family turn's hand-back to n8n: a sub-issue's `report` or a parent's `actions`, POSTed to the agent-flow callback; n8n's answer never fails the job |
 | [issue-agent/questions](issue-agent/) | The parent's `open_questions`, kept on it and as the `## Open questions` section of the family's PR to main |
-| [issue-route](issue-route/) | Decides what n8n's `agent-issue` and family dispatches are: a spec turn, the hand-off to a plan, the make-sub-issue turn or nothing, and the session the turn thinks in |
+| [issue-route](issue-route/) | Decides what n8n's `agent-issue` dispatch is, a family wake-up among them: a spec turn, the hand-off to a plan, the make-sub-issue turn or nothing, and the session the turn thinks in |
 | [issue-template](issue-template/) | Turns an issue form into a JSON schema for an agent's output: one form by type or name, or a catalog of sub-issues to suggest |
 | [pr-route](pr-route/) | Decides what a dispatch on an agent-built PR is: a plan turn, a code turn or nothing, and the kb prompt it starts with; an `agent-code` dispatch, or n8n's `agent-route` relay of a review, a push, a comment or the approval label |
 | [pr-checks/report](pr-checks/) | The checks workflow's last job: what failed in the run, for the code agent, as the step summary and the `checks-report` artifact |
@@ -41,7 +41,7 @@ use any secret the repo defines.
 | [kubectl.yml](.github/workflows/kubectl.yml) | `kubectl build`, `plan` or `up` of the calling repo, its output in the job summary. `up` runs in the environment given, one at a time |
 | [plan.yml](.github/workflows/plan.yml) | `kubectl build` and `kubectl plan` of the calling repo in one job, both in one summary |
 | [renovate.yml](.github/workflows/renovate.yml) | Renovate's run for the calling repo: new versions on its Dependency Dashboard, a PR when a box is ticked |
-| [agent-issue.yml](.github/workflows/agent-issue.yml) | The spec agent on an issue, and the hand-off to a draft PR and its plan; a family's sub-issues in forked sessions, their reports and the parent's actions handed to n8n. Called on the `agent-issue` and `sub-issue-accepted` dispatches, and the family's `sub-issue-closed`, `sub-issue-reported`, `parent-message` and `sub-issue-file` |
+| [agent-issue.yml](.github/workflows/agent-issue.yml) | The spec agent on an issue, and the hand-off to a draft PR and its plan; a family's sub-issues in forked sessions, their reports and the parent's actions handed to n8n. Called on the `agent-issue` dispatch, a family's wake-ups among them (`family_event`), and `sub-issue-accepted` |
 | [agent-pr.yml](.github/workflows/agent-pr.yml) | The plan and code agents on an agents' PR. Called on the `agent-code` and `agent-route` dispatches |
 | [agent-review.yml](.github/workflows/agent-review.yml) | The review agent and its `Agent review` status. Called on the `agent-review` dispatch |
 | [agent-renovate.yml](.github/workflows/agent-renovate.yml) | The renovate agent on a Renovate PR: what the bump needs as one follow-up commit, and a verdict. Called on the `agent-renovate` dispatch |
@@ -72,11 +72,12 @@ A repo's own setup for the code agent, past Python, is a composite action at
 `.github/actions/agent-setup/`; agent-pr.yml runs it when the checkout has one.
 
 agent-issue.yml's caller lists the dispatch types it runs on: `agent-issue` and
-`sub-issue-accepted`, and for a family that runs itself `sub-issue-closed`,
-`sub-issue-reported`, `parent-message` and `sub-issue-file` ([issue-route](issue-route/) has
-their payloads). Its hand-backs go to the agent-flow callback with the channel's token: a
-sub-issue's `{type: "report", repo, parent, number, report, run_id}` and a parent's
-`{type: "actions", repo, parent, run_id, actions}`.
+`sub-issue-accepted`. A family's wake-ups are `agent-issue` dispatches whose
+`client_payload.family_event` is `sub-issue-closed`, `sub-issue-reported`, `parent-message`
+or `sub-issue-file` ([issue-route](issue-route/) has their payloads). Its hand-backs go to the
+agent-flow callback with the channel's token: a sub-issue's
+`{type: "report", repo, parent, number, report, run_id}`, from the spec or the debug agent, and
+a parent's `{type: "actions", repo, parent, run_id, actions}`.
 
 agent-renovate.yml takes no inputs. Its dispatch is `{pull_request, reason, comment_id}`,
 `reason` being `opened`, `comment` (with the comment's id) or `updated`. Its role files are

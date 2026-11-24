@@ -51,18 +51,21 @@ It answers n8n's `repository_dispatch` `agent-issue`: a label added or a comment
 the comment's author and the labeler are read back from GitHub). The job's `if` gates who may
 dispatch. The token needs `issues: read`.
 
-It answers n8n's family dispatches too, each a `repository_dispatch` type of its own, a pointer
-read back the same way:
+It answers n8n's family wake-ups too: the same `agent-issue` dispatch, whose
+`client_payload.family_event` names it, so a caller lists no new type. Each is a pointer read
+back the same way; without `family_event` the dispatch is a label or a comment, as before, and
+an unknown one is nothing:
 
-| Type | `client_payload` | The turn | Read back |
+| `family_event` | `client_payload` | The turn | Read back |
 |---|---|---|---|
 | `sub-issue-closed` | `parent`, `number`, `merged` | the parent's, `sub-issue-closed` | `number` is in `parent`'s family |
 | `sub-issue-reported` | `parent`, `number`, `comment_id` | the parent's, `sub-issue-reported` | as above, and the comment is the App's, on the parent |
 | `parent-message` | `number`, `comment_id` | the sub-issue's, `parent-message` | it has a parent, and the comment is the App's, on it |
 | `sub-issue-file` | `parent`, `type`, `title`, `ask` | the make-sub-issue turn on the parent | `type` is a Feature or Bug, and there is a title |
 
-The issue the turn is on carries `agent`, is a Feature or Bug and has no `spec approved`; the
-parent's turns need `parent` to be its family's top issue. Anything else is nothing.
+The issue the turn is on carries `agent` and is a Feature or Bug; the parent's turns need
+`parent` to be its family's top issue. Past `spec approved` it is nothing, `why` `PAST-SPEC: …`:
+a message to a sub-issue whose change is open does not reach it. Anything else is nothing.
 
 A label's `takeover` cancels the family's running turn, so it waits while a sub-issue is being
 filed: when another of the workflow's runs, in progress or queued, has a job named `Make the

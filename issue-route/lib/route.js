@@ -30,10 +30,12 @@
 //
 // It answers n8n's `agent-issue` dispatch: a label added or a comment made on an issue. The
 // issue is read live; the payload is a pointer, so the comment's author and the labeler are
-// read back from GitHub. It answers n8n's family dispatches too, each a type of its own (spec
-// 2026-11-03 R-E2): `sub-issue-closed` and `sub-issue-reported` are the parent's turns,
-// `parent-message` the sub-issue's, `sub-issue-file` the make-sub-issue turn on the parent's
-// `file` action (stage `file`). Their pointers are read back the same way.
+// read back from GitHub. n8n's family wake-ups come as the same dispatch, named by the
+// payload's `family_event` (spec 2026-11-03 R-E2), so a caller lists no new type:
+// `sub-issue-closed` and `sub-issue-reported` are the parent's turns, `parent-message` the
+// sub-issue's, `sub-issue-file` the make-sub-issue turn on the parent's `file` action (stage
+// `file`). Their pointers are read back the same way. Without `family_event`, the dispatch is
+// a label or a comment, as it always was.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 const { parentOf, familyOf } = require('../../issue-agent/lib/family');
@@ -47,7 +49,7 @@ const NEEDS_PLAN = 'needs plan';
 
 const MAKE = 'Make the Sub-issue';
 
-// n8n's family dispatches, and the kb prompt each turn starts with
+// n8n's family wake-ups (`family_event`), and the kb prompt each turn starts with
 const FAMILY = {
   'sub-issue-closed': 'sub-issue-closed',
   'sub-issue-reported': 'sub-issue-reported',
@@ -106,12 +108,12 @@ const line = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
 // The event, from the dispatch's pointer
 function eventOf(context) {
   const e = context.payload;
-  const dispatch = context.eventName === 'repository_dispatch';
-  if (dispatch && FAMILY[e.action]) {
-    const p = e.client_payload || {};
-    return { kind: e.action, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask) };
+  const p = context.eventName === 'repository_dispatch' && e.action === 'agent-issue' ? e.client_payload || {} : {};
+  if (p.family_event !== undefined) {
+    // an unknown one is nothing, never read as a label or a comment
+    if (!FAMILY[p.family_event]) return { event: 'family', action: String(p.family_event) };
+    return { kind: p.family_event, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask) };
   }
-  const p = dispatch && e.action === 'agent-issue' ? e.client_payload || {} : {};
   return { event: p.event, action: p.action, number: Number(p.number) || 0, label: p.label || '', actor: String(p.actor), commentId: Number(p.comment_id) || 0 };
 }
 
@@ -124,7 +126,7 @@ function sessionOf(core, { number, family, parent }) {
   core.setOutput('kin', sub ? 'sub-issue' : parent ? 'parent' : 'alone');
 }
 
-// A family dispatch from n8n: the parent's turn on a sub-issue's close or report, the
+// A family wake-up from n8n: the parent's turn on a sub-issue's close or report, the
 // sub-issue's on the parent's message, the make-sub-issue turn on the parent's `file`. The
 // sender is the App (the job's `if`); the pointer is read back: the issue, its family, the
 // sub-issue it names, and the comment the turn answers, which must be the App's, there.
@@ -149,7 +151,8 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   if (issue.pull_request) return none('a pull request, not a work item');
   if (!labels.includes('agent')) return none('not opted in');
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
-  if (labels.includes(APPROVED)) return none(`after ${APPROVED}: the change carries on`);
+  // a message past the spec is dropped: the change's own PR carries on (a limitation, for now)
+  if (labels.includes(APPROVED)) return none(`PAST-SPEC: #${number} has ${APPROVED}; its change carries on`);
   const family = await familyOf(github, context.repo, number);
   if (kind === 'parent-message' && family === number) return none('not a sub-issue');
   if (kind !== 'parent-message' && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
