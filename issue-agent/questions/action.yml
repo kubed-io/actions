@@ -3,7 +3,8 @@ description: >
   The parent's open questions: a turn's `open_questions` kept on the parent, collapsed, and on
   the family's pull request to main (head issue-<parent>) as its `## Open questions` section.
   Without `output` (the hand-off that opens that pull request), the section comes from the
-  list kept on the parent. A turn without the field changes nothing.
+  list kept on the parent. A turn without the field changes nothing. The hand-off also lists the
+  parent's open `agent` sub-issues there (`sub_issues`), as its `## Open sub-issues` section.
 
 inputs:
   github_token:
@@ -14,6 +15,12 @@ inputs:
     required: true
   output:
     description: The parent turn's role output, as JSON; empty in the hand-off.
+    required: false
+    default: ""
+  sub_issues:
+    description: >-
+      The hand-off only: the parent's `agent` sub-issues still open, as JSON [{number, title}]
+      (issue-route's `open_sub_issues`); `[]` takes the section off, empty leaves it as it is.
     required: false
     default: ""
   default_branch:
@@ -30,6 +37,7 @@ runs:
     env:
       NUMBER: ${{ inputs.number }}
       OUTPUT: ${{ inputs.output }}
+      SUB_ISSUES: ${{ inputs.sub_issues }}
       DEFAULT: ${{ inputs.default_branch }}
     with:
       github-token: ${{ inputs.github_token }}

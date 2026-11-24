@@ -84,3 +84,32 @@ test('an empty list takes the section off; a turn without the field keeps what i
   await without.go({ OUTPUT: JSON.stringify({ reply: 'x' }) });
   assert.deepEqual([without.wrote('issues.update'), without.wrote('pulls.update')], [[], []]);
 });
+
+// R-SM30: the family PR also lists the parent's agent sub-issues still open, refreshed on each
+// open_pr (the hand-off's `sub_issues`); a turn's open questions leave that list alone
+const SUBS = JSON.stringify([{ number: 15, title: 'Flows keep the tab' }, { number: 16, title: 'A <!-- b --> c' }]);
+
+test('the hand-off lists the open sub-issues on the family PR, with the open questions, in one write', async () => {
+  const kept = questions.keep('Flows.', questions.onParent(RENDERED, 2));
+  const f = family({ body: kept, pr: { number: 30, body: PR_BODY } });
+  await f.go({ OUTPUT: '', SUB_ISSUES: SUBS });
+  const writes = f.wrote('pulls.update');
+  assert.equal(writes.length, 1);
+  assert.match(writes[0], /## Open questions\n\n- Should the tab survive/);
+  assert.equal(notes.unwrap(notes.readBlock(writes[0], 'open-sub-issues')), '## Open sub-issues\n\n- #15 Flows keep the tab\n- #16 A &lt;!-- b --&gt; c');
+});
+
+test('no open sub-issue takes the list off; without sub_issues it stays as it is', async () => {
+  const listed = questions.keep(PR_BODY, questions.onPR(RENDERED));
+  const pr = { number: 30, body: questions.keep(listed, questions.onSubs(questions.renderSubs(JSON.parse(SUBS))), questions.SUBS) };
+  const kept = questions.keep('Flows.', questions.onParent(RENDERED, 2));
+  const none = family({ body: kept, pr });
+  await none.go({ OUTPUT: '', SUB_ISSUES: '[]' });
+  assert.equal(none.wrote('pulls.update')[0].trimEnd(), listed.trimEnd());
+  const turn = family({ body: kept, pr });
+  await turn.go({ OUTPUT: JSON.stringify({ open_questions: [] }) });
+  assert.match(turn.wrote('pulls.update')[0], /## Open sub-issues/);
+  const bad = family({ body: kept, pr });
+  await bad.go({ OUTPUT: '', SUB_ISSUES: 'not json' });
+  assert.deepEqual(bad.wrote('pulls.update'), []);
+});

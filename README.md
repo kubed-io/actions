@@ -17,7 +17,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one; `draft: false` marks a found draft ready |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
 | [issue-agent/handback](issue-agent/) | A family turn's hand-back to n8n: a sub-issue's `report`, a parent's `actions`, make-sub-issue's `filed`, or a sub-issue review's `verdict`, POSTed to the agent-flow callback; n8n's answer never fails the job |
-| [issue-agent/questions](issue-agent/) | The parent's `open_questions`, kept on it and as the `## Open questions` section of the family's PR to main |
+| [issue-agent/questions](issue-agent/) | The parent's `open_questions`, kept on it and as the `## Open questions` section of the family's PR to main, with its `## Open sub-issues` |
 | [issue-route](issue-route/) | Decides what n8n's `agent-issue` dispatch is, a family wake-up among them: a spec turn, the hand-off to a plan, the make-sub-issue turn or nothing, and the session the turn thinks in |
 | [issue-template](issue-template/) | Turns an issue form into a JSON schema for an agent's output: one form by type or name, or a catalog of sub-issues to suggest |
 | [pr-route](pr-route/) | Decides what a dispatch on an agent-built PR is: a plan turn, a code turn or nothing, and the kb prompt it starts with; an `agent-code` dispatch, or n8n's `agent-route` relay of a review, a push, a comment or the approval label |

@@ -255,10 +255,11 @@ test('spec approved on an issue with no sub-issues opens a change of its own', a
   assert.deepEqual([(await both(APPROVE)).stage, (await both(APPROVE)).change], ['handoff', 'own']);
 });
 
-test("spec approved on a parent opens the parent's change once its agent sub-issues are closed", async () => {
+test("spec approved on a parent opens the parent's change, its agent sub-issues open or closed (R-SM33)", async () => {
   const out = await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open', [])] });
-  assert.deepEqual([out.stage, out.change], ['handoff', 'parent']);
-  assert.equal((await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open')] })).stage, 'none');
+  assert.deepEqual([out.stage, out.change, out.open_sub_issues], ['handoff', 'parent', '[]']);
+  const open = await both({ ...APPROVE, subs: [sub(6, 'closed'), sub(7, 'open')] });
+  assert.deepEqual([open.stage, open.change, open.open_sub_issues], ['handoff', 'parent', JSON.stringify([{ number: 7, title: '' }])]);
 });
 
 // a run in flight with the family's make job in it, as the Actions API names a called job
@@ -405,7 +406,7 @@ function dispatched(kind, payload, { issues = {}, comments = {}, threads = { 5: 
     },
     'issues.getComment': ({ comment_id: id }) => notes[id] || fake.notFound(),
     [PARENT]: ({ issue_number: n }) => (UP[n] ? { number: UP[n] } : fake.notFound()),
-    'GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues': ({ issue_number: n }) => Object.values(all).filter((i) => UP[i.number] === n).map((i) => ({ number: i.number, state: i.state || 'open', labels: i.labels.map((name) => ({ name })) })),
+    'GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues': ({ issue_number: n }) => Object.values(all).filter((i) => UP[i.number] === n).map((i) => ({ number: i.number, title: i.title, state: i.state || 'open', labels: i.labels.map((name) => ({ name })) })),
     'issues.listComments': ({ issue_number: n }) => threads[n] || [],
     'issues.listEvents': [],
   });
@@ -524,11 +525,10 @@ test('an agent-issue dispatch without family_event routes as before; an unknown 
   }
 });
 
-test('a family dispatch on an issue not opted in, not a Feature or Bug, a pull request, or after spec approved is nothing', async () => {
+test('a family dispatch on an issue not a Feature or Bug, or a pull request, is nothing', async () => {
   for (const three of [
     { type: 'Task' },
     { pr: true },
-    { labels: ['agent', 'spec approved'] },
   ]) {
     const issues = { 3: { ...FAMILY_ISSUES[3], ...three } };
     assert.equal((await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues })).stage, 'none', JSON.stringify(three));
@@ -583,6 +583,7 @@ test('a family dispatch without its numbers reads nothing', async () => {
     ['sub-issue-file', { type: 'Feature', title: 'x' }],
     ['sub-issue-start', { number: 7 }],
     ['sub-issue-start', { parent: 3 }],
+    ['family-pr', { number: 3 }],
   ]) {
     const t = dispatched(kind, payload);
     assert.equal((await t.go()).stage, 'none');
@@ -624,4 +625,49 @@ test("sub-issue-start reads its pointer back: an open agent sub-issue of the par
     assert.equal(out.stage, 'none', JSON.stringify(payload));
     assert.match(out.why, why, JSON.stringify(payload));
   }
+});
+
+// R-SM32: a parent's family turns never stop for spec approved; a sub-issue's still do
+test('a parent with spec approved still takes its family wake-ups', async () => {
+  const issues = { 3: { ...FAMILY_ISSUES[3], labels: ['agent', 'spec approved'] } };
+  assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues }),
+    { ...PARENT_TURN, prompt: `${P}sub-issue-closed` });
+  assert.equal((await send('sub-issue-reported', { parent: 3, number: 5, comment_id: 40 }, { issues })).stage, 'spec');
+  assert.equal((await send('sub-issue-file', { parent: 3, type: 'Feature', title: 'x', ask: 'y' }, { issues })).stage, 'file');
+  assert.equal((await send('family-pr', { parent: 3 }, { issues })).stage, 'handoff');
+});
+
+// R-SM30: the parent's open_pr, n8n's family-pr wake-up, is the hand-off of the family's change
+const FAMILY_PR = {
+  stage: 'handoff', opt_in_label: 'agent', number: '3', family: '3', change: 'parent', plan: 'true', label: '', title: 'Flows',
+  role: 'spec', writes: 'false', prompt: '', prompt_when: 'quiet', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent',
+  open_sub_issues: JSON.stringify([{ number: 6, title: 'Flows remember the tab' }, { number: 7, title: 'Flows remember the size' }]),
+};
+
+test('family-pr opens the parent change while its agent sub-issues are still open, and lists them', async () => {
+  assert.deepEqual(await send('family-pr', { parent: 3 }), FAMILY_PR);
+});
+
+test('family-pr on a parent without agent runs through an agent sub-issue, and is nothing without one', async () => {
+  const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
+  assert.deepEqual(await send('family-pr', { parent: 3 }, { issues }), { ...FAMILY_PR, opt_in_label: 'none' });
+  const bare = { ...issues, 5: { ...FAMILY_ISSUES[5], labels: [] }, 6: { ...FAMILY_ISSUES[6], labels: [] }, 7: { ...FAMILY_ISSUES[7], labels: [] } };
+  const out = await send('family-pr', { parent: 3 }, { issues: bare });
+  assert.deepEqual([out.stage, out.why], ['none', 'not opted in']);
+});
+
+test('family-pr only lists the open sub-issues that carry agent', async () => {
+  const issues = { 6: { ...FAMILY_ISSUES[6], labels: [] } };
+  const out = await send('family-pr', { parent: 3 }, { issues });
+  assert.equal(out.open_sub_issues, JSON.stringify([{ number: 7, title: 'Flows remember the size' }]));
+});
+
+test('family-pr is on a family top issue with sub-issues only', async () => {
+  const sub = await send('family-pr', { parent: 5 });
+  assert.equal(sub.stage, 'none');
+  assert.match(sub.why, /is a sub-issue of #3/);
+  const alone = await send('family-pr', { parent: 9 });
+  assert.deepEqual([alone.stage, alone.why], ['none', '#9 has no sub-issues']);
+  assert.equal((await send('family-pr', { parent: 3 }, { issues: { 3: { ...FAMILY_ISSUES[3], type: 'Task' } } })).stage, 'none');
+  assert.equal((await send('family-pr', { parent: 3 }, { issues: { 3: { ...FAMILY_ISSUES[3], pr: true } } })).stage, 'none');
 });

@@ -14,6 +14,10 @@
 // nowhere else. Not at the PR's opening either: a fix with no plan opens with the App's label,
 // together with `agent`, and its code starts from its own dispatch.
 //
+// The parent messages its family PR (R-SM31): the App's comment that opens with n8n's
+// `parent-message` marker counts as the owner's comment on the family PR of the parent it
+// names: open, head issue-<P> in this repo, base the default branch, a body that closes #P.
+//
 // Copilot's review is a second opinion, however it was asked for: out of draft, every one
 // that says something is a turn, in its own words like the owner's. Copilot's newer reviews
 // reach the relay as `edited` only, so its `edited` counts as its review; anyone else's edit
@@ -33,6 +37,23 @@ const { lastLabeledBy } = require('../../issue-agent/lib/gate');
 const failedReview = (review) => /^(?:<!--[\s\S]*?-->\s*)?Copilot (?:encountered an error|wasn't able to review|was unable to review)/.test(review?.body || '');
 
 const FINISHED = /^Agent: done$/m;
+
+// n8n's marker on a parent's message, first in the comment
+const PARENT_MESSAGE = /^<!-- parent-message (\{[^}]*\}) -->/;
+
+// the parent a message names, when it is the App's message on that parent's family PR
+function parentMessage(pr, comment, repo) {
+  let parent = 0;
+  try {
+    parent = Number(JSON.parse((PARENT_MESSAGE.exec(comment?.body || '') || [])[1] || '{}').parent) || 0;
+  } catch {
+    return 0;
+  }
+  const closes = new RegExp(`\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#${parent}\\b`, 'i');
+  const family = parent > 0 && pr.head?.ref === `issue-${parent}` && pr.head?.repo?.full_name === repo
+    && !!pr.base?.ref && pr.base.ref === pr.base?.repo?.default_branch && closes.test(pr.body || '');
+  return family ? parent : 0;
+}
 
 // the PR's opening labels arrive together: a label within this of the App's `agent` is one
 const OPENING_MS = 10000;
@@ -73,7 +94,8 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
   // a review wakes the code agent when it is the owner's or Copilot's: the agent's own
   // thread replies arrive as reviews too, by the App, and must not wake it again
   if (review) return byOwner || (byCopilot && copilotOk) ? 'code' : 'none';
-  // a comment, the label: the owner's, read back from GitHub; the label the parent's too
+  // a comment, the label: the owner's, read back from GitHub; the parent's message on its family
+  // PR, and its label on a sub-issue's PR, too
   if (!pushed) return byOwner || byParent ? 'code' : 'none';
   return draft && (byOwner || byApp) && !finished ? 'code' : 'none';
 }
@@ -139,6 +161,7 @@ async function run({ github, context, core, env = process.env }) {
     // one that says it could not review says nothing to answer
     if (actor === cfg.copilot) copilotOk = !pr.draft && !failedReview(got);
   }
+  let byParent = false;
   if (commented) {
     const commentId = Number(e.client_payload?.comment_id) || 0;
     let got = null;
@@ -151,9 +174,14 @@ async function run({ github, context, core, env = process.env }) {
     }
     const here = got?.issue_url?.endsWith(`/issues/${number}`);
     if (!got || !here || String(got.user?.id) !== actor) actor = 'unknown';
+    // the App's: the parent's message, on its family PR only
+    if (actor === cfg.app) {
+      const parent = parentMessage(pr, got, `${context.repo.owner}/${context.repo.repo}`);
+      byParent = parent > 0;
+      core.info(byParent ? `#${number}: the message of #${parent}, the family's parent` : `#${number}: the App's comment is no parent's message on its family PR`);
+    }
   }
   const approved = pr.labels.some((l) => l.name === cfg.label);
-  let byParent = false;
   if (labelled) {
     // gone again: nothing to approve
     if (!approved) return core.info(`agent-route: ${cfg.label} is no longer on #${number}`);
@@ -202,4 +230,4 @@ async function run({ github, context, core, env = process.env }) {
   core.info(`#${number}: ${stage}`);
 }
 
-module.exports = { run, stageOf, promptOf, failedReview };
+module.exports = { run, stageOf, promptOf, failedReview, parentMessage };

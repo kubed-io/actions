@@ -63,13 +63,14 @@
               "message",
               "approve_spec",
               "approve_plan",
+              "open_pr",
               "ask_owner"
             ],
-            "description": "file {type, title, ask}: a new sub-issue. message {number, text}: words for one sub-issue's agent. approve_spec {number}: a sub-issue's spec is ready; its pull request opens. approve_plan {number}: the plan on a sub-issue's pull request is ready; its code starts. ask_owner {question}: the last resort; it stops the family until Dr K answers."
+            "description": "file {type, title, ask}: a new sub-issue. message {number, text}: words for one sub-issue's agent, or for the code agent of the family's open pull request to main. approve_spec {number}: a sub-issue's spec is ready; its pull request opens. approve_plan {number}: the plan on a sub-issue's pull request is ready; its code starts. open_pr {}: open the family's pull request to main, ready and in review, or refresh the one open; sub-issues may still be open. ask_owner {question}: the last resort; it stops the family until Dr K answers."
           },
           "number": {
             "type": "integer",
-            "description": "message, approve_spec, approve_plan: the sub-issue."
+            "description": "message: the sub-issue, or the family's open pull request to main. approve_spec, approve_plan: the sub-issue."
           },
           "type": {
             "type": "string",

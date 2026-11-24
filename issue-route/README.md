@@ -30,13 +30,15 @@ off. Without it, the change goes straight to the code, built from the report.
 | The owner's `spec` label, on an opted-in Feature | `spec`, `prompt` spec-draft, `writes`, `takeover` | `none` |
 | The owner's `spec approved` label, on an `agent` Feature | `handoff`, `takeover`, `plan` true | |
 | The owner's `spec approved` label, on an `agent` Bug | `handoff`, `takeover`, `plan` true with `needs plan` | |
+| The owner's `spec approved` label, on an `agent` parent, its sub-issues open or closed | `handoff`, `change` parent, `open_sub_issues` | |
 | The owner's `agent` or `spec` label while the family's sub-issue is being filed | as above, without `takeover` | |
 | The App's `spec approved` label, on an `agent` sub-issue (the parent's `approve_spec`) | `handoff`, `change` sub | |
 | The App's `spec approved` label on a top-level issue or a parent | `none` | |
-| `sub-issue-closed`, `sub-issue-reported`: on the parent | `spec`, its prompt (`lead`) | `none` |
+| `sub-issue-closed`, `sub-issue-reported`: on the parent | `spec`, its prompt (`lead`) | the same (R-SM32) |
 | `parent-message`: on the sub-issue | `spec`, its prompt (`lead`), or on its first turn `sub-issue` | `none` |
 | `sub-issue-start`: on the sub-issue just filed | `spec`, `sub-issue` (`lead`; a Bug's `debug-report`) | `none` |
-| `sub-issue-file`: on the parent | `file`, `make-sub-issue` (`always`), `item_type` | `none` |
+| `sub-issue-file`: on the parent | `file`, `make-sub-issue` (`always`), `item_type` | the same (R-SM32) |
+| `family-pr`: on the parent (its `open_pr`, or Dr K's `spec approved` on an unlabelled parent) | `handoff`, `change` parent, `open_sub_issues` | the same |
 | Anything else (another type or none, the App's own comments, anyone else, any other label, `spec` on a Bug, a PR) | `none` | `none` |
 
 ```yaml
@@ -64,12 +66,15 @@ an unknown one is nothing:
 | `parent-message` | `parent`, `number`, `comment_id` | the sub-issue's, `parent-message`; on its first turn `sub-issue` | `number` is in `parent`'s family, and the comment is the App's, on it |
 | `sub-issue-start` | `parent`, `number` | the filed sub-issue's first turn, `sub-issue` | `number` is in `parent`'s family and still open |
 | `sub-issue-file` | `parent`, `type`, `title`, `ask` | the make-sub-issue turn on the parent | `type` is a Feature or Bug, and there is a title |
+| `family-pr` | `parent` | no turn: the hand-off opens the family's change, or refreshes the one open | `parent` is a family's top issue with sub-issues |
 
 The issue the turn is on carries `agent` and is a Feature or Bug; the parent's turns need
 `parent` to be its family's top issue, and so do a sub-issue's, whose `parent` names it. A
 sub-issue's first turn (no answer of the App's on it yet) opens with `sub-issue` however it was
-woken (R-SM25). Past `spec approved` it is nothing, `why` `PAST-SPEC: …`:
-a message to a sub-issue whose change is open does not reach it. Anything else is nothing.
+woken (R-SM25). A sub-issue's wake-up past `spec approved` is nothing, `why` `PAST-SPEC: …`:
+a message to a sub-issue whose change is open does not reach it. A parent's go on past it
+(R-SM32): there `spec approved` is Dr K asking for the family's change. A parent without
+`agent` is opted in by an `agent` sub-issue (R-SM29). Anything else is nothing.
 
 Not yet covered: a Bug parent's debug agent returns no `actions` or `open_questions`, so a Bug
 family is not run by its parent. A parent's first `file`, before it has any sub-issue, is not

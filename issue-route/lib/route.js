@@ -13,8 +13,10 @@
 // first turn opens with the sub-issue prompt (a Bug's, with debug-report).
 //
 // `spec approved` on a sub-issue opens its change into the family's branch, issue-<family>;
-// on a parent whose `agent` sub-issues are all closed, the parent's change, which starts
-// at review (spec 2026-11-03 R-B3, R-B8).
+// on a parent, the family's change from issue-<family> to the default branch, which starts at
+// review, whether or not its `agent` sub-issues are still open (spec 2026-11-03 R-B3, R-B8;
+// 2026-11-24 R-SM30, R-SM33). The parent asks for that change itself with `open_pr`, n8n's
+// `family-pr` wake-up, and both list the `agent` sub-issues still open (`open_sub_issues`).
 //
 // A Bug's change skips the plan unless the issue has `needs plan`, which the debug agent adds
 // for a nasty one and Dr K may add or take off (spec 2026-10-28 R-G15, R-G16).
@@ -34,7 +36,8 @@
 // payload's `family_event` (spec 2026-11-03 R-E2), so a caller lists no new type:
 // `sub-issue-closed` and `sub-issue-reported` are the parent's turns, `parent-message` and
 // `sub-issue-start` (a filed sub-issue's first turn, R-SM25) the sub-issue's, `sub-issue-file`
-// the make-sub-issue turn on the parent's `file` action (stage `file`). Their pointers are
+// the make-sub-issue turn on the parent's `file` action (stage `file`), `family-pr` the hand-off
+// of the family's change on the parent's `open_pr` (stage `handoff`). Their pointers are
 // read back the same way. Without `family_event`, the dispatch is a label or a comment, as it
 // always was. A sub-issue's first turn opens with the sub-issue prompt however it was woken.
 
@@ -57,7 +60,16 @@ const FAMILY = {
   'parent-message': 'parent-message',
   'sub-issue-file': 'make-sub-issue',
   'sub-issue-start': 'sub-issue',
+  // no turn: the hand-off opens or refreshes the family's change (R-SM30)
+  'family-pr': '',
 };
+
+const labelsOf = (i) => (i.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+
+// the parent's `agent` sub-issues still open, for the family change's body (R-SM30)
+const openSubIssues = (subs) => JSON.stringify((subs || [])
+  .filter((i) => i.state === 'open' && labelsOf(i).includes('agent'))
+  .map((i) => ({ number: i.number, title: i.title || '' })));
 
 // the prompt a sub-issue's first turn opens with: a Bug's is debug-report
 const openingOf = (type) => (type === 'Bug' ? 'debug-report' : 'sub-issue');
@@ -124,7 +136,7 @@ function eventOf(context) {
   // an empty key is no wake-up: the dispatch is a label or a comment, as ever
   if (p.family_event != null && p.family_event !== '') {
     // an unknown one is nothing, never read as a label or a comment
-    if (!FAMILY[p.family_event]) return { event: 'family', action: String(p.family_event) };
+    if (!(p.family_event in FAMILY)) return { event: 'family', action: String(p.family_event) };
     return { kind: p.family_event, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask) };
   }
   return { event: p.event, action: p.action, number: Number(p.number) || 0, label: p.label || '', actor: String(p.actor), commentId: Number(p.comment_id) || 0 };
@@ -158,6 +170,7 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   const names = kind === 'sub-issue-closed' || kind === 'sub-issue-reported';
   const about = names ? ev.number : 0;
   const answers = kind === 'sub-issue-reported' || kind === 'parent-message';
+  const familyPr = kind === 'family-pr';
   if (!number || (names && !about) || (onSub && !ev.parent)) return none('no issue');
   if (answers && !ev.commentId) return none('no comment');
 
@@ -170,25 +183,30 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   // then any sub-issue of the parent that does). Its own turns, and Dr K's, need the label.
   let named = null;
   let viaSub = false;
+  // the parent's sub-issues: the family change lists them, and the file turn may be opted in by them
+  const listSubs = async () => (await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 })).data || [];
+  const subs = familyPr ? await listSubs() : null;
   if (!labels.includes('agent')) {
     if (names) {
       ({ data: named } = await github.rest.issues.get({ ...context.repo, issue_number: about }));
-      viaSub = (named.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === 'agent');
-    } else if (kind === 'sub-issue-file') {
-      const { data: subs } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 });
-      viaSub = (subs || []).some((i) => (i.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === 'agent'));
+      viaSub = labelsOf(named).includes('agent');
+    } else if (kind === 'sub-issue-file' || familyPr) {
+      viaSub = (subs || (await listSubs())).some((i) => labelsOf(i).includes('agent'));
     }
     if (!viaSub) return none('not opted in');
   }
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
   if (kind === 'sub-issue-start' && issue.state !== 'open') return none(`#${number} is closed`);
-  // a message past the spec is dropped: the change's own PR carries on (a limitation, for now)
-  if (labels.includes(APPROVED)) return none(`PAST-SPEC: #${number} has ${APPROVED}; its change carries on`);
+  // a message past the spec is dropped: the change's own PR carries on (a limitation, for now).
+  // A parent's family turns go on: `spec approved` there is Dr K asking for the family's change
+  // (R-SM32)
+  if (onSub && labels.includes(APPROVED)) return none(`PAST-SPEC: #${number} has ${APPROVED}; its change carries on`);
   const family = await familyOf(github, context.repo, number);
   if (onSub && family === number) return none('not a sub-issue');
   if (onSub && family !== ev.parent) return none(`#${number} is not #${ev.parent}'s sub-issue`);
   if (!onSub && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
   if (about && (about === number || (await familyOf(github, context.repo, about)) !== number)) return none(`#${about} is not #${number}'s sub-issue`);
+  if (familyPr && !subs.length) return none(`#${number} has no sub-issues`);
   if (kind === 'sub-issue-closed') {
     const closed = named || (await github.rest.issues.get({ ...context.repo, issue_number: about })).data;
     if (closed.state !== 'closed') return none(`#${about} is still open`);
@@ -204,6 +222,7 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     if (!got.issue_url?.endsWith(`/issues/${number}`)) return none(`comment ${ev.commentId} is not on #${number}`);
     if (String(got.user?.id) !== cfg.app) return none(`comment ${ev.commentId} is not the App's`);
   }
+  if (familyPr) return familyChange({ core, issue, number, viaSub, subs });
   // a sub-issue's first turn opens with the sub-issue prompt, however it was woken (R-SM25)
   const first = onSub && (kind === 'sub-issue-start' || (await firstTurn(github, context, cfg, number)));
   let prompt = `${cfg.prompts}${first ? openingOf(type) : FAMILY[kind]}`;
@@ -233,6 +252,30 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   core.setOutput('takeover', 'false');
   sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
   core.info(`#${number}: ${kind}${about ? ` of #${about}` : ''}${family !== number ? `, family #${family}${first ? ', first turn' : ''}` : ''}`);
+}
+
+// The family's change on the parent's `open_pr` (R-SM30): the hand-off opens it from
+// issue-<family> to the default branch, ready, or refreshes the one open. No turn, and no
+// takeover: it queues in the family's group behind the turn that asked for it
+function familyChange({ core, issue, number, viaSub, subs }) {
+  const labels = labelsOf(issue);
+  const type = issue.type?.name || '';
+  core.setOutput('opt_in_label', viaSub ? 'none' : 'agent');
+  core.setOutput('stage', 'handoff');
+  core.setOutput('number', String(number));
+  core.setOutput('family', String(number));
+  core.setOutput('change', 'parent');
+  core.setOutput('plan', String(type !== 'Bug' || labels.includes(NEEDS_PLAN)));
+  core.setOutput('label', '');
+  core.setOutput('title', issue.title || '');
+  core.setOutput('role', ROLES[type]);
+  core.setOutput('writes', String(type === 'Feature' && labels.includes('spec')));
+  core.setOutput('prompt', '');
+  core.setOutput('prompt_when', 'quiet');
+  core.setOutput('takeover', 'false');
+  core.setOutput('open_sub_issues', openSubIssues(subs));
+  sessionOf(core, { number, family: number, parent: true });
+  core.info(`#${number}: family-pr, the family's change`);
 }
 
 async function run({ github, context, core, getOctokit, env = process.env }) {
@@ -292,19 +335,13 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
   core.setOutput('family', String(family));
   sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
   // what `spec approved` opens: a sub-issue's change into its family's branch, a parent's
-  // change once its sub-issues are closed, or a change of its own
+  // change, its sub-issues open or closed (Dr K's `family-pr`, R-SM33), or a change of its own
   let change = 'own';
   if (stage === 'handoff') {
     if (family !== number) change = 'sub';
     else if (issue.sub_issues_summary?.total) {
       const { data: subs } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 });
-      const open = (subs || []).filter((i) => i.state === 'open' && (i.labels || []).some((l) => (l.name || l) === 'agent'));
-      if (open.length) {
-        const still = `sub-issues still open: ${open.map((i) => `#${i.number}`).join(', ')}`;
-        core.setOutput('stage', 'none');
-        core.setOutput('why', still);
-        return core.info(`#${number}: none (${still})`);
-      }
+      core.setOutput('open_sub_issues', openSubIssues(subs));
       change = 'parent';
     }
   }

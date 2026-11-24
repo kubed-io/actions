@@ -20,7 +20,9 @@ name: 🧭 Agent · Issue
 # out and wakes the next turn with an `agent-issue` dispatch whose `family_event` says why:
 # `sub-issue-closed`, `sub-issue-reported`, `parent-message` and `sub-issue-start` (a filed
 # sub-issue's first turn: make-sub-issue hands n8n the number) are spec turns, `sub-issue-file`
-# the make-sub-issue turn.
+# the make-sub-issue turn, and `family-pr` (the parent's `open_pr`) the hand-off of the family's
+# change from issue-<family> to the default branch, opened ready while sub-issues may still be
+# open, or refreshed when it is open (R-SM30). Dr K's `spec approved` on a parent is the same.
 #
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
@@ -74,6 +76,7 @@ jobs:
       kin: ${{ steps.route.outputs.kin }}
       item_type: ${{ steps.route.outputs.item_type }}
       opt_in_label: ${{ steps.route.outputs.opt_in_label }}
+      open_sub_issues: ${{ steps.route.outputs.open_sub_issues }}
     steps:
 
     # a label waits for the family's make job, which the router looks for among the runs with
@@ -359,10 +362,15 @@ jobs:
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'handoff'
     runs-on: claude
     environment: claude
-    # it touches no session, so it runs in a lock of its own, never in the family's
+    # it touches no session, so it runs in a lock of its own, never in the family's; the
+    # family's change waits in the family's group, behind the parent's turn that asked for it
+    # (its open questions land first), and never cancels a turn (R-SM30)
     concurrency:
-      group: agent-handoff-${{ needs.route.outputs.number }}
+      group: >-
+        ${{ needs.route.outputs.change == 'parent' && format('agent-issue-{0}', needs.route.outputs.family) ||
+        format('agent-handoff-{0}', needs.route.outputs.number) }}
       cancel-in-progress: false
+      queue: ${{ needs.route.outputs.change == 'parent' && 'max' || 'single' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -474,7 +482,9 @@ jobs:
 
     # A parent's change is the family's work, already planned, coded and reviewed in its
     # sub-issues' changes: it opens ready, with `plan approved` from the App (which wakes no
-    # code turn), so its checks run and the review agent reviews it whole. A sub-issue's
+    # code turn), so its checks run and the review agent reviews it whole. It may open while
+    # sub-issues are still open, and one already open is found and left as it is, but ready
+    # (R-SM30; R-B8a's draft rule is gone). A sub-issue's
     # change merges into the family's branch, where `Closes` closes nothing: the merge's
     # close is by hand.
     - name: Pull Request
@@ -498,7 +508,8 @@ jobs:
           ${{ env.CHANGE == 'sub' && format('Part of #{0}: merges into {1}.', needs.route.outputs.family, env.BASE) || env.CHANGE == 'parent' && 'The family''s work, each part merged here from its own sub-issue''s change.' || format('Starts from #{0}''s notes.', needs.route.outputs.number) }}
 
     # the family's pull request carries the parent's open questions, the list its last turn
-    # kept, for Dr K to answer there (R-SM22a)
+    # kept, for Dr K to answer there (R-SM22a), and the `agent` sub-issues still open (R-SM30),
+    # both refreshed each time the parent asks for it
     - name: Open Questions
       if: env.CHANGE == 'parent' && steps.pr.outputs.number != ''
       continue-on-error: true
@@ -506,6 +517,7 @@ jobs:
       with:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
+        sub_issues: ${{ needs.route.outputs.open_sub_issues }}
 
     # A PR that opens conflicting with its base runs no checks (GitHub starts no
     # pull_request workflow on one), so no agent would hear of it: "Fresh from the Base"

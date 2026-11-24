@@ -284,3 +284,41 @@ test("agent-route: the App's comments, reviews and pushes on a family PR are sti
   assert.equal((await outcome(setup({ ...said({ actor: APP }), pr, got: { user: { id: APP }, issue_url: ISSUE_URL } })))[0], 'none');
   assert.equal((await outcome(setup({ ...routed({ actor: APP }), pr, review: { user: { id: APP } } })))[0], 'none');
 });
+
+// the parent's message on its family PR (spec 2026-11-24 R-SM31): the App's comment, marked as
+// from the parent, on the open PR from issue-<P> to the default branch that closes #P
+const FAMILY_PR = { head: { sha: 'h'.repeat(40), ref: 'issue-3', repo: { full_name: 'kubed-io/selenium-flow' } }, base: { ref: 'main', repo: { default_branch: 'main' } }, body: 'Closes #3\n\nThe family\'s work.' };
+const fromParent = (parent = 3, extra = '') => ({ user: { id: APP }, issue_url: ISSUE_URL, body: `<!-- parent-message {"parent": ${parent}} -->\n💬 **From the parent, #${parent}**\n\n${extra}Tidy the README.` });
+
+test("agent-route: the parent's message on its family PR is a code turn in its words, as Dr K's comment is", async () => {
+  const t = setup({ ...said({ actor: APP }), draft: false, pr: FAMILY_PR, got: fromParent() });
+  assert.deepEqual(await outcome(t), ['code', '', 'quiet']);
+  assert.equal(t.core.outputs.takeover, 'false');
+});
+
+test("agent-route: the App's message is nothing on any PR but the parent's own family PR", async () => {
+  for (const [pr, why] of [
+    [{ ...FAMILY_PR, base: { ref: 'issue-2', repo: { default_branch: 'main' } } }, 'a sub-issue PR'],
+    [{ ...FAMILY_PR, head: { ...FAMILY_PR.head, ref: 'issue-4' } }, 'another head'],
+    [{ ...FAMILY_PR, body: 'Closes #4' }, 'closes another issue'],
+    [{ ...FAMILY_PR, body: 'Part of #3' }, 'closes nothing'],
+    [{ ...FAMILY_PR, head: { ...FAMILY_PR.head, repo: { full_name: 'someone/fork' } } }, 'a fork'],
+  ]) {
+    assert.equal((await outcome(setup({ ...said({ actor: APP }), draft: false, pr, got: fromParent() })))[0], 'none', why);
+  }
+});
+
+test("agent-route: the App's comment on the family PR without the parent's marker, or naming another parent, is nothing", async () => {
+  const plain = { user: { id: APP }, issue_url: ISSUE_URL, body: 'Agent answer' };
+  assert.equal((await outcome(setup({ ...said({ actor: APP }), draft: false, pr: FAMILY_PR, got: plain })))[0], 'none');
+  assert.equal((await outcome(setup({ ...said({ actor: APP }), draft: false, pr: FAMILY_PR, got: fromParent(4) })))[0], 'none');
+  // a marker quoted later in the body is no marker
+  const quoted = { ...plain, body: 'See\n<!-- parent-message {"parent": 3} -->' };
+  assert.equal((await outcome(setup({ ...said({ actor: APP }), draft: false, pr: FAMILY_PR, got: quoted })))[0], 'none');
+  // someone else's comment with the marker is nothing too
+  assert.equal((await outcome(setup({ ...said({ actor: 12345 }), draft: false, pr: FAMILY_PR, got: { ...fromParent(), user: { id: 12345 } } })))[0], 'none');
+});
+
+test("agent-route: the parent's message before plan approved is nothing", async () => {
+  assert.equal((await outcome(setup({ ...said({ actor: APP }), approved: false, pr: FAMILY_PR, got: fromParent() })))[0], 'none');
+});

@@ -43,7 +43,8 @@ outputs:
   change:
     description: >-
       On a hand-off: `sub` for a sub-issue's change into its family's branch, `parent` for a
-      parent's change once its `agent` sub-issues are closed, `own` otherwise.
+      parent's change from issue-<P> to the default branch (Dr K's `spec approved` on it, or the
+      parent's `open_pr` as n8n's `family-pr`), `own` otherwise.
     value: ${{ steps.route.outputs.change }}
   plan:
     description: >-
@@ -89,6 +90,11 @@ outputs:
   item_type:
     description: On the `file` stage, the new sub-issue's type, `Feature` or `Bug`.
     value: ${{ steps.route.outputs.item_type }}
+  open_sub_issues:
+    description: >-
+      On the parent's hand-off (`change: parent`), its `agent` sub-issues still open, as JSON
+      [{number, title}], for the family change's body (R-SM30); empty otherwise.
+    value: ${{ steps.route.outputs.open_sub_issues }}
   opt_in_label:
     description: >-
       The label the turn's gate checks, `agent`; the literal `none` for a family wake-up admitted through
