@@ -12,6 +12,7 @@ For every open PR whose base is `base` and whose head is in this repository:
 | Step | Result |
 |---|---|
 | The base is already in the head | `current` |
+| The base changed a workflow file, which the App may not write | `needs a person: <paths>`; an agent's PR is told once, by a comment, ` (asked)` |
 | GitHub's update-branch, from the head it was at, takes | `updated` |
 | Else the base is merged into the head in the checkout, and resolves | `merged`, or `merged & resolved: pointer, changelog` |
 | A conflict it does not resolve | `needs its agent: <paths>`, the merge aborted; ` (dispatched)` when the head is an agent's |
@@ -74,8 +75,15 @@ n8n trusts the App's pushes like the agent's own landing commit: one into a live
 delivered to it, one on a draft in its code stage with no live turn dispatches a next-task
 turn.
 
-A main that changed workflow files may need the App's `workflows` permission for the update;
-without it that PR is `failed`.
+A base that changed a workflow file is a person's merge: the App's token has no `workflows`
+permission, so neither update-branch nor the merge here can bring it in (quick-mcp #32). When
+the head starts with `prefix`, the PR gets one comment saying a person must merge the base in,
+found again by its marker (the base, each path and its blob), so a later run does not post it
+twice. Nothing dispatches or retries it.
+
+A family's branch (`issue-<P>`) is a base too: agent-issue.yml runs this step on it after a
+sub-issue's change merges into it (n8n's `sub-issue-closed` wake-up) and after the parent's
+turn commits there, as its hand-off does after opening a sub-issue's PR into it.
 
 | Input | Default | |
 |---|---|---|

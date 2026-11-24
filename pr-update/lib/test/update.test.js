@@ -74,7 +74,7 @@ function setup({ prs = [PR5], behind = 1, updateBranch = {}, routes = {}, files 
   });
   github.paginate = async (fn, params) => (await fn(params)).data;
   const exec = git(routes);
-  const go = () => pr.update({ github, core: fake.core(), exec, owner: 'kubed-io', repo: 'x', base: 'main', root, env: {} });
+  const go = (over = {}) => pr.update({ github, core: fake.core(), exec, owner: 'kubed-io', repo: 'x', base: 'main', root, env: {}, ...over });
   return { root, github, exec, go };
 }
 
@@ -258,4 +258,43 @@ test("git authenticates with the App's token only: a header the checkout persist
   assert.equal(env.GIT_CONFIG_VALUE_0, '');
   assert.equal(env.GIT_CONFIG_KEY_0, env.GIT_CONFIG_KEY_1);
   assert.equal(env.GIT_CONFIG_VALUE_1, `AUTHORIZATION: basic ${Buffer.from('x-access-token:t0ken').toString('base64')}`);
+});
+
+// a family's branch that changed a workflow: the App's token has no `workflows`, so no
+// update-branch and no merge here can take it (quick-mcp #32 waited for a hand merge)
+const PR15 = { number: 32, head: { ref: 'issue-15', sha: 'head15', repo: { full_name: 'kubed-io/x' } } };
+const lintChanged = ({ basehead }) => (basehead === 'head15...issue-12'
+  ? { ahead_by: 1, files: [{ filename: 'src/x.py', sha: 'b1' }, { filename: '.github/workflows/lint.yml', sha: 'ee31' }] }
+  : { behind_by: 1 });
+
+test('a base that changed a workflow is left for a person: the PR is told once, and nothing is tried', async () => {
+  const t = setup({ prs: [PR15], api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.listComments': [], 'issues.createComment': {} } });
+  assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'issue-15', result: 'needs a person: .github/workflows/lint.yml (asked)' }]);
+  assert.deepEqual(called(t, 'pulls.updateBranch'), []);
+  assert.deepEqual(t.exec.calls.filter((c) => !c.startsWith('symbolic-ref') && !c.startsWith('rev-parse')), []);
+  assert.deepEqual(called(t, 'repos.createDispatchEvent'), []);
+  const [asked] = called(t, 'issues.createComment');
+  assert.equal(asked.params.issue_number, 32);
+  assert.match(asked.params.body, /^<!-- pr-update: workflows issue-12 \.github\/workflows\/lint\.yml@ee31 -->\n/);
+  assert.match(asked.params.body, /A person must merge `issue-12` into `issue-15`.*`\.github\/workflows\/lint\.yml`/);
+});
+
+test('a PR already told about that workflow change is not told again', async () => {
+  const told = [{ body: '<!-- pr-update: workflows issue-12 .github/workflows/lint.yml@ee31 -->\nA person must merge' }];
+  const t = setup({ prs: [PR15], api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.listComments': told, 'issues.createComment': {} } });
+  assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'issue-15', result: 'needs a person: .github/workflows/lint.yml (asked before)' }]);
+  assert.deepEqual(called(t, 'issues.createComment'), []);
+  assert.deepEqual(called(t, 'pulls.updateBranch'), []);
+});
+
+test("a workflow change on the base of a PR that is not an agent's is only its row", async () => {
+  const mine = { ...PR15, head: { ...PR15.head, ref: 'feat/x' } };
+  const t = setup({ prs: [mine], api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.createComment': {} } });
+  assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'feat/x', result: 'needs a person: .github/workflows/lint.yml' }]);
+  assert.deepEqual(called(t, 'issues.createComment'), []);
+});
+
+test('a base whose changes are not workflows is updated as before', async () => {
+  const t = setup({ prs: [PR15], api: { 'repos.compareCommitsWithBasehead': ({ basehead }) => (basehead.startsWith('head15...') ? { ahead_by: 1, files: [{ filename: 'src/x.py', sha: 'b1' }] } : { behind_by: 1 }) } });
+  assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'issue-15', result: 'updated' }]);
 });

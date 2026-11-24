@@ -4,7 +4,9 @@ description: >
   first, else the base merged in the checkout, where a submodule pointer (the docs wiki)
   moves to its remote's head when that head holds both sides and the changelog's conflict
   hunks keep both sides' lines. Any other conflict is left for the PR's agent, and an agent's
-  PR is sent the `agent-code` dispatch (reason `conflict`) that says so. The merge commit is
+  PR is sent the `agent-code` dispatch (reason `conflict`) that says so. A base that changed a
+  workflow file, which the App may not write, is left for a person, and an agent's PR is told
+  so once. The merge commit is
   made through the API as the App, so GitHub signs it and the PRs' workflows run, and the
   branch moves to it, never forced. One PR's trouble is its row in the summary; only a setup
   error fails the step.

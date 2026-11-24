@@ -114,6 +114,9 @@ jobs:
     permissions:
       contents: read
       issues: write
+    # the commit the turn made, for the family's PRs (family-prs)
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     env:
       # the `spec` label gives the agent a branch, and files that are committed
       WRITES: ${{ needs.route.outputs.writes }}
@@ -312,6 +315,42 @@ jobs:
       with:
         path: .issue/scratch
         key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+  # The family's branch moved: a sub-issue's change merged into it (n8n's `sub-issue-closed`
+  # wake-up follows every such merge, R-SM10), or the parent's turn committed the family's
+  # design there. Its open sub-issue PRs are brought up to date, as the repo's push workflow
+  # does main's after a merge: a PR left behind conflicts on the docs pointer, and one whose
+  # base brought a workflow file is told a person must merge it (quick-mcp #32). After the
+  # parent's turn, so one run covers both. Not on the claude runner: no agent runs here
+  family-prs:
+    name: Family PRs Up to Date
+    needs: [route, spec]
+    if: >-
+      github.event_name == 'repository_dispatch' && !cancelled() &&
+        needs.route.outputs.stage == 'spec' && needs.route.outputs.kin == 'parent' &&
+        (github.event.client_payload.family_event == 'sub-issue-closed' || needs.spec.outputs.sha != '')
+    runs-on: ubuntu-26.04
+    concurrency:
+      group: pr-update-issue-${{ needs.route.outputs.family }}
+      cancel-in-progress: false
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+
+    # any checkout will do: the update fetches the base and each PR's head itself
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Bring the Family's PRs Up to Date
+      uses: kubed-io/actions/pr-update@main
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        base: issue-${{ needs.route.outputs.family }}
 
   handoff:
     name: Hand Off

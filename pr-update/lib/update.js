@@ -7,7 +7,8 @@
 // conflict is the PR's agent's, and an agent's PR (head `prefix*`) is handed to it as the
 // `agent-code` dispatch (reason `conflict`), naming the paths. The merge commit is made
 // through the API as the App, so GitHub signs it, and the branch moves to it, never forced:
-// a branch that moved under it is retried by the next merge.
+// a branch that moved under it is retried by the next merge. A base that changed a workflow
+// file, which the App may not write, is a person's merge, and an agent's PR is told so once.
 
 const fs = require('fs');
 const path = require('path');
@@ -216,6 +217,33 @@ function messageOf({ base, branch, links, changelog }) {
   return `Merge ${base} into ${branch}${done.length ? `: ${done.join('; ')}` : ''}`;
 }
 
+// The workflow files the base changed since the PR's head left it, each with its new blob
+// ('gone' when removed). The App's token has no `workflows` permission, so neither GitHub's
+// update-branch nor a merge made here can bring one in.
+const WORKFLOWS = '.github/workflows/';
+async function workflowChanges({ github, owner, repo, base, head }) {
+  const { data } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${head}...${base}` });
+  return (data.files || [])
+    .filter((f) => f.filename?.startsWith(WORKFLOWS) || f.previous_filename?.startsWith(WORKFLOWS))
+    .map((f) => ({ path: f.filename, sha: f.status === 'removed' ? 'gone' : f.sha }));
+}
+
+// A person merges the base in. An agent's PR is told so once per change, by a comment its
+// marker finds again; nothing dispatches or retries it.
+async function askPerson({ github, owner, repo, base, prefix, pr, workflows }) {
+  const branch = pr.head.ref;
+  const paths = workflows.map((w) => w.path).join(', ');
+  const result = `needs a person: ${paths}`;
+  if (!prefix || !branch.startsWith(prefix)) return result;
+  const marker = `<!-- pr-update: workflows ${base} ${workflows.map((w) => `${w.path}@${w.sha}`).join(' ')} -->`;
+  const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number, per_page: 100 });
+  if (comments.some((c) => String(c.body || '').includes(marker))) return `${result} (asked before)`;
+  const names = workflows.map((w) => `\`${w.path}\``).join(', ');
+  await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
+    body: `${marker}\nA person must merge \`${base}\` into \`${branch}\`: it changed ${names}, which the App may not write, so this PR is not brought up to date, and nothing retries it.` });
+  return `${result} (asked)`;
+}
+
 // one PR: the result row for the summary
 async function updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr }) {
   const branch = pr.head.ref;
@@ -224,6 +252,10 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   // 1. current: the base is already in the head
   const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${pr.head.sha}` });
   if (cmp.behind_by === 0) return { ...row, result: 'current' };
+
+  // a workflow the base changed: a person's merge (quick-mcp #32)
+  const workflows = await workflowChanges({ github, owner, repo, base, head: pr.head.sha });
+  if (workflows.length) return { ...row, result: await askPerson({ github, owner, repo, base, prefix, pr, workflows }) };
 
   // 2. GitHub's own merge, when it has no conflict and the head is still where it was
   try {
