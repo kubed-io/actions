@@ -62,9 +62,10 @@ jobs:
 
 **Agents and roles.** An *agent* is one of the kubed-runner plugin's agent files in
 kubed-io/talent-show (`plugins/kubed-runner/agents/`): who it is and how it works. An *agent
-role* is a folder in [.github/roles/](.github/roles/) (`spec`, `plan`, `code`, `review`,
-`debug`, `renovate`): the `settings.json` a job runs the agent with and the `schema.json` of what
-it answers. An agent can take on one or more roles, and two roles can share an agent with
+role* is a folder in [.github/roles/](.github/roles/) (`spec`, `spec-draft`, `plan`, `code`,
+`review`, `debug`, `renovate`): the `settings.json` a job runs the agent with, its tools
+(`permissions.allow` and `deny`) included, and the `schema.json` of what it answers. `spec-draft`
+is the spec agent on a turn that writes the spec, and shares `spec`'s schema. An agent can take on one or more roles, and two roles can share an agent with
 different settings and outputs. A job checks the roles out at run time as `AGENT_ROLES`.
 
 Their jobs on the `claude` runner run for a `repository_dispatch` only, which always runs the

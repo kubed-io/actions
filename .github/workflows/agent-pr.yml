@@ -178,8 +178,6 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.AGENT_ROLES }}/plan/settings.json
         schema: ${{ env.AGENT_ROLES }}/plan/schema.json
-        allowed_tools: Read,Glob,Grep,Write,Edit
-        disallowed_tools: Bash,NotebookEdit
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot]
         session_key: pr-${{ needs.route.outputs.number }}
@@ -388,7 +386,6 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.AGENT_ROLES }}/code/settings.json
         schema: ${{ env.AGENT_ROLES }}/code/schema.json
-        allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}
         # the plan approved: the planning drafts give way to the code

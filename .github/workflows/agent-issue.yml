@@ -219,7 +219,8 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         # a Feature's turn is the spec agent's, a Bug's the debug agent's
-        settings: ${{ env.AGENT_ROLES }}/${{ needs.route.outputs.role }}/settings.json
+        # a turn that writes the spec (the `spec` label) runs as the spec-draft role, with the spec role's outputs
+        settings: ${{ env.AGENT_ROLES }}/${{ env.WRITES == 'true' && 'spec-draft' || needs.route.outputs.role }}/settings.json
         schema: ${{ env.AGENT_ROLES }}/${{ needs.route.outputs.role }}/schema.json
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
         # by login; the gate and the thread trust it by its bot's id
@@ -233,8 +234,6 @@ jobs:
         # the parent's, and an issue's alone, issue-<number>
         session_key: ${{ needs.route.outputs.session }}
         fork_from: ${{ needs.route.outputs.fork_from }}
-        allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
-        disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         live_messages: true
 
     # the draft spec lives under docs/, one signed commit
@@ -652,8 +651,6 @@ jobs:
         number: ${{ needs.handoff.outputs.pull_request }}
         settings: ${{ env.AGENT_ROLES }}/plan/settings.json
         schema: ${{ env.AGENT_ROLES }}/plan/schema.json
-        allowed_tools: Read,Glob,Grep,Write,Edit
-        disallowed_tools: Bash,NotebookEdit
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
         # by login; the gate and the thread trust it by its bot's id
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
@@ -850,8 +847,6 @@ jobs:
         prompt_when: always
         # the parent's session: it decides what the sub-issue is (R-SM15)
         session_key: issue-${{ env.MAKE_FAMILY }}
-        allowed_tools: Read,Glob,Grep
-        disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         live_messages: true
 
     # create, link under the parent, then `agent`, and a "Filed #N" line in the answer

@@ -4,5 +4,19 @@
   "enabledPlugins": {
     "kubed-runner@talent-show": true
   },
-  "disableClaudeAiConnectors": true
+  "disableClaudeAiConnectors": true,
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep"
+    ],
+    "deny": [
+      "Bash",
+      "Edit",
+      "Write",
+      "MultiEdit",
+      "NotebookEdit"
+    ]
+  }
 }
