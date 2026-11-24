@@ -125,6 +125,42 @@ jobs:
         permission-pull-requests: write
         permission-issues: write
 
+    # private repos cannot read the org secret on GitHub's free plan: the token is then fetched
+    # from GCP Secret Manager through WIF, as app-token does for the App's key. It goes to the
+    # job env (the runner's job-completed backstop reads it there) before issue-agent starts.
+    # A failed fetch only warns: the channel runs off, as without the secret
+    - name: n8n Token Sign-in
+      id: n8n_auth
+      if: steps.pr.outputs.wanted == 'true' && env.AGENT_FLOW_N8N_TOKEN == ''
+      continue-on-error: true
+      uses: google-github-actions/auth@v3
+      with:
+        workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+        service_account: github@${{ vars.GCP_PROJECT }}.iam.gserviceaccount.com
+        token_format: access_token
+        create_credentials_file: false
+        export_environment_variables: false
+
+    - name: n8n Token from GCP
+      if: >-
+        steps.pr.outputs.wanted == 'true' && env.AGENT_FLOW_N8N_TOKEN == '' &&
+        steps.n8n_auth.outputs.access_token != ''
+      continue-on-error: true
+      env:
+        PROJECT: ${{ vars.GCP_PROJECT }}
+        ACCESS_TOKEN: ${{ steps.n8n_auth.outputs.access_token }}
+      run: |
+        url="https://secretmanager.googleapis.com/v1/projects/${PROJECT}/secrets/agent-flow-n8n-token/versions/latest:access"
+        if ! token=$(curl -fsS -H "Authorization: Bearer ${ACCESS_TOKEN}" "$url" |
+          jq -er '.payload.data | @base64d'); then
+          echo "::warning::agent-flow-n8n-token could not be read: the channel runs off"
+          exit 0
+        fi
+        token=$(printf '%s' "$token" | tr -d '\r\n')
+        [ -n "$token" ] || { echo "::warning::agent-flow-n8n-token is empty"; exit 0; }
+        echo "::add-mask::${token}"
+        echo "AGENT_FLOW_N8N_TOKEN=${token}" >> "$GITHUB_ENV"
+
     # the branch itself, with every branch's history: the agent builds main from a worktree of
     # origin/main
     - name: Checkout
