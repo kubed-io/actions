@@ -41,6 +41,12 @@ inputs:
     description: The role's output schema, inline JSON or a path. It becomes the `output` field beside the action's own.
     required: false
     default: ""
+  role:
+    description: >
+      An agent role from this action's own repo, `.github/roles/<role>/` (spec, plan, code, review,
+      debug, renovate): its settings.json and schema.json, where `settings` and `schema` are empty.
+    required: false
+    default: ""
   append_system_prompt:
     description: This job's extras, inline text or a path, appended after the agent and the action's contract.
     required: false
@@ -222,6 +228,7 @@ runs:
       AGENT: ${{ inputs.agent }}
       SCHEMA: ${{ inputs.schema }}
       SETTINGS: ${{ inputs.settings }}
+      ROLE: ${{ inputs.role }}
       APPEND_SYSTEM_PROMPT: ${{ inputs.append_system_prompt }}
       MCP_CONFIG: ${{ inputs.mcp }}
       REVIEW: ${{ inputs.review }}

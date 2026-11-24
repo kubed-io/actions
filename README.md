@@ -65,7 +65,7 @@ kubed-io/talent-show (`plugins/kubed-runner/agents/`): who it is and how it work
 role* is a folder in [.github/roles/](.github/roles/) (`spec`, `plan`, `code`, `review`,
 `debug`, `renovate`): the `settings.json` a job runs the agent with and the `schema.json` of what
 it answers. An agent can take on one or more roles, and two roles can share an agent with
-different settings and outputs. A job checks the roles out at run time as `AGENT_ROLES`.
+different settings and outputs. A job names its role (`role: spec`), and issue-agent reads it from beside itself: the runner downloads this whole repo with the action, so nothing is checked out.
 
 Their jobs on the `claude` runner run for a `repository_dispatch` only, which always runs the
 caller on the default branch: the runner group lists these files, so no branch's caller reaches
