@@ -194,6 +194,22 @@ jobs:
         live: true
         prompt: ${{ needs.route.outputs.prompt_when == 'always' && needs.route.outputs.prompt || '' }}
 
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/roles
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
+
     - name: Spec Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
@@ -203,7 +219,8 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         # a Feature's turn is the spec agent's, a Bug's the debug agent's
-        role: ${{ needs.route.outputs.role }}
+        settings: ${{ env.AGENT_ROLES }}/${{ needs.route.outputs.role }}/settings.json
+        schema: ${{ env.AGENT_ROLES }}/${{ needs.route.outputs.role }}/schema.json
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
         # by login; the gate and the thread trust it by its bot's id
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
@@ -609,6 +626,22 @@ jobs:
         live: true
         prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_spec-approved
 
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/roles
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
+
     - name: Plan Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
@@ -617,7 +650,8 @@ jobs:
         scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.handoff.outputs.pull_request }}
-        role: plan
+        settings: ${{ env.AGENT_ROLES }}/plan/settings.json
+        schema: ${{ env.AGENT_ROLES }}/plan/schema.json
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
@@ -780,6 +814,22 @@ jobs:
         number: ${{ env.MAKE_NUMBER }}
         live: true
 
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/roles
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
+
     - name: Sub-issue Agent
       id: agent
       uses: kubed-io/actions/issue-agent@main
@@ -788,7 +838,7 @@ jobs:
         scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ env.MAKE_NUMBER }}
-        role: spec
+        settings: ${{ env.AGENT_ROLES }}/spec/settings.json
         schema: ${{ steps.form.outputs.schema }}
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
         # the tick's turn is on an `agent` issue; the `file` action may be on an unlabelled parent (R-SM29)

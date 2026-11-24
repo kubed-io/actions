@@ -211,15 +211,6 @@ function flags({ agentsFile, agent, schema, mcpFile, settingsFile, mcpServers = 
   return args.join(' ');
 }
 
-// the folder of a role's settings.json and schema.json, '' for no role
-function roleDirOf(env) {
-  if (!env.ROLE) return '';
-  if (!/^[a-z][a-z0-9-]*$/.test(env.ROLE)) throw new Error(`role is not a role name: ${env.ROLE}`);
-  const dir = path.resolve(env.GITHUB_ACTION_PATH || __dirname, '..', '.github', 'roles', env.ROLE);
-  if (!fs.existsSync(dir)) throw new Error(`role not found: ${env.ROLE} (looked in ${dir})`);
-  return dir;
-}
-
 async function run({ github, context, core }) {
   const env = process.env;
   const ws = env.GITHUB_WORKSPACE;
@@ -232,11 +223,6 @@ async function run({ github, context, core }) {
     if (!v || v.includes('\n') || v.startsWith('{')) return v;
     return read(v) ?? v;
   };
-
-  // a role: .github/roles/<role>/ beside this action, in the repo the runner downloaded it
-  // from with the action itself; an explicit settings or schema input wins
-  const roleDir = roleDirOf(env);
-  const ofRole = (name) => (roleDir ? path.join(roleDir, name) : '');
 
   const scratch = env.SCRATCH_DIR || '.issue';
   // the agent's own folder, which the action keeps from turn to turn
@@ -275,7 +261,7 @@ async function run({ github, context, core }) {
     }
   }
 
-  const roleText = fileOr(env.SCHEMA || ofRole('schema.json'));
+  const roleText = fileOr(env.SCHEMA);
   const role = roleText ? JSON.parse(roleText) : null;
   const on = (v, dflt) => (v === '' || v == null ? dflt : v === 'true');
   const schema = JSON.stringify(envelope({
@@ -299,7 +285,7 @@ async function run({ github, context, core }) {
     mcpFile = path.join(env.RUNNER_TEMP, 'issue-agent-mcp.json');
     fs.writeFileSync(mcpFile, JSON.stringify(config));
   }
-  const settingsText = fileOr(env.SETTINGS || ofRole('settings.json'));
+  const settingsText = fileOr(env.SETTINGS);
   const settings = mergeSettings(settingsText ? JSON.parse(settingsText) : null, channel ? hookSettings() : null);
   let settingsFile = '';
   if (settings) {

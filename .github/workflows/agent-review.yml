@@ -204,6 +204,24 @@ jobs:
         live: false
         prompt: ${{ env.REVIEW_PROMPT }}
 
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      if: steps.still.outputs.wanted == 'true'
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/roles
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      if: steps.still.outputs.wanted == 'true'
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
+
     - name: Review Agent
       if: steps.still.outputs.wanted == 'true'
       id: agent
@@ -213,7 +231,8 @@ jobs:
         scratch_cache: false
         github_token: ${{ github.token }}
         number: ${{ needs.route.outputs.number }}
-        role: review
+        settings: ${{ env.AGENT_ROLES }}/review/settings.json
+        schema: ${{ env.AGENT_ROLES }}/review/schema.json
         prompt: ${{ env.REVIEW_PROMPT }}
         prompt_when: always
         header: ${{ needs.route.outputs.target == 'family' && env.FAMILY_HEADER || env.DEFAULT_HEADER }}
