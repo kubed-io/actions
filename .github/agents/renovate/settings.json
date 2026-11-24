@@ -7,17 +7,17 @@
   "disableClaudeAiConnectors": true,
   "permissions": {
     "deny": [
-      "Bash(kubectl up:*)",
-      "Bash(kubectl apply:*)",
-      "Bash(kubectl delete:*)",
-      "Bash(git commit:*)",
-      "Bash(git push:*)",
-      "Bash(git reset:*)",
-      "Bash(git rebase:*)",
-      "Bash(git stash:*)",
-      "Bash(git clean:*)",
-      "Bash(gh pr merge:*)",
-      "Bash(gh pr review:*)"
+      "Bash(kubectl up *)",
+      "Bash(kubectl apply *)",
+      "Bash(kubectl delete *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git reset *)",
+      "Bash(git rebase *)",
+      "Bash(git stash *)",
+      "Bash(git clean *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr review *)"
     ]
   },
   "hooks": {

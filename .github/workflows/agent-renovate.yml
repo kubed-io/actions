@@ -61,7 +61,7 @@ jobs:
     steps:
 
     # the payload proves nothing: the PR is read back, and it must be an open Renovate PR of
-    # this repo, the reason one of the three
+    # this repo, the reason one of the three, and a comment Dr K's on this PR
     - name: The Pull Request
       id: pr
       env:
@@ -86,11 +86,27 @@ jobs:
           echo "::notice::#${NUMBER} is no open Renovate PR here (${state}, ${repo}:${head})"
           exit 0
         fi
-        [ "$REASON" != comment ] || echo "::notice::the turn answers Dr K's comment ${COMMENT_ID}"
+        if [ "$REASON" = comment ]; then
+          case "$COMMENT_ID" in
+          ''|*[!0-9]*) echo "::notice::no comment id: no turn"; exit 0 ;;
+          esac
+          comment="$RUNNER_TEMP/comment.json"
+          gh api "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" > "$comment" ||
+            { echo "::notice::comment ${COMMENT_ID} is gone: no turn"; exit 0; }
+          author=$(jq -r .user.id "$comment")
+          on=$(jq -r .issue_url "$comment")
+          if [ "$author" != 4399427 ] || [ "${on%/issues/"${NUMBER}"}" = "$on" ]; then
+            echo "::notice::comment ${COMMENT_ID} is not Dr K's on #${NUMBER}: no turn"
+            exit 0
+          fi
+        fi
+        # the commit's headline: the title without a conventional-commit prefix
+        subject=$(jq -r .title "$RUNNER_TEMP/pr.json" | tr -d '\r\n' |
+          sed -E 's/^[a-z]+(\([^)]*\))?!?: *//')
         {
           echo "wanted=true"
           echo "head=${head}"
-          echo "title=$(jq -r .title "$RUNNER_TEMP/pr.json" | tr -d '\r\n')"
+          echo "subject=${subject}"
           echo "prompt=/mcp__plugin_kubed-runner_superpowers__superpowers_renovate-${REASON}"
           echo "prompt_when=${when}"
         } >> "$GITHUB_OUTPUT"
@@ -134,13 +150,14 @@ jobs:
         mv .agent-flow "$RUNNER_TEMP/agent-flow"
         echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
 
-    # the agent proves its build diff with kubectl build
+    # the agent proves its build diff with kubectl build: the claude runner's image has the krm
+    # tools (runner-krm's /kubed/bin and kubed-krm); GitHub's runners install them
     - name: KRM Setup
-      if: steps.pr.outputs.wanted == 'true'
+      if: steps.pr.outputs.wanted == 'true' && runner.environment == 'github-hosted'
       uses: kubed-io/actions/krm-setup@main
 
-    # app repos ignore neither the thread files nor krm-setup's clone: the follow-up commit is
-    # the agent's changes alone
+    # not every app repo ignores the thread files, nor krm-setup's clone on GitHub's runners:
+    # they are never the agent's changes
     - name: Keep the Job's Files Out of the Commit
       if: steps.pr.outputs.wanted == 'true'
       run: printf '%s\n' /.issue/ /.krm/ >> .git/info/exclude
@@ -208,17 +225,36 @@ jobs:
         permission-pull-requests: write
         permission-issues: write
 
+    # only what the agent declared in output.changes is committed; anything else it left in
+    # the tree is named and left out
     - name: Changes
       id: changes
       if: >-
-        steps.pr.outputs.wanted == 'true' && steps.agent.outputs.output != '' &&
-        fromJSON(steps.agent.outputs.output).verdict != 'superseded'
+        steps.pr.outputs.wanted == 'true' &&
+        fromJSON(steps.agent.outputs.output || '{}').verdict != 'superseded'
+      env:
+        OUTPUT: ${{ steps.agent.outputs.output }}
       run: |
-        if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "::notice::the tree is clean: no follow-up commit"
+        declared=$(printf '%s' "$OUTPUT" |
+          jq -r '(.changes // [])[].file | select(test("\n") | not) | ltrimstr("./")' | sort -u)
+        dirty=$({ git diff --name-only -z HEAD; git ls-files --others --exclude-standard -z; } |
+          tr '\0' '\n' | sort -u)
+        extra=$(comm -13 <(printf '%s\n' "$declared") <(printf '%s\n' "$dirty") | sed '/^$/d')
+        if [ -n "$extra" ]; then
+          echo "::warning::not in output.changes, so not committed: $(paste -sd ' ' <<<"$extra")"
         fi
+        files=$(comm -12 <(printf '%s\n' "$declared") <(printf '%s\n' "$dirty") | sed '/^$/d')
+        if [ -z "$files" ]; then
+          echo "::notice::no declared change in the tree: no follow-up commit"
+          exit 0
+        fi
+        end="files-${RANDOM}${RANDOM}${RANDOM}"
+        {
+          echo "changed=true"
+          echo "files<<${end}"
+          echo "$files"
+          echo "$end"
+        } >> "$GITHUB_OUTPUT"
 
     # what the bump needs, one signed commit on Renovate's branch. Never over a push
     # Renovate made meanwhile: git/commit refuses when the branch moved on a path it writes
@@ -231,8 +267,9 @@ jobs:
       with:
         token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
         branch: ${{ steps.pr.outputs.head }}
-        message: "renovate: what ${{ steps.pr.outputs.title }} needs"
+        message: "renovate: what ${{ steps.pr.outputs.subject }} needs"
         trailers: "Agent: renovate"
+        files: ${{ steps.changes.outputs.files }}
         # the App cannot write workflow files, and one in the commit refuses all of it
         ignore: .github/workflows/**
 
