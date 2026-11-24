@@ -37,11 +37,20 @@ inputs:
     description: comment/end's `comment_id`, linked when there is no review.
     required: false
     default: ""
+  target:
+    description: "review-route's `target`: `family` also makes the verdict's body for n8n."
+    required: false
+    default: default
 
 outputs:
   verdict:
     description: The verdict; empty when the review did not finish.
     value: ${{ steps.verdict.outputs.verdict }}
+  handback:
+    description: >
+      For a `family` review that finished, its `verdict` body for n8n (issue-agent/handback's
+      `body`), with the output's `summary`. Empty otherwise.
+    value: ${{ steps.verdict.outputs.handback }}
 
 runs:
   using: composite
@@ -58,6 +67,7 @@ runs:
       OUTPUT: ${{ inputs.output }}
       REVIEW_ID: ${{ inputs.review_id }}
       COMMENT_ID: ${{ inputs.comment_id }}
+      TARGET: ${{ inputs.target }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |

@@ -1,9 +1,20 @@
 // The review agent's verdict as the `Agent review` status on the head it reviewed: only
 // `looks good` passes. Set as the reviewer (github-actions[bot]), since review-route
-// reads only its statuses back.
+// reads only its statuses back. A `family` review (a sub-issue's PR into `issue-<P>`) also
+// hands its verdict to n8n, which merges a pass into the family's branch (spec 2026-11-24
+// R-SM4): this makes the body, and issue-agent/handback sends it.
 
-function verdictOf(output) {
-  try { return JSON.parse(output || '{}').verdict || ''; } catch { return ''; }
+function outputOf(output) {
+  try { return JSON.parse(output || '{}') || {}; } catch { return {}; }
+}
+
+// the `verdict` callback body; review-route's carried pass sends the same
+function verdictBody({ repo, number, sha, verdict, summary, reviewId, runId }) {
+  return {
+    type: 'verdict', repo, number: Number(number) || 0, sha, verdict,
+    summary: typeof summary === 'string' ? summary.trim() : '',
+    review_id: Number(reviewId) || 0, run_id: Number(runId) || 0,
+  };
 }
 
 function statusOf(verdict, last) {
@@ -14,16 +25,22 @@ function statusOf(verdict, last) {
 }
 
 async function run({ github, context, core, env = process.env }) {
-  const { NUMBER, SHA, LAST, OUTPUT, REVIEW_ID, COMMENT_ID, CHECK } = env;
+  const { NUMBER, SHA, LAST, OUTPUT, REVIEW_ID, COMMENT_ID, CHECK, TARGET } = env;
   const base = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}`;
   const pr = `${base}/pull/${NUMBER}`;
   const target_url = REVIEW_ID ? `${pr}#pullrequestreview-${REVIEW_ID}`
     : COMMENT_ID ? `${pr}#issuecomment-${COMMENT_ID}` : `${base}/actions/runs/${context.runId}`;
-  const verdict = verdictOf(OUTPUT);
+  const output = outputOf(OUTPUT);
+  const verdict = output.verdict || '';
   const [state, description] = statusOf(verdict, LAST === 'true');
   await github.rest.repos.createCommitStatus({ ...context.repo, sha: SHA, state, description, target_url, context: CHECK });
   core.setOutput('verdict', verdict);
+  const handback = TARGET === 'family' && verdict ? verdictBody({
+    repo: `${context.repo.owner}/${context.repo.repo}`, number: NUMBER, sha: SHA, verdict,
+    summary: output.summary, reviewId: REVIEW_ID, runId: context.runId,
+  }) : null;
+  core.setOutput('handback', handback ? JSON.stringify(handback) : '');
   core.info(`${SHA}: ${state}, ${description}`);
 }
 
-module.exports = { run, statusOf };
+module.exports = { run, statusOf, verdictBody };

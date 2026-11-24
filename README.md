@@ -16,7 +16,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [git/commit](git/) | Commits the checkout's changes to a branch through the API, so every commit is GitHub-signed; a wiki submodule's changes pushed with git first; a failed commit's changes kept, and a summary of what is not on the branch |
 | [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one; `draft: false` marks a found draft ready |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
-| [issue-agent/handback](issue-agent/) | A family turn's hand-back to n8n: a sub-issue's `report` or a parent's `actions`, POSTed to the agent-flow callback; n8n's answer never fails the job |
+| [issue-agent/handback](issue-agent/) | A family turn's hand-back to n8n: a sub-issue's `report`, a parent's `actions`, or a sub-issue review's `verdict`, POSTed to the agent-flow callback; n8n's answer never fails the job |
 | [issue-agent/questions](issue-agent/) | The parent's `open_questions`, kept on it and as the `## Open questions` section of the family's PR to main |
 | [issue-route](issue-route/) | Decides what n8n's `agent-issue` dispatch is, a family wake-up among them: a spec turn, the hand-off to a plan, the make-sub-issue turn or nothing, and the session the turn thinks in |
 | [issue-template](issue-template/) | Turns an issue form into a JSON schema for an agent's output: one form by type or name, or a catalog of sub-issues to suggest |
@@ -43,7 +43,7 @@ use any secret the repo defines.
 | [renovate.yml](.github/workflows/renovate.yml) | Renovate's run for the calling repo: new versions on its Dependency Dashboard, a PR when a box is ticked |
 | [agent-issue.yml](.github/workflows/agent-issue.yml) | The spec agent on an issue, and the hand-off to a draft PR and its plan; a family's sub-issues in forked sessions, their reports and the parent's actions handed to n8n. Called on the `agent-issue` dispatch, a family's wake-ups among them (`family_event`), and `sub-issue-accepted` |
 | [agent-pr.yml](.github/workflows/agent-pr.yml) | The plan and code agents on an agents' PR. Called on the `agent-code` and `agent-route` dispatches |
-| [agent-review.yml](.github/workflows/agent-review.yml) | The review agent and its `Agent review` status. Called on the `agent-review` dispatch |
+| [agent-review.yml](.github/workflows/agent-review.yml) | The review agent and its `Agent review` status; a sub-issue's PR reviewed with its own prompt, its verdict handed to n8n. Called on the `agent-review` dispatch |
 | [agent-renovate.yml](.github/workflows/agent-renovate.yml) | The renovate agent on a Renovate PR: what the bump needs as one follow-up commit, and a verdict. Called on the `agent-renovate` dispatch |
 
 ```yaml
@@ -78,6 +78,11 @@ or `sub-issue-file` ([issue-route](issue-route/) has their payloads). Its hand-b
 agent-flow callback with the channel's token: a sub-issue's
 `{type: "report", repo, parent, number, report, run_id}`, from the spec or the debug agent, and
 a parent's `{type: "actions", repo, parent, run_id, actions}`.
+
+agent-review.yml reviews a sub-issue's PR (base `issue-<P>`) with the `review-sub-issue`
+prompt, and hands its verdict to the same callback after the check, as
+`{type: "verdict", repo, number, sha, verdict, summary, review_id, run_id}`; a pass carried to
+a new head goes too, from a short job on the claude runner. Other PRs are reviewed as before.
 
 agent-renovate.yml takes no inputs. Its dispatch is `{pull_request, reason, comment_id}`,
 `reason` being `opened`, `comment` (with the comment's id) or `updated`. Its role files are

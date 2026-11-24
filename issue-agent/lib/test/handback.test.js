@@ -7,7 +7,7 @@ const ENV = { AGENT_FLOW_CALLBACK_URL: 'http://n8n/cb', AGENT_FLOW_N8N_TOKEN: 't
 const ACTIONS = [{ kind: 'message', number: 15, text: 'Keep the tab.' }, { kind: 'approve_spec', number: 16 }];
 
 // a turn's hand-back: `fetch` records each POST and answers `status`, or throws
-function handBack({ kin, output, number = '15', parent = '12', status = 200, env = ENV, fails }) {
+function handBack({ kin, output, body, number = '15', parent = '12', status = 200, env = ENV, fails }) {
   const posts = [];
   const fetch = async (url, init) => {
     posts.push({ url, headers: init.headers, body: JSON.parse(init.body) });
@@ -17,7 +17,7 @@ function handBack({ kin, output, number = '15', parent = '12', status = 200, env
   const core = fake.core();
   const run = handback.run({
     context: fake.context({ runId: 900 }), core, fetch,
-    env: { ...env, KIN: kin, OUTPUT: output === undefined ? '' : JSON.stringify(output), NUMBER: number, PARENT: parent },
+    env: { ...env, KIN: kin, OUTPUT: output === undefined ? '' : JSON.stringify(output), NUMBER: number, PARENT: parent, BODY: body || '' },
   });
   return run.then(() => ({ posts, core }));
 }
@@ -66,4 +66,17 @@ test('without the callback or its token, a warning and no POST', async () => {
     assert.equal(posts.length, 0);
     assert.match(core.notices[0], /the report is not sent/);
   }
+});
+
+test("a body made elsewhere (a review's verdict) goes to n8n as it is; an empty one sends nothing", async () => {
+  const VERDICT = { type: 'verdict', repo: 'kubed-io/selenium-flow', number: 7, sha: 'abc', verdict: 'looks good', summary: 's', review_id: 99, run_id: 5 };
+  const { posts, core } = await handBack({ body: JSON.stringify(VERDICT) });
+  assert.deepEqual(posts.map((p) => [p.url, p.body]), [['http://n8n/cb', VERDICT]]);
+  assert.equal(core.outputs.sent, 'verdict');
+  for (const body of ['', '  ', 'not json', '{}']) {
+    const none = await handBack({ body });
+    assert.deepEqual([none.posts, none.core.notices], [[], []], body);
+  }
+  const down = await handBack({ body: JSON.stringify(VERDICT), fails: new Error('connect ECONNREFUSED') });
+  assert.match(down.core.notices[0], /the verdict was not sent: connect ECONNREFUSED/);
 });

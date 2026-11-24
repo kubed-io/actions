@@ -10,7 +10,7 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 | Checks red on the head | `failure`: checks failed (fix n of max) | an `agent-code` dispatch, `reason: ci`, with the run |
 | Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
-| A new head, checks green | `pending`: reviewing (n of max) | `number`, `sha`, `last` for the review job |
+| A new head, checks green | `pending`: reviewing (n of max) | `number`, `sha`, `last`, `target` for the review job |
 | `max_reviews` verdicts without a pass | `failure`: needs a human | |
 
 A head is judged once; an `agent-review` dispatch asks again, and the owner's own dispatch
@@ -62,7 +62,16 @@ The token needs `pull-requests: read`, `statuses: write`, `actions: read` (the a
 | `labels` | `plan approved` | Labels a PR the agents built has, comma-separated |
 | `checks_artifact` | `checks-report` | |
 
-Outputs: `number` (empty: no review), `sha`, `last` (the last review before a human).
+Outputs: `number` (empty: no review), `sha`, `last` (the last review before a human),
+`target` and `handback`.
+
+`target` is `family` when the PR's base is a family's branch (`branch_prefix` and a number,
+`issue-12`): a sub-issue's change, reviewed with its own prompt and merged on n8n's word.
+Anything else is `default`, the family's own PR to the default branch included. A `family`
+pass carried to a new head (base merged in, suggestions applied) sets `handback` to the
+`verdict` body for n8n, for issue-agent/handback's `body`: the new head, the carried verdict,
+and the summary read back from the review the status links to, between its header's
+`<!-- review-summary -->` markers (empty when it cannot be read; n8n keeps the one it has).
 
 ## Verdict
 
@@ -81,9 +90,12 @@ since review-route reads back only the reviewer's statuses.
     output: ${{ steps.agent.outputs.output }}
     review_id: ${{ steps.answer.outputs.review_id }}
     comment_id: ${{ steps.answer.outputs.comment_id }}
+    target: ${{ needs.route.outputs.target }}
 ```
 
 `answer` is the job's comment/end, which runs first: the review agent's answer is one
 comment, or one review when it has line comments.
 
-Output: `verdict`.
+Outputs: `verdict`, and `handback`: for a `family` target, the review's body for n8n,
+`{type: "verdict", repo, number, sha, verdict, summary, review_id, run_id}` with the output's
+`summary`; empty for `default` or a review that did not finish.

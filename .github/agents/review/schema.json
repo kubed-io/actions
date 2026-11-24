@@ -6,6 +6,10 @@
       "type": "string",
       "enum": ["looks good", "changes requested", "needs a human"],
       "description": "looks good: nothing must change, the round ends. changes requested: the code agent answers your line comments. needs a human: say what Dr K should look at."
+    },
+    "summary": {
+      "type": "string",
+      "description": "A sub-issue's review only, required with looks good: three to six lines for the parent issue, on what this sub-issue delivered, anything it left for the family, and anything the next sub-issue must know."
     }
   },
   "required": ["verdict"]

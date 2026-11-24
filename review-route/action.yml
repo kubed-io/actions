@@ -62,6 +62,17 @@ outputs:
   last:
     description: "`true` when this is the last review before a human."
     value: ${{ steps.route.outputs.last }}
+  target:
+    description: >
+      `family` when the PR's base is a family's branch (`issue-<P>`): a sub-issue's change.
+      `default` otherwise, the family's own PR to the default branch included.
+    value: ${{ steps.route.outputs.target }}
+  handback:
+    description: >
+      A `family` pass carried to the new head: its `verdict` body for n8n (issue-agent/handback's
+      `body`), with the carried head and the summary read back from the earlier review. Empty
+      otherwise.
+    value: ${{ steps.route.outputs.handback }}
 
 runs:
   using: composite

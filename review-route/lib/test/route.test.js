@@ -79,7 +79,20 @@ test('green checks on a new head start a review', async () => {
   const t = setup();
   await t.go();
   assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
-  assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false' });
+  assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false', target: 'default', handback: '' });
+});
+
+test('target is family for base issue-12', async () => {
+  const t = setup({ pr: { base: { ref: 'issue-12' } } });
+  await t.go();
+  assert.deepEqual([t.core.outputs.number, t.core.outputs.target], ['7', 'family']);
+});
+
+test('target is default for base main', async () => {
+  // a family's own PR (head issue-12, base main) is reviewed as any other
+  const t = setup({ pr: { head: { sha: B, ref: 'issue-12', repo: { full_name: 'kubed-io/selenium-flow' } }, base: { ref: 'main' } } });
+  await t.go();
+  assert.deepEqual([t.core.outputs.number, t.core.outputs.target], ['7', 'default']);
 });
 
 test('asked about a PR the agents did not build, it passes straight away', async () => {
@@ -144,6 +157,44 @@ test("applying a passing review's own suggestion keeps the pass", async () => {
   assert.equal(t.core.outputs.number, '');
   const asked = t.github.calls.find((c) => c.name === 'pulls.listCommentsForReview');
   assert.equal(asked.params.review_id, 99);
+});
+
+test('a carried pass on a family PR asks to POST its verdict', async () => {
+  const COMMENT = 'https://github.com/kubed-io/selenium-flow/pull/7#issuecomment-44';
+  const said = '**Verdict: looks good**\n\n<!-- review-summary -->\nThe tab is kept.\nNext: the window.\n<!-- /review-summary -->\n\nAll good.';
+  const same = { 'repos.compareCommitsWithBasehead': diff('@@ -9 +9 @@\n+same'), 'issues.getComment': { body: said } };
+  const t = setup({ pr: { base: { ref: 'issue-12' } }, statuses: { [A]: [mine('success', 'looks good', COMMENT)] }, routes: same });
+  await t.go();
+  assert.deepEqual(t.posted(), ['success: no changes since aaaaaaa: looks good']);
+  assert.equal(t.core.outputs.number, '');
+  assert.deepEqual(JSON.parse(t.core.outputs.handback), {
+    type: 'verdict', repo: 'kubed-io/selenium-flow', number: 7, sha: B, verdict: 'looks good',
+    summary: 'The tab is kept.\nNext: the window.', review_id: 0, run_id: 5,
+  });
+  assert.equal(t.github.calls.find((c) => c.name === 'issues.getComment').params.comment_id, 44);
+
+  // the suggestions path too, its summary read from the review; unrecoverable, it is empty
+  for (const [review, summary] of [[{ body: said }, 'The tab is kept.\nNext: the window.'], [fake.notFound(), '']]) {
+    const s = setup({
+      pr: { base: { ref: 'issue-12' } }, statuses: { [A]: [mine('success', 'looks good')] },
+      routes: { 'pulls.listCommentsForReview': [suggestionComment], 'repos.getCommit': applied(), 'pulls.getReview': review },
+    });
+    await s.go();
+    assert.deepEqual(s.posted(), ['success: suggestions applied since aaaaaaa: looks good']);
+    const body = JSON.parse(s.core.outputs.handback);
+    assert.deepEqual([body.sha, body.summary, body.review_id], [B, summary, 99]);
+  }
+
+  // a carried failure, and any carried verdict on a default PR, ask nothing
+  for (const over of [
+    { pr: { base: { ref: 'issue-12' } }, statuses: { [A]: [mine('failure', 'changes requested', COMMENT)] } },
+    { statuses: { [A]: [mine('success', 'looks good', COMMENT)] } },
+  ]) {
+    const n = setup({ ...over, routes: same });
+    await n.go();
+    assert.equal(n.posted().length, 1);
+    assert.equal(n.core.outputs.handback, '');
+  }
 });
 
 test('a second suggestion after a carried pass carries it again, verdict and all', async () => {
@@ -246,7 +297,7 @@ test('the checks dispatch, green: the run read back starts a review', async () =
   const t = pointed();
   await t.go();
   assert.deepEqual(t.posted(), ['pending: reviewing (1 of 3)']);
-  assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false' });
+  assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false', target: 'default', handback: '' });
   for (const name of ['actions.getWorkflowRun', 'actions.listWorkflowRunArtifacts', 'actions.listJobsForWorkflowRun']) {
     assert.equal(t.github.calls.find((c) => c.name === name).params.run_id, 3, name);
   }

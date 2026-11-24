@@ -5,6 +5,13 @@
 //
 // Copilot never stands in for the review agent: asked for, its review is a second opinion,
 // which wakes the code agent through pr-route like any review.
+//
+// The review's target (spec 2026-11-24 R-SM1): `family` for a sub-issue's PR into its
+// family's branch `issue-<P>`, `default` for a PR to the default branch, the family's own
+// included. A family pass carried to a new head is handed to n8n as the review's own is
+// (R-SM10a): the `handback` output is its `verdict` body, which the workflow sends.
+
+const { verdictBody } = require('./verdict');
 
 const VERDICT = /^(looks good|changes requested|needs a human)$|^changes requested, last review/;
 // a verdict carried to a later commit, with the commit it was given on
@@ -13,6 +20,12 @@ const failedChecks = (s) => /^checks failed/.test(s?.description || '');
 const short = (sha) => (sha || '').slice(0, 7);
 const BAD = ['failure', 'cancelled', 'timed_out'];
 const csv = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
+const idIn = (url, anchor) => Number(new RegExp(`#${anchor}-(\\d+)$`).exec(url || '')?.[1]) || 0;
+// a family's branch, the base a sub-issue's PR is opened on
+const familyBranch = (prefix, ref) => (ref || '').startsWith(prefix) && /^\d+$/.test(ref.slice(prefix.length));
+// what a family review left for the parent, between the markers agent-review.yml's header
+// puts around it
+const SUMMARY = /<!-- review-summary -->\n?([\s\S]*?)\n?<!-- \/review-summary -->/;
 
 function settings(env) {
   return {
@@ -39,6 +52,22 @@ async function prChanges(github, repo, base, ref) {
   if ((data.files?.length || 0) >= 300) return null;
   return data.files.filter((f) => !POINTER.test(f.patch || '')).map((f) => `${f.status} ${f.filename} ${f.previous_filename || ''}\n${
     f.patch == null ? `blob ${f.sha}` : f.patch.replace(/^@@[^@]*@@/gm, '@@')}`).sort().join('\n');
+}
+
+// the summary of the review a status links to, read back from its review or comment; empty
+// when it cannot be, and n8n keeps the one the review sent
+async function summaryOf(github, repo, number, url) {
+  const review = idIn(url, 'pullrequestreview');
+  const comment = idIn(url, 'issuecomment');
+  if (!review && !comment) return '';
+  try {
+    const { data } = review
+      ? await github.rest.pulls.getReview({ ...repo, pull_number: number, review_id: review })
+      : await github.rest.issues.getComment({ ...repo, comment_id: comment });
+    return SUMMARY.exec((data?.body || '').replace(/\r\n/g, '\n'))?.[1].trim() || '';
+  } catch {
+    return '';
+  }
 }
 
 // every line a review's suggestion blocks would put in each file
@@ -85,7 +114,7 @@ async function run({ github, context, core, env = process.env }) {
   const cfg = settings(env);
   const repo = context.repo;
   const e = context.payload;
-  for (const k of ['number', 'sha', 'last']) core.setOutput(k, '');
+  for (const k of ['number', 'sha', 'last', 'target', 'handback']) core.setOutput(k, '');
   if (context.eventName !== 'repository_dispatch' || e.action !== 'agent-review') {
     return core.info(`${context.eventName}: only an agent-review dispatch is routed`);
   }
@@ -106,6 +135,7 @@ async function run({ github, context, core, env = process.env }) {
   const { data: pr } = await github.rest.pulls.get({ ...repo, pull_number: number });
   if (pr.state !== 'open' || pr.draft) return core.info(`#${number} is ${pr.draft ? 'a draft' : pr.state}`);
   const sha = pr.head.sha;
+  const target = familyBranch(cfg.prefix, pr.base.ref) ? 'family' : 'default';
   if (checksRun && checksRun.head_sha !== sha) return core.info(`${checksRun.head_sha} is no longer the head`);
   const runUrl = `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${context.runId}`;
   const status = (state, description, target_url = runUrl) => github.rest.repos.createCommitStatus({
@@ -174,9 +204,17 @@ async function run({ github, context, core, env = process.env }) {
   const prior = judged.find((s) => VERDICT.test(s.description) || CARRIED.test(s.description));
   if (prior && !dispatched) {
     const verdict = prior.description.replace(CARRIED, '');
+    const reviewId = idIn(prior.target_url, 'pullrequestreview');
     const carry = async (why, description) => {
       await status(prior.state, description, prior.target_url);
       core.info(`${sha} ${why} since ${prior.ref}`);
+      // a family pass merges on n8n's word: it hears of the carried one too
+      if (target === 'family' && prior.state === 'success') {
+        core.setOutput('handback', JSON.stringify(verdictBody({
+          repo: `${repo.owner}/${repo.repo}`, number, sha, verdict,
+          summary: await summaryOf(github, repo, number, prior.target_url), reviewId, runId: context.runId,
+        })));
+      }
       return true;
     };
     // a commit that only brings the base in (Update branch) keeps it
@@ -185,7 +223,6 @@ async function run({ github, context, core, env = process.env }) {
       return carry('changes nothing of the PR\'s', `no changes since ${short(prior.ref)}: ${verdict}`);
     }
     // so does a pass whose own suggestions were applied, and nothing else
-    const reviewId = Number(/#pullrequestreview-(\d+)$/.exec(prior.target_url || '')?.[1]) || 0;
     const at = all.indexOf(prior.ref);
     const since = at < 0 ? [] : all.slice(at + 1);
     if (prior.state === 'success' && reviewId && since.length && since.at(-1) === sha) {
@@ -211,6 +248,7 @@ async function run({ github, context, core, env = process.env }) {
   core.setOutput('number', String(number));
   core.setOutput('sha', sha);
   core.setOutput('last', String(capped && done + 1 >= cfg.maxReviews));
+  core.setOutput('target', target);
 }
 
 module.exports = { run, appliedSuggestion, suggested, prChanges };

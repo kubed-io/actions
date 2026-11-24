@@ -2,6 +2,7 @@
 // which n8n posts on the parent and wakes it with; a parent's `actions`, which n8n carries out
 // in order. Each goes to the agent-flow callback with the channel's token. Nothing goes when the
 // field is empty, and n8n's answer never fails the job: a refusal or no answer is a warning.
+// A body made elsewhere (review-route's `verdict`, R-SM4) goes as it is, in place of these.
 
 const TIMEOUT = 10000;
 
@@ -25,9 +26,15 @@ function bodyOf({ kin, output, repo, number, parent, runId }) {
   return null;
 }
 
+// a body that came made: sent when it names its type
+function made(text) {
+  const body = (text || '').trim() ? parse(text) : null;
+  return body && typeof body === 'object' && typeof body.type === 'string' ? body : null;
+}
+
 async function run({ context, core, fetch = globalThis.fetch, env = process.env }) {
   const { owner, repo } = context.repo;
-  const body = bodyOf({
+  const body = (env.BODY || '').trim() ? made(env.BODY) : bodyOf({
     kin: env.KIN,
     output: parse(env.OUTPUT),
     repo: `${owner}/${repo}`,
@@ -36,7 +43,8 @@ async function run({ context, core, fetch = globalThis.fetch, env = process.env 
     runId: Number(context.runId) || 0,
   });
   if (!body) return core.info('nothing to hand back');
-  const what = body.type === 'report' ? 'the report is' : 'the actions are';
+  const plural = body.type === 'actions';
+  const what = `the ${body.type} ${plural ? 'are' : 'is'}`;
   if (!env.AGENT_FLOW_CALLBACK_URL || !env.AGENT_FLOW_N8N_TOKEN) {
     return core.warning(`no AGENT_FLOW_CALLBACK_URL or AGENT_FLOW_N8N_TOKEN: ${what} not sent`);
   }
@@ -49,7 +57,7 @@ async function run({ context, core, fetch = globalThis.fetch, env = process.env 
     });
     if (!res.ok) return core.warning(`n8n answered the ${body.type} with ${res.status}: it may not act on it`);
   } catch (err) {
-    return core.warning(`${body.type === 'report' ? 'the report was' : 'the actions were'} not sent: ${err.message}`);
+    return core.warning(`the ${body.type} ${plural ? 'were' : 'was'} not sent: ${err.message}`);
   }
   core.setOutput('sent', body.type);
   core.info(`${body.type} sent for #${body.number || body.parent}`);

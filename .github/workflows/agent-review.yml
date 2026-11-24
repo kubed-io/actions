@@ -16,6 +16,13 @@ name: 🔍 Agent · Review
 # kubed-io/actions/review-route decides it. A commit that only merges main in, or only
 # applies a passing review's own suggestions from the PR's page, keeps the last verdict.
 #
+# A sub-issue's PR, into its family's branch `issue-<P>`, is a `family` review: its own
+# prompt, review-sub-issue, whose pass carries a `summary` for the parent, and its verdict
+# POSTed to the agent-flow callback after the check, which n8n merges on (spec 2026-11-24
+# R-SM1 to R-SM4). A pass carried to a new head is POSTed too, from the claude runner, the
+# one that reaches the callback (R-SM10a). Any other PR, the family's own to main included,
+# is reviewed as before.
+#
 # Copilot never stands in: asked for on a change, its review is a second opinion that wakes
 # the code agent through agent-pr.yml, and the review agent reviews as always.
 #
@@ -65,6 +72,8 @@ jobs:
       number: ${{ steps.route.outputs.number }}
       sha: ${{ steps.route.outputs.sha }}
       last: ${{ steps.route.outputs.last }}
+      target: ${{ steps.route.outputs.target }}
+      handback: ${{ steps.route.outputs.handback }}
     steps:
 
     # reads the PR and the run, sets statuses, dispatches; nothing of the PR is checked out
@@ -77,6 +86,25 @@ jobs:
         owner: "4399427"
         max_reviews: ${{ env.MAX_REVIEWS }}
         max_fixes: ${{ env.MAX_FIXES }}
+
+  # a family pass carried to a new head tells n8n, as a review's own does: the callback is in
+  # the cluster, so this runs on the claude runner, and runs no Claude
+  carried:
+    name: Carried Verdict
+    needs: route
+    if: github.event_name == 'repository_dispatch' && needs.route.outputs.handback != ''
+    runs-on: claude
+    environment: claude
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
+    steps:
+
+    - name: Tell n8n the Verdict
+      uses: kubed-io/actions/issue-agent/handback@main
+      with:
+        body: ${{ needs.route.outputs.handback }}
 
   review:
     name: Review
@@ -101,6 +129,18 @@ jobs:
     env:
       # the agent-flow channel's token: n8n's messages reach the running review, as every turn's
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
+      # the turn's words are a kb prompt (superpowers library): a sub-issue's has its own
+      REVIEW_PROMPT: >-
+        ${{ needs.route.outputs.target == 'family' &&
+          '/mcp__plugin_kubed-runner_superpowers__superpowers_review-sub-issue' ||
+          '/mcp__plugin_kubed-runner_superpowers__superpowers_review' }}
+      # a sub-issue's summary for the parent, between markers review-route reads it back from
+      FAMILY_HEADER: |-
+        **Verdict: {{ output.verdict }}**
+
+        <!-- review-summary -->
+        {{ output.summary }}
+        <!-- /review-summary -->
     steps:
 
     # a queued review checks it is still wanted as it starts: when the head has moved on, that
@@ -156,7 +196,7 @@ jobs:
         # never moved: n8n reposts a live placeholder as the App, and this one is
         # github-actions[bot]'s, which comment/end must still edit. A reply lands below it.
         live: false
-        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_review
+        prompt: ${{ env.REVIEW_PROMPT }}
 
     # the role files, from the repo this workflow lives in at the commit it runs from; moved out
     # of the workspace so the agent has nothing of them to commit
@@ -187,10 +227,11 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         settings: ${{ env.AGENT_ROLES }}/review/settings.json
         schema: ${{ env.AGENT_ROLES }}/review/schema.json
-        # the turn's words are a kb prompt (superpowers library)
-        prompt: /mcp__plugin_kubed-runner_superpowers__superpowers_review
+        prompt: ${{ env.REVIEW_PROMPT }}
         prompt_when: always
-        header: "**Verdict: {{ output.verdict }}**"
+        header: >-
+          ${{ needs.route.outputs.target == 'family' && env.FAMILY_HEADER ||
+            '**Verdict: {{ output.verdict }}**' }}
         review: "true"
         threads: "false"
         # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
@@ -210,6 +251,7 @@ jobs:
 
     # the verdict is the check: only `looks good` passes it
     - name: Set the Check
+      id: check
       if: steps.still.outputs.wanted == 'true' && (always())
       uses: kubed-io/actions/review-route/verdict@main
       with:
@@ -221,6 +263,17 @@ jobs:
         output: ${{ steps.agent.outputs.output }}
         review_id: ${{ steps.answer.outputs.review_id }}
         comment_id: ${{ steps.answer.outputs.comment_id }}
+        target: ${{ needs.route.outputs.target }}
+
+    # a sub-issue's verdict to n8n, which merges a pass into the family's branch (R-SM4);
+    # its refusal never fails the job
+    - name: Tell n8n the Verdict
+      if: >-
+        steps.still.outputs.wanted == 'true' && (always()) &&
+        needs.route.outputs.target == 'family' && steps.check.outputs.handback != ''
+      uses: kubed-io/actions/issue-agent/handback@main
+      with:
+        body: ${{ steps.check.outputs.handback }}
 
     # a pointer, never the review: the code agent reads it from the PR
     - name: Wake the Code Agent
