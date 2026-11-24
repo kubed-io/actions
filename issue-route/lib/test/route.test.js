@@ -405,6 +405,7 @@ function dispatched(kind, payload, { issues = {}, comments = {}, threads = { 5: 
     },
     'issues.getComment': ({ comment_id: id }) => notes[id] || fake.notFound(),
     [PARENT]: ({ issue_number: n }) => (UP[n] ? { number: UP[n] } : fake.notFound()),
+    'GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues': ({ issue_number: n }) => Object.values(all).filter((i) => UP[i.number] === n).map((i) => ({ number: i.number, state: i.state || 'open', labels: i.labels.map((name) => ({ name })) })),
     'issues.listComments': ({ issue_number: n }) => threads[n] || [],
     'issues.listEvents': [],
   });
@@ -525,7 +526,6 @@ test('an agent-issue dispatch without family_event routes as before; an unknown 
 
 test('a family dispatch on an issue not opted in, not a Feature or Bug, a pull request, or after spec approved is nothing', async () => {
   for (const three of [
-    { labels: [] },
     { type: 'Task' },
     { pr: true },
     { labels: ['agent', 'spec approved'] },
@@ -534,6 +534,35 @@ test('a family dispatch on an issue not opted in, not a Feature or Bug, a pull r
     assert.equal((await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues })).stage, 'none', JSON.stringify(three));
     assert.equal((await send('sub-issue-file', { parent: 3, type: 'Feature', title: 'x', ask: 'y' }, { issues })).stage, 'none', JSON.stringify(three));
   }
+});
+
+// R-SM29: a parent is opted in by its sub-issues
+test('sub-issue-closed on a parent without agent runs when the closed sub-issue carries agent', async () => {
+  const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
+  assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues }),
+    { ...PARENT_TURN, prompt: `${P}sub-issue-closed` });
+});
+
+test('sub-issue-closed and -reported on a parent without agent are nothing when the sub-issue lacks agent', async () => {
+  const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] }, 5: { ...FAMILY_ISSUES[5], labels: [] } };
+  for (const [kind, payload] of [['sub-issue-closed', { merged: true }], ['sub-issue-reported', { comment_id: 40 }]]) {
+    const out = await send(kind, { parent: 3, number: 5, ...payload }, { issues });
+    assert.deepEqual([out.stage, out.why], ['none', 'not opted in'], kind);
+  }
+});
+
+test('a Dr K comment on a parent without agent is still nothing', async () => {
+  const out = await both({ labels: [], by: DRK, subs: [sub(6, 'closed')] });
+  assert.deepEqual([out.stage, out.why], ['none', 'not opted in']);
+});
+
+test('sub-issue-file on a parent without agent runs with an agent sub-issue, and is dropped with none', async () => {
+  const file = { parent: 3, type: 'Bug', title: 'Flows lose the tab', ask: 'y' };
+  const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
+  assert.equal((await send('sub-issue-file', file, { issues })).stage, 'file');
+  const bare = { ...issues, 5: { ...FAMILY_ISSUES[5], labels: [] }, 6: { ...FAMILY_ISSUES[6], labels: [] }, 7: { ...FAMILY_ISSUES[7], labels: [] } };
+  const out = await send('sub-issue-file', file, { issues: bare });
+  assert.deepEqual([out.stage, out.why], ['none', 'not opted in']);
 });
 
 test('sub-issue-file needs a Feature or Bug and a title', async () => {

@@ -165,7 +165,21 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   const labels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
   const type = issue.type?.name || '';
   if (issue.pull_request) return none('a pull request, not a work item');
-  if (!labels.includes('agent')) return none('not opted in');
+  // a parent is opted in by its sub-issues (R-SM29): a family wake-up on a parent without
+  // `agent` is admitted when the sub-issue it names carries `agent` (the file turn names none:
+  // then any sub-issue of the parent that does). Its own turns, and Dr K's, need the label.
+  let named = null;
+  if (!labels.includes('agent')) {
+    let viaSub = false;
+    if (names) {
+      ({ data: named } = await github.rest.issues.get({ ...context.repo, issue_number: about }));
+      viaSub = (named.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === 'agent');
+    } else if (kind === 'sub-issue-file') {
+      const { data: subs } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 });
+      viaSub = (subs || []).some((i) => (i.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === 'agent'));
+    }
+    if (!viaSub) return none('not opted in');
+  }
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
   if (kind === 'sub-issue-start' && issue.state !== 'open') return none(`#${number} is closed`);
   // a message past the spec is dropped: the change's own PR carries on (a limitation, for now)
@@ -176,7 +190,7 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   if (!onSub && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
   if (about && (about === number || (await familyOf(github, context.repo, about)) !== number)) return none(`#${about} is not #${number}'s sub-issue`);
   if (kind === 'sub-issue-closed') {
-    const { data: closed } = await github.rest.issues.get({ ...context.repo, issue_number: about });
+    const closed = named || (await github.rest.issues.get({ ...context.repo, issue_number: about })).data;
     if (closed.state !== 'closed') return none(`#${about} is still open`);
   }
   if (answers) {
