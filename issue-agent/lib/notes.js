@@ -36,9 +36,10 @@ function removeBlock(body, name) {
   return `${body.slice(0, at.start).trimEnd()}\n\n${body.slice(at.end).trimStart()}`.trim();
 }
 
-// the body as its author wrote it, with the agent's notes taken out
+// the body as its author wrote it, with the agent's notes and a parent's open questions
+// (questions.js) taken out
 function stripBlocks(body) {
-  return removeBlock(body || '', NOTES);
+  return removeBlock(removeBlock(body || '', NOTES), 'open-questions');
 }
 
 // in place when the block is there; otherwise before any older agent section, or last

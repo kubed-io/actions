@@ -243,11 +243,12 @@ jobs:
 
     # a sub-issue hands back to its parent with `report` (a Feature's or a Bug's); a parent's
     # turn ends in `actions`. n8n posts the one and carries out the other (R-SM17, R-SM21); its
-    # answer never fails the turn
+    # answer never fails the turn. A turn whose commit failed hands nothing back: it fails
     - name: Hand Back
       if: >-
+        steps.commit.outcome != 'failure' && (
         needs.route.outputs.kin == 'sub-issue' && fromJSON(steps.agent.outputs.output || '{}').report ||
-        needs.route.outputs.kin == 'parent' && fromJSON(steps.agent.outputs.output || '{}').actions[0]
+        needs.route.outputs.kin == 'parent' && fromJSON(steps.agent.outputs.output || '{}').actions[0])
       continue-on-error: true
       uses: kubed-io/actions/issue-agent/handback@main
       with:
@@ -261,7 +262,7 @@ jobs:
     - name: App Token for the Open Questions
       id: questions
       if: >-
-        needs.route.outputs.kin == 'parent' &&
+        steps.commit.outcome != 'failure' && needs.route.outputs.kin == 'parent' &&
         toJSON(fromJSON(steps.agent.outputs.output || '{}').open_questions) != 'null'
       continue-on-error: true
       uses: actions/create-github-app-token@v3
@@ -272,7 +273,7 @@ jobs:
         permission-pull-requests: write
 
     - name: Open Questions
-      if: steps.questions.outputs.token != ''
+      if: steps.commit.outcome != 'failure' && steps.questions.outputs.token != ''
       continue-on-error: true
       uses: kubed-io/actions/issue-agent/questions@main
       with:

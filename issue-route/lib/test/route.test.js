@@ -343,6 +343,11 @@ test("the App's spec approved on an agent sub-issue hands off its change into th
   assert.deepEqual([out.stage, out.family, out.change, out.number], ['handoff', '3', 'sub', '5']);
 });
 
+test("the App's spec approved on a middle-tier issue, a sub-issue with sub-issues of its own, is nothing", async () => {
+  const out = await both({ ...APPROVE, by: APP, parent: 3, comments: answered, subs: [sub(8, 'closed')] });
+  assert.deepEqual([out.stage, out.why], ['none', "the App's spec approved on a parent: only Dr K's opens the family's change"]);
+});
+
 test("the App's spec approved on a top-level issue or a parent is nothing, and says why", async () => {
   const top = situation({ ...APPROVE, by: APP });
   assert.deepEqual([(await top.dispatch()).stage, top.go.core.outputs.why], ['none', "the App's spec approved on a top-level issue"]);
@@ -432,6 +437,26 @@ test("parent-message is the sub-issue's turn with parent-message, in its own ses
 test("sub-issue-file is the make-sub-issue turn in the parent's session: type and title, then the ask", async () => {
   const out = await send('sub-issue-file', { parent: 3, type: 'Bug', title: 'Flows lose the tab', ask: 'The tab is its own fix.\nIt merges first.' });
   assert.deepEqual(out, { ...PARENT_TURN, stage: 'file', item_type: 'Bug', prompt: `${P}make-sub-issue Bug: Flows lose the tab\nAsk: The tab is its own fix. It merges first.`, prompt_when: 'always' });
+});
+
+test('sub-issue-closed on a sub-issue still open is nothing, and says so', async () => {
+  const issues = { 5: { ...FAMILY_ISSUES[5], state: 'open' } };
+  const out = await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues });
+  assert.deepEqual([out.stage, out.why], ['none', '#5 is still open']);
+});
+
+test('an empty or null family_event is no family wake-up: the turn routes as today', async () => {
+  for (const familyEvent of ['', null]) {
+    const github = fake.github({
+      'issues.get': { number: 5, title: 'Flows remember the window', labels: [{ name: 'agent' }], type: { name: 'Feature' } },
+      'issues.getComment': { id: 31, user: { id: DRK }, issue_url: ISSUE_URL },
+      [PARENT]: fake.notFound(),
+    });
+    const core = fake.core();
+    const pointer = { family_event: familyEvent, number: 5, event: 'issue_comment', action: 'created', actor: String(DRK), comment_id: 31 };
+    await route.run({ github, context: fake.context({ eventName: 'repository_dispatch', payload: { action: 'agent-issue', client_payload: pointer, sender: { id: APP } } }), core, env: ENV });
+    assert.deepEqual(core.outputs, { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' }, String(familyEvent));
+  }
 });
 
 test('a family dispatch reads its pointer back: a sub-issue of another family, or of none, is nothing', async () => {

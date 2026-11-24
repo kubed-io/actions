@@ -67,6 +67,10 @@ The issue the turn is on carries `agent` and is a Feature or Bug; the parent's t
 `parent` to be its family's top issue. Past `spec approved` it is nothing, `why` `PAST-SPEC: …`:
 a message to a sub-issue whose change is open does not reach it. Anything else is nothing.
 
+Not yet covered: a Bug parent's debug agent returns no `actions` or `open_questions`, so a Bug
+family is not run by its parent. A parent's first `file`, before it has any sub-issue, is not
+handed to n8n: only a `parent` (`kin`) turn's `actions` are.
+
 A label's `takeover` cancels the family's running turn, so it waits while a sub-issue is being
 filed: when another of the workflow's runs, in progress or queued, has a job named `Make the
 Sub-issue · #<family>` not yet completed, the label queues like a comment and a notice says

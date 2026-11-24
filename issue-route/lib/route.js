@@ -84,7 +84,8 @@ async function makingIn({ actions: github, context, family, workflowRef }) {
 }
 
 // The stage an event is for, and why when it is nothing. `parented`: the issue has a parent,
-// read only for the App's `spec approved`; `parent`: it has sub-issues
+// read only for the App's `spec approved`; `parent`: it has sub-issues. The App's counts on a
+// leaf sub-issue only, never on a parent at any depth
 function stageOf({ comment, label, labels, type, isPR, byOwner, byApp, parented = false, parent = false }) {
   const none = (why) => ({ stage: 'none', why });
   const has = (name) => labels.includes(name);
@@ -93,7 +94,7 @@ function stageOf({ comment, label, labels, type, isPR, byOwner, byApp, parented 
   if (!comment && label !== APPROVED && !TURNS.includes(label)) return none(`the ${label} label wakes nothing`);
   const forDrK = byApp && label === APPROVED;
   if (!byOwner && !forDrK) return none(byApp ? "the App's own" : 'not the owner');
-  if (forDrK && !parented) return none(parent ? `the App's ${APPROVED} on a parent: only Dr K's opens the family's change` : `the App's ${APPROVED} on a top-level issue`);
+  if (forDrK && (!parented || parent)) return none(parent ? `the App's ${APPROVED} on a parent: only Dr K's opens the family's change` : `the App's ${APPROVED} on a top-level issue`);
   if (!has('agent')) return none('not opted in');
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
   if (type === 'Bug' && label === 'spec') return none('a Bug has no spec');
@@ -109,7 +110,8 @@ const line = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
 function eventOf(context) {
   const e = context.payload;
   const p = context.eventName === 'repository_dispatch' && e.action === 'agent-issue' ? e.client_payload || {} : {};
-  if (p.family_event !== undefined) {
+  // an empty key is no wake-up: the dispatch is a label or a comment, as ever
+  if (p.family_event != null && p.family_event !== '') {
     // an unknown one is nothing, never read as a label or a comment
     if (!FAMILY[p.family_event]) return { event: 'family', action: String(p.family_event) };
     return { kind: p.family_event, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask) };
@@ -157,6 +159,10 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   if (kind === 'parent-message' && family === number) return none('not a sub-issue');
   if (kind !== 'parent-message' && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
   if (about && (about === number || (await familyOf(github, context.repo, about)) !== number)) return none(`#${about} is not #${number}'s sub-issue`);
+  if (kind === 'sub-issue-closed') {
+    const { data: closed } = await github.rest.issues.get({ ...context.repo, issue_number: about });
+    if (closed.state !== 'closed') return none(`#${about} is still open`);
+  }
   if (answers) {
     let got = null;
     try {

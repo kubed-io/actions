@@ -65,3 +65,9 @@ test('run writes nothing when the notes did not change the body', async () => {
   await done;
   assert.ok(!github.calls.some((c) => c.name === 'issues.update'));
 });
+
+test("stripBlocks takes the parent's open questions out too: the author's text alone", () => {
+  const questions = require('../questions');
+  const body = questions.keep(notes.withNotes('Record it.', 'n', NOW), questions.onParent('- Rename it? (#15)', 1));
+  assert.equal(notes.stripBlocks(body), 'Record it.');
+});
