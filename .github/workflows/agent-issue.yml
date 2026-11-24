@@ -194,7 +194,8 @@ jobs:
         # n8n's dispatch makes the App the run's actor: Claude starts only for an allowed bot,
         # by login; the gate and the thread trust it by its bot's id
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
-        opt_in_label: agent
+        # empty when R-SM29 admitted an unlabelled parent: no label to gate on
+        opt_in_label: ${{ needs.route.outputs.opt_in_label }}
         # a label's turn is a kb prompt (superpowers library)
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}
@@ -736,7 +737,8 @@ jobs:
         settings: ${{ env.AGENT_ROLES }}/spec/settings.json
         schema: ${{ steps.form.outputs.schema }}
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
-        opt_in_label: agent
+        # the tick's turn is on an `agent` issue; the `file` action may be on an unlabelled parent (R-SM29)
+        opt_in_label: ${{ needs.accept.outputs.ok == 'true' && 'agent' || needs.route.outputs.opt_in_label }}
         # a `file` action's comes from the route, with its ask on a line of its own
         prompt: >-
           ${{ needs.route.outputs.prompt || format('/mcp__plugin_kubed-runner_superpowers__superpowers_make-sub-issue {0}: {1}',

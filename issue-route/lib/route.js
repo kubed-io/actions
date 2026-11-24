@@ -169,8 +169,8 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   // `agent` is admitted when the sub-issue it names carries `agent` (the file turn names none:
   // then any sub-issue of the parent that does). Its own turns, and Dr K's, need the label.
   let named = null;
+  let viaSub = false;
   if (!labels.includes('agent')) {
-    let viaSub = false;
     if (names) {
       ({ data: named } = await github.rest.issues.get({ ...context.repo, issue_number: about }));
       viaSub = (named.labels || []).some((l) => (typeof l === 'string' ? l : l.name) === 'agent');
@@ -214,6 +214,8 @@ async function familyTurn({ github, context, core, cfg, ev }) {
     core.setOutput('item_type', ev.type);
   }
 
+  // admitted through its sub-issue, the parent carries no label for the gate to check
+  core.setOutput('opt_in_label', viaSub ? '' : 'agent');
   core.setOutput('stage', kind === 'sub-issue-file' ? 'file' : 'spec');
   core.setOutput('number', String(number));
   core.setOutput('family', String(family));
@@ -306,6 +308,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
       change = 'parent';
     }
   }
+  core.setOutput('opt_in_label', 'agent');
   core.setOutput('change', change);
   // whether the change starts with a plan turn: a Bug's only when it needs one
   core.setOutput('plan', String(type !== 'Bug' || labels.includes(NEEDS_PLAN)));

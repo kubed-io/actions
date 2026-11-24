@@ -54,7 +54,7 @@ function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = 
 // the situation's outputs
 const both = (s) => situation(s).dispatch();
 
-const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true', session: 'issue-5', fork_from: '', kin: 'alone' };
+const SPEC = { opt_in_label: 'agent', number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true', session: 'issue-5', fork_from: '', kin: 'alone' };
 
 test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
@@ -420,7 +420,7 @@ function dispatched(kind, payload, { issues = {}, comments = {}, threads = { 5: 
 }
 const send = async (kind, payload, over) => dispatched(kind, payload, over).go();
 
-const PARENT_TURN = { stage: 'spec', number: '3', family: '3', change: 'own', plan: 'true', label: '', title: 'Flows', role: 'spec', writes: 'false', prompt_when: 'lead', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent' };
+const PARENT_TURN = { stage: 'spec', opt_in_label: 'agent', number: '3', family: '3', change: 'own', plan: 'true', label: '', title: 'Flows', role: 'spec', writes: 'false', prompt_when: 'lead', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent' };
 
 test('sub-issue-closed is a parent turn with sub-issue-closed, leading, queued', async () => {
   assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }),
@@ -540,7 +540,7 @@ test('a family dispatch on an issue not opted in, not a Feature or Bug, a pull r
 test('sub-issue-closed on a parent without agent runs when the closed sub-issue carries agent', async () => {
   const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
   assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues }),
-    { ...PARENT_TURN, prompt: `${P}sub-issue-closed` });
+    { ...PARENT_TURN, opt_in_label: '', prompt: `${P}sub-issue-closed` });
 });
 
 test('sub-issue-closed and -reported on a parent without agent are nothing when the sub-issue lacks agent', async () => {
@@ -559,7 +559,8 @@ test('a Dr K comment on a parent without agent is still nothing', async () => {
 test('sub-issue-file on a parent without agent runs with an agent sub-issue, and is dropped with none', async () => {
   const file = { parent: 3, type: 'Bug', title: 'Flows lose the tab', ask: 'y' };
   const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
-  assert.equal((await send('sub-issue-file', file, { issues })).stage, 'file');
+  const via = await send('sub-issue-file', file, { issues });
+  assert.deepEqual([via.stage, via.opt_in_label], ['file', '']);
   const bare = { ...issues, 5: { ...FAMILY_ISSUES[5], labels: [] }, 6: { ...FAMILY_ISSUES[6], labels: [] }, 7: { ...FAMILY_ISSUES[7], labels: [] } };
   const out = await send('sub-issue-file', file, { issues: bare });
   assert.deepEqual([out.stage, out.why], ['none', 'not opted in']);
