@@ -202,19 +202,25 @@ jobs:
         app_private_key: ${{ secrets.GH_APP_KEY }}
 
     # a push the turn never heard of (a notice lost, or one in its last seconds) still makes
-    # its verdict stale: a new head that is not the agent's own commit is superseded too
+    # its verdict stale: a new head that is not the agent's own commit is superseded too, and
+    # so is a PR closed meanwhile
     - name: The Head Now
       id: head
-      if: >-
-        steps.pr.outputs.wanted == 'true' && steps.agent.outputs.head_sha != '' &&
-        fromJSON(steps.agent.outputs.output || '{}').verdict != 'superseded'
+      if: steps.pr.outputs.wanted == 'true' && steps.agent.outputs.head_sha != ''
       env:
         GH_TOKEN: ${{ github.token }}
         NUMBER: ${{ github.event.client_payload.pull_request }}
         CHECKED: ${{ steps.agent.outputs.head_sha }}
       run: |
-        if ! now=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" --jq .head.sha); then
+        if ! pr=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" \
+          --jq '.state + " " + .head.sha'); then
           echo "::warning::the head could not be read: the verdict stands on ${CHECKED}"
+          exit 0
+        fi
+        read -r state now <<<"$pr"
+        if [ "$state" != open ]; then
+          echo "::notice::#${NUMBER} is ${state}: superseded"
+          printf '%s\n' superseded=true closed=true >> "$GITHUB_OUTPUT"
           exit 0
         fi
         [ "$now" = "$CHECKED" ] && exit 0
@@ -227,7 +233,7 @@ jobs:
         echo "::notice::the head moved ${CHECKED} -> ${now} during the turn: superseded"
         echo "superseded=true" >> "$GITHUB_OUTPUT"
 
-    # a turn a Renovate push stopped posts no verdict: its answer is this line alone
+    # a turn a Renovate push or a close stopped posts no verdict: its answer is this line alone
     - name: A Superseded Turn
       if: >-
         steps.pr.outputs.wanted == 'true' &&
@@ -235,10 +241,13 @@ jobs:
         steps.head.outputs.superseded == 'true')
       env:
         NUMBER: ${{ github.event.client_payload.pull_request }}
+        CLOSED: ${{ steps.head.outputs.closed }}
       run: |
+        line="Renovate updated the branch while this turn ran: a fresh turn follows."
+        [ "$CLOSED" = true ] && line="#${NUMBER} closed while this turn ran: nothing is committed."
         for part in "$RUNNER_TEMP/issue-comment/${NUMBER}/parts/"*-issue-agent.md; do
           [ -f "$part" ] || continue
-          echo "Renovate updated the branch while this turn ran: a fresh turn follows." > "$part"
+          echo "$line" > "$part"
         done
 
     # approve never commits: an approve with changes is a contradiction, so the job fails with
