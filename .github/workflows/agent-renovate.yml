@@ -14,7 +14,9 @@ name: 🤖 Agent · Renovate
 #
 # The commit carries `Agent: renovate`: n8n tells it from Renovate's own pushes by that, as
 # both are the App's. A Renovate push while the turn runs stops it (`superseded`): nothing is
-# committed, no verdict is posted, and n8n queues a fresh `updated` turn.
+# committed, no verdict is posted, and n8n queues a fresh `updated` turn. A head that moved
+# without the turn hearing of it is superseded the same way; the verdict line names the head
+# the agent checked. `approve` never commits: with changes it fails the job.
 #
 # The gate names ids, not variables: a job's `if` is decided before any runner, so only
 # GitHub's own event data can vouch for the sender. 235398881 is the kubed-io App's bot
@@ -186,7 +188,8 @@ jobs:
         # the turn's words are a kb prompt (superpowers library), by the dispatch's reason
         prompt: ${{ steps.pr.outputs.prompt }}
         prompt_when: ${{ steps.pr.outputs.prompt_when }}
-        header: "**Verdict: {{ output.verdict }}**"
+        # the verdict line names the head the agent checked: The Verdict Line writes it
+        header: ""
         threads: "false"
         # n8n's dispatch is the App's: Claude starts only for an allowed bot
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot]
@@ -198,17 +201,80 @@ jobs:
         app_client_id: ${{ vars.GH_CLIENT_ID }}
         app_private_key: ${{ secrets.GH_APP_KEY }}
 
+    # a push the turn never heard of (a notice lost, or one in its last seconds) still makes
+    # its verdict stale: a new head that is not the agent's own commit is superseded too
+    - name: The Head Now
+      id: head
+      if: >-
+        steps.pr.outputs.wanted == 'true' && steps.agent.outputs.head_sha != '' &&
+        fromJSON(steps.agent.outputs.output || '{}').verdict != 'superseded'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ github.event.client_payload.pull_request }}
+        CHECKED: ${{ steps.agent.outputs.head_sha }}
+      run: |
+        if ! now=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" --jq .head.sha); then
+          echo "::warning::the head could not be read: the verdict stands on ${CHECKED}"
+          exit 0
+        fi
+        [ "$now" = "$CHECKED" ] && exit 0
+        message=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${now}" --jq .commit.message) ||
+          message=""
+        if printf '%s\n' "$message" | grep -qx 'Agent: renovate'; then
+          echo "::notice::the head moved to ${now}, the agent's own commit"
+          exit 0
+        fi
+        echo "::notice::the head moved ${CHECKED} -> ${now} during the turn: superseded"
+        echo "superseded=true" >> "$GITHUB_OUTPUT"
+
     # a turn a Renovate push stopped posts no verdict: its answer is this line alone
     - name: A Superseded Turn
       if: >-
         steps.pr.outputs.wanted == 'true' &&
-        fromJSON(steps.agent.outputs.output || '{}').verdict == 'superseded'
+        (fromJSON(steps.agent.outputs.output || '{}').verdict == 'superseded' ||
+        steps.head.outputs.superseded == 'true')
       env:
         NUMBER: ${{ github.event.client_payload.pull_request }}
       run: |
         for part in "$RUNNER_TEMP/issue-comment/${NUMBER}/parts/"*-issue-agent.md; do
           [ -f "$part" ] || continue
           echo "Renovate updated the branch while this turn ran: a fresh turn follows." > "$part"
+        done
+
+    # approve never commits: an approve with changes is a contradiction, so the job fails with
+    # nothing committed, and the agent's answer goes so nothing approving is posted
+    - name: Approve Never Commits
+      if: >-
+        steps.pr.outputs.wanted == 'true' && steps.head.outputs.superseded != 'true' &&
+        fromJSON(steps.agent.outputs.output || '{}').verdict == 'approve'
+      env:
+        NUMBER: ${{ github.event.client_payload.pull_request }}
+        OUTPUT: ${{ steps.agent.outputs.output }}
+      run: |
+        [ "$(printf '%s' "$OUTPUT" | jq '(.changes // []) | length')" = 0 ] && exit 0
+        for part in "$RUNNER_TEMP/issue-comment/${NUMBER}/parts/"*-issue-agent.md; do
+          [ -f "$part" ] || continue
+          echo "The turn returned \`approve\` with changes: nothing committed or approved." \
+            > "$part"
+        done
+        echo "::error::verdict approve with a non-empty output.changes: approve never commits"
+        exit 1
+
+    # the verdict and the head it was checked at, above the agent's answer
+    - name: The Verdict Line
+      if: >-
+        steps.pr.outputs.wanted == 'true' && steps.head.outputs.superseded != 'true' &&
+        contains(fromJSON('["approve","changes made","question"]'),
+        fromJSON(steps.agent.outputs.output || '{}').verdict)
+      env:
+        NUMBER: ${{ github.event.client_payload.pull_request }}
+        VERDICT: ${{ fromJSON(steps.agent.outputs.output || '{}').verdict }}
+        CHECKED: ${{ steps.agent.outputs.head_sha }}
+      run: |
+        line="**Verdict: ${VERDICT}**${CHECKED:+ at ${CHECKED:0:7}}"
+        for part in "$RUNNER_TEMP/issue-comment/${NUMBER}/parts/"*-issue-agent.md; do
+          [ -f "$part" ] || continue
+          { printf '%s\n\n' "$line"; cat "$part"; } > "$part.new" && mv "$part.new" "$part"
         done
 
     # the turn may have outlasted the App token's hour: the commit and the answer are on a
@@ -231,14 +297,17 @@ jobs:
       id: changes
       if: >-
         steps.pr.outputs.wanted == 'true' &&
+        steps.head.outputs.superseded != 'true' &&
         fromJSON(steps.agent.outputs.output || '{}').verdict != 'superseded'
       env:
         OUTPUT: ${{ steps.agent.outputs.output }}
       run: |
         declared=$(printf '%s' "$OUTPUT" |
           jq -r '(.changes // [])[].file | select(test("\n") | not) | ltrimstr("./")' | sort -u)
-        dirty=$({ git diff --name-only -z HEAD; git ls-files --others --exclude-standard -z; } |
-          tr '\0' '\n' | sort -u)
+        dirty=$({
+          git diff --name-only --no-renames -z HEAD
+          git ls-files --others --exclude-standard -z
+        } | tr '\0' '\n' | sort -u)
         extra=$(comm -13 <(printf '%s\n' "$declared") <(printf '%s\n' "$dirty") | sed '/^$/d')
         if [ -n "$extra" ]; then
           echo "::warning::not in output.changes, so not committed: $(paste -sd ' ' <<<"$extra")"
