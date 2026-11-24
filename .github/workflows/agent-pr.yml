@@ -152,6 +152,7 @@ jobs:
     # the role files, from the repo this workflow lives in at the commit it runs from; moved out
     # of the workspace so the agent has nothing of them to commit
     - name: Role Files
+      if: steps.still.outputs.stage == 'plan'
       uses: actions/checkout@v7
       with:
         repository: ${{ job.workflow_repository }}
@@ -161,6 +162,7 @@ jobs:
         persist-credentials: false
 
     - name: Role Files Out of the Tree
+      if: steps.still.outputs.stage == 'plan'
       run: |
         mv .agent-flow "$RUNNER_TEMP/agent-flow"
         echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
@@ -340,6 +342,7 @@ jobs:
     # the role files, from the repo this workflow lives in at the commit it runs from; moved out
     # of the workspace so the agent has nothing of them to commit
     - name: Role Files
+      if: steps.still.outputs.stage == 'code'
       uses: actions/checkout@v7
       with:
         repository: ${{ job.workflow_repository }}
@@ -349,6 +352,7 @@ jobs:
         persist-credentials: false
 
     - name: Role Files Out of the Tree
+      if: steps.still.outputs.stage == 'code'
       run: |
         mv .agent-flow "$RUNNER_TEMP/agent-flow"
         echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
