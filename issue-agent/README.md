@@ -98,6 +98,7 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 | `scratch_cache` | `true` | Restore and save it here; `false` when the workflow does, around the job |
 | `comment_id` | `""` | comment/start's: answer in its comment, see below |
 | `live_messages` | `false` | n8n's pushes reach the running turn (claude runner); see below |
+| `lane` | `""` | With `live_messages`, the lane named on the channel's `live` and `ended` callbacks (`renovate`) |
 
 ## Live messages
 
@@ -108,6 +109,10 @@ works, and it can answer them at once. The run loads the runner's agent-flow cha
 `AGENT_FLOW_N8N_TOKEN` in the job's env and `AGENT_FLOW_CALLBACK_URL` on the runner; without
 them, or the profile, it warns and runs as off. The hooks are merged into the `settings`
 input's file, so the run has one `--settings`; another in `claude_args` replaces them.
+
+`lane` (one lowercase word) goes to the channel as `AGENT_FLOW_LANE`, and the channel sends it
+as `lane` on its `live` and `ended` callbacks: n8n keeps a renovate turn's record by repo,
+since a repo has one renovate conversation. Without it the bodies carry no `lane`.
 
 The placeholder carries `<!-- issue-agent-placeholder {"run_id": N} -->`, since n8n reposts it
 under each in-flight reply: the answer and the failure note find it by that. The

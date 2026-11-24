@@ -309,12 +309,18 @@ async function run({ github, context, core }) {
     allowed: [...list(env.ALLOWED_TOOLS), ...(channel ? [REPLY_TOOL] : [])],
     disallowed: list(env.DISALLOWED_TOOLS),
   };
+  // the lane the channel names on its live and ended callbacks (AGENT_FLOW_LANE), so n8n
+  // keeps the turn's record by it: renovate's is the repo's, not the number's
+  const lane = (env.LANE || '').trim();
+  if (lane && !/^[a-z][a-z0-9-]*$/.test(lane)) throw new Error(`lane must be one lowercase word: ${JSON.stringify(lane)}`);
+
   const args = flags({ agentsFile, agent, schema, mcpFile, settingsFile, mcpServers, over, session });
   core.setOutput('system_prompt_file', promptFile);
   core.setOutput('args', args);
   core.setOutput('resumed', String(!!session?.resumed));
   core.setOutput('session_id', session?.id || '');
   core.setOutput('live', String(!!channel));
+  core.setOutput('lane', channel ? lane : '');
   core.info(args);
 }
 

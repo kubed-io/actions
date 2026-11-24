@@ -123,7 +123,7 @@ function scene({ pr = false } = {}) {
     AGENT: '.issue/roles/claude/agents/plan.md', SCHEMA: '.issue/roles/claude/agents/plan.schema.json',
     APPEND_SYSTEM_PROMPT: 'In this job, plans go under docs/.', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}', KB_URL: 'https://kb',
     REVIEW: 'true', THREADS: '', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
-    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '', SETTINGS: '',
+    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '', SETTINGS: '', LANE: '',
   });
   for (const name of ['AGENT_FLOW_N8N_TOKEN', 'AGENT_FLOW_CALLBACK_URL', 'CLAUDE_MCP_PROFILES']) delete process.env[name];
   const github = fake.github({
@@ -259,6 +259,21 @@ test('on without the token, the callback URL or the channel profile: a warning, 
     assert.ok(!fs.existsSync(path.join(tmp, 'issue-agent-settings.json')));
     assert.equal(core.notices.length, 1);
     assert.match(core.notices[0], /live_messages/);
+  }
+});
+
+// the channel says its lane on the live and ended callbacks (AGENT_FLOW_LANE): n8n keeps a
+// renovate turn's record by repo, not by number
+test('a lane goes to the live channel, and only to it', async () => {
+  assert.equal((await runWith({ LIVE_MESSAGES: 'true', LANE: 'renovate' })).core.outputs.lane, 'renovate');
+  assert.equal((await runWith({ LIVE_MESSAGES: 'true', LANE: '' })).core.outputs.lane, '');
+  assert.equal((await runWith({ LIVE_MESSAGES: '', LANE: 'renovate' })).core.outputs.lane, '');
+  assert.equal((await runWith({ LIVE_MESSAGES: 'true', LANE: 'renovate', AGENT_FLOW_N8N_TOKEN: null })).core.outputs.lane, '');
+});
+
+test('a lane is one lowercase word', async () => {
+  for (const lane of ['Renovate', 'a b', 'x"y', '-x']) {
+    await assert.rejects(runWith({ LIVE_MESSAGES: 'true', LANE: lane }), /lane/);
   }
 });
 

@@ -150,6 +150,13 @@ inputs:
       hooks, and the reply tool. Needs AGENT_FLOW_N8N_TOKEN and AGENT_FLOW_CALLBACK_URL.
     required: false
     default: "false"
+  lane:
+    description: >
+      With live_messages, the lane the channel names on its `live` and `ended` callbacks
+      (`lane`), one lowercase word: n8n keeps the turn's record by it (`renovate`: one turn per
+      repo). Empty: no lane, the record is the thread's.
+    required: false
+    default: ""
 
 outputs:
   structured:
@@ -223,6 +230,7 @@ runs:
       SESSION_KEY: ${{ inputs.session_key }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       LIVE_MESSAGES: ${{ inputs.live_messages }}
+      LANE: ${{ inputs.lane }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |
@@ -298,6 +306,8 @@ runs:
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1"
       # the thread the agent-flow channel registers as live
       AGENT_FLOW_NUMBER: ${{ steps.setup.outputs.live == 'true' && steps.gather.outputs.number || '' }}
+      # and the lane it says it is in
+      AGENT_FLOW_LANE: ${{ steps.setup.outputs.lane }}
     with:
       prompt: ${{ steps.gather.outputs.prompt }}
       # the job's own token, as narrow as the job's permissions: an App token here would be
