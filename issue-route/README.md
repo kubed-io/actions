@@ -7,9 +7,12 @@ Only a Feature or Bug issue with `agent` is the agents'. A Feature's turns are t
 agent's (`role` `spec`); a Bug's are the debug agent's (`role` `debug`), which reports and
 never writes, until `spec approved` hands its report off to a fix.
 
-A sub-issue is part of its family: `family` is its top issue, whose session and queue the
-turn takes. Its first turn, until the App has answered on it, opens with the `sub-issue`
-prompt (`lead`), or `debug-report` on a Bug.
+A sub-issue is part of its family: `family` is its top issue, whose queue the turn takes. It
+thinks in a session of its own, `session` `issue-<family>/<number>`, whose first turn is a fork
+of the parent's (`fork_from` `issue-<family>`); the parent, and an issue alone, keep
+`issue-<number>`. `kin` says which it is: `sub-issue`, `parent` (it has sub-issues) or
+`alone`. A sub-issue's first turn, until the App has answered on it, opens with the
+`sub-issue` prompt (`lead`), or `debug-report` on a Bug.
 
 `change` says what a hand-off opens: `sub`, a sub-issue's change into its family's branch
 `issue-<family>`; `parent`, the parent's change into the default branch, once every `agent`
@@ -28,6 +31,11 @@ off. Without it, the change goes straight to the code, built from the report.
 | The owner's `spec approved` label, on an `agent` Feature | `handoff`, `takeover`, `plan` true | |
 | The owner's `spec approved` label, on an `agent` Bug | `handoff`, `takeover`, `plan` true with `needs plan` | |
 | The owner's `agent` or `spec` label while the family's sub-issue is being filed | as above, without `takeover` | |
+| The App's `spec approved` label, on an `agent` sub-issue (the parent's `approve_spec`) | `handoff`, `change` sub | |
+| The App's `spec approved` label on a top-level issue or a parent | `none` | |
+| `sub-issue-closed`, `sub-issue-reported`: on the parent | `spec`, its prompt (`lead`) | `none` |
+| `parent-message`: on the sub-issue | `spec`, its prompt (`lead`) | `none` |
+| `sub-issue-file`: on the parent | `file`, `make-sub-issue` (`always`), `item_type` | `none` |
 | Anything else (another type or none, the App's own comments, anyone else, any other label, `spec` on a Bug, a PR) | `none` | `none` |
 
 ```yaml
@@ -40,8 +48,21 @@ off. Without it, the change goes straight to the code, built from the report.
 
 It answers n8n's `repository_dispatch` `agent-issue`: a label added or a comment made
 (`client_payload`: `number`, `event`, `action`, `actor`, `comment_id`, `label`; a pointer:
-the comment's author and the labeler are read back from GitHub). Anything else is nothing.
-The job's `if` gates who may dispatch. The token needs `issues: read`.
+the comment's author and the labeler are read back from GitHub). The job's `if` gates who may
+dispatch. The token needs `issues: read`.
+
+It answers n8n's family dispatches too, each a `repository_dispatch` type of its own, a pointer
+read back the same way:
+
+| Type | `client_payload` | The turn | Read back |
+|---|---|---|---|
+| `sub-issue-closed` | `parent`, `number`, `merged` | the parent's, `sub-issue-closed` | `number` is in `parent`'s family |
+| `sub-issue-reported` | `parent`, `number`, `comment_id` | the parent's, `sub-issue-reported` | as above, and the comment is the App's, on the parent |
+| `parent-message` | `number`, `comment_id` | the sub-issue's, `parent-message` | it has a parent, and the comment is the App's, on it |
+| `sub-issue-file` | `parent`, `type`, `title`, `ask` | the make-sub-issue turn on the parent | `type` is a Feature or Bug, and there is a title |
+
+The issue the turn is on carries `agent`, is a Feature or Bug and has no `spec approved`; the
+parent's turns need `parent` to be its family's top issue. Anything else is nothing.
 
 A label's `takeover` cancels the family's running turn, so it waits while a sub-issue is being
 filed: when another of the workflow's runs, in progress or queued, has a job named `Make the
@@ -58,5 +79,6 @@ when the look fails, with a warning.
 | `app` | | The App's bot's user id |
 | `prompts` | `/mcp__superpowers__superpowers_` | |
 
-Outputs: `stage` (`spec`, `handoff`, `none`), `number`, `family`, `change`, `plan`, `title`,
-`label`, `role`, `writes`, `prompt`, `prompt_when`, `takeover`.
+Outputs: `stage` (`spec`, `handoff`, `file`, `none`), `why`, `number`, `family`, `change`,
+`plan`, `title`, `label`, `role`, `writes`, `prompt`, `prompt_when`, `takeover`, `session`,
+`fork_from`, `kin`, `item_type`.

@@ -44,6 +44,82 @@
           "why"
         ]
       }
+    },
+    "report": {
+      "type": "string",
+      "description": "Only on a sub-issue, when the parent has something to act on: your homework is done, your spec is ready, or you are stuck. What you did, where your spec stands, and what you need from the parent. Posted on the parent, which it wakes."
+    },
+    "actions": {
+      "type": "array",
+      "description": "On the parent of a running family: what the family does next, in order; n8n carries them out and stops at the first that fails. Empty when there is nothing to do.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "message",
+              "approve_spec",
+              "ask_owner"
+            ],
+            "description": "file {type, title, ask}: a new sub-issue. message {number, text}: words for one sub-issue's agent. approve_spec {number}: a sub-issue's spec is ready; its pull request opens. ask_owner {question}: the last resort; it stops the family until Dr K answers."
+          },
+          "number": {
+            "type": "integer",
+            "description": "message, approve_spec: the sub-issue."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature",
+              "Bug"
+            ],
+            "description": "file: the new sub-issue's type."
+          },
+          "title": {
+            "type": "string",
+            "description": "file: its title."
+          },
+          "ask": {
+            "type": "string",
+            "description": "file: what it is, and why it is its own issue."
+          },
+          "text": {
+            "type": "string",
+            "description": "message: the words."
+          },
+          "question": {
+            "type": "string",
+            "description": "ask_owner: the question for Dr K."
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      }
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "On the parent, every turn: the whole running list of questions and problems for Dr K that don't block, kept current. It is posted on the family's pull request to main.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "The question or problem, in one short line."
+          },
+          "from": {
+            "type": "integer",
+            "description": "The sub-issue it came from, if any."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
     }
   }
 }

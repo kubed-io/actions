@@ -7,9 +7,10 @@
 // agent's, which reports and never writes, and its `spec approved` hands the report off to
 // a fix. Anything else is nothing.
 //
-// A sub-issue is part of its family's conversation: the turn takes the family's session and
-// queue (its top issue's number, `family`), and a sub-issue's first turn opens with the
-// sub-issue prompt (a Bug's, with debug-report).
+// A sub-issue is part of its family: the turn takes the family's queue (its top issue's
+// number, `family`) and thinks in a session of its own, issue-<family>/<number>, which starts
+// as a fork of the family's issue-<family> (spec 2026-11-24 R-SM12, R-SM13). A sub-issue's
+// first turn opens with the sub-issue prompt (a Bug's, with debug-report).
 //
 // `spec approved` on a sub-issue opens its change into the family's branch, issue-<family>;
 // on a parent whose `agent` sub-issues are all closed, the parent's change, which starts
@@ -24,12 +25,18 @@
 // actions (ACTIONS_TOKEN), and the label then queues like a comment (spec 2026-11-12 R-L3).
 // Without that token the label takes over, as before.
 //
+// The parent acts for Dr K inside its family: the App's `spec approved` on an `agent` sub-issue
+// hands off as his does, and nowhere else (spec 2026-11-24 R-SM20).
+//
 // It answers n8n's `agent-issue` dispatch: a label added or a comment made on an issue. The
 // issue is read live; the payload is a pointer, so the comment's author and the labeler are
-// read back from GitHub.
+// read back from GitHub. It answers n8n's family dispatches too, each a type of its own (spec
+// 2026-11-03 R-E2): `sub-issue-closed` and `sub-issue-reported` are the parent's turns,
+// `parent-message` the sub-issue's, `sub-issue-file` the make-sub-issue turn on the parent's
+// `file` action (stage `file`). Their pointers are read back the same way.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
-const { familyOf } = require('../../issue-agent/lib/family');
+const { parentOf, familyOf } = require('../../issue-agent/lib/family');
 const { isAgent } = require('../../issue-agent/lib/state');
 
 // the issue types the flow takes, and the agent each one gets
@@ -39,6 +46,14 @@ const APPROVED = 'spec approved';
 const NEEDS_PLAN = 'needs plan';
 
 const MAKE = 'Make the Sub-issue';
+
+// n8n's family dispatches, and the kb prompt each turn starts with
+const FAMILY = {
+  'sub-issue-closed': 'sub-issue-closed',
+  'sub-issue-reported': 'sub-issue-reported',
+  'parent-message': 'parent-message',
+  'sub-issue-file': 'make-sub-issue',
+};
 
 function settings(env) {
   return { owner: env.OWNER_ID, app: env.APP_ID, prompts: env.PROMPTS, workflowRef: env.GITHUB_WORKFLOW_REF || '', actionsToken: env.ACTIONS_TOKEN || '' };
@@ -66,14 +81,17 @@ async function makingIn({ actions: github, context, family, workflowRef }) {
   return null;
 }
 
-// The stage an event is for, and why when it is nothing
-function stageOf({ comment, label, labels, type, isPR, byOwner, byApp }) {
+// The stage an event is for, and why when it is nothing. `parented`: the issue has a parent,
+// read only for the App's `spec approved`; `parent`: it has sub-issues
+function stageOf({ comment, label, labels, type, isPR, byOwner, byApp, parented = false, parent = false }) {
   const none = (why) => ({ stage: 'none', why });
   const has = (name) => labels.includes(name);
   if (isPR) return none('a pull request, not a work item');
   if (label && !has(label)) return none(`${label} is no longer on it`);
   if (!comment && label !== APPROVED && !TURNS.includes(label)) return none(`the ${label} label wakes nothing`);
-  if (!byOwner) return none(byApp ? "the App's own" : 'not the owner');
+  const forDrK = byApp && label === APPROVED;
+  if (!byOwner && !forDrK) return none(byApp ? "the App's own" : 'not the owner');
+  if (forDrK && !parented) return none(parent ? `the App's ${APPROVED} on a parent: only Dr K's opens the family's change` : `the App's ${APPROVED} on a top-level issue`);
   if (!has('agent')) return none('not opted in');
   if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
   if (type === 'Bug' && label === 'spec') return none('a Bug has no spec');
@@ -82,17 +100,103 @@ function stageOf({ comment, label, labels, type, isPR, byOwner, byApp }) {
   return { stage: 'spec' };
 }
 
+// one line of the prompt
+const line = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
+
 // The event, from the dispatch's pointer
 function eventOf(context) {
   const e = context.payload;
-  const p = context.eventName === 'repository_dispatch' && e.action === 'agent-issue' ? e.client_payload || {} : {};
+  const dispatch = context.eventName === 'repository_dispatch';
+  if (dispatch && FAMILY[e.action]) {
+    const p = e.client_payload || {};
+    return { kind: e.action, number: Number(p.number) || 0, parent: Number(p.parent) || 0, commentId: Number(p.comment_id) || 0, type: line(p.type), title: line(p.title), ask: line(p.ask) };
+  }
+  const p = dispatch && e.action === 'agent-issue' ? e.client_payload || {} : {};
   return { event: p.event, action: p.action, number: Number(p.number) || 0, label: p.label || '', actor: String(p.actor), commentId: Number(p.comment_id) || 0 };
+}
+
+// the session a turn thinks in: a sub-issue's own, forked from its family's; any other issue's
+// is issue-<number> (spec 2026-11-24 R-SM12, R-SM13)
+function sessionOf(core, { number, family, parent }) {
+  const sub = family !== number;
+  core.setOutput('session', sub ? `issue-${family}/${number}` : `issue-${number}`);
+  core.setOutput('fork_from', sub ? `issue-${family}` : '');
+  core.setOutput('kin', sub ? 'sub-issue' : parent ? 'parent' : 'alone');
+}
+
+// A family dispatch from n8n: the parent's turn on a sub-issue's close or report, the
+// sub-issue's on the parent's message, the make-sub-issue turn on the parent's `file`. The
+// sender is the App (the job's `if`); the pointer is read back: the issue, its family, the
+// sub-issue it names, and the comment the turn answers, which must be the App's, there.
+async function familyTurn({ github, context, core, cfg, ev }) {
+  const { kind } = ev;
+  const none = (why) => {
+    core.setOutput('stage', 'none');
+    core.setOutput('why', why);
+    return core.info(`${kind}: none (${why})`);
+  };
+  // the parent's turns name the sub-issue as `number`; the message is the sub-issue's own
+  const number = kind === 'parent-message' ? ev.number : ev.parent;
+  const names = kind === 'sub-issue-closed' || kind === 'sub-issue-reported';
+  const about = names ? ev.number : 0;
+  const answers = kind === 'sub-issue-reported' || kind === 'parent-message';
+  if (!number || (names && !about)) return none('no issue');
+  if (answers && !ev.commentId) return none('no comment');
+
+  const { data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: number });
+  const labels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
+  const type = issue.type?.name || '';
+  if (issue.pull_request) return none('a pull request, not a work item');
+  if (!labels.includes('agent')) return none('not opted in');
+  if (!ROLES[type]) return none(`${type ? `a ${type}` : 'no type'}, not a Feature or Bug`);
+  if (labels.includes(APPROVED)) return none(`after ${APPROVED}: the change carries on`);
+  const family = await familyOf(github, context.repo, number);
+  if (kind === 'parent-message' && family === number) return none('not a sub-issue');
+  if (kind !== 'parent-message' && family !== number) return none(`#${number} is a sub-issue of #${family}, not a family's top issue`);
+  if (about && (about === number || (await familyOf(github, context.repo, about)) !== number)) return none(`#${about} is not #${number}'s sub-issue`);
+  if (answers) {
+    let got = null;
+    try {
+      ({ data: got } = await github.rest.issues.getComment({ ...context.repo, comment_id: ev.commentId }));
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+    if (!got) return none(`comment ${ev.commentId} is gone`);
+    if (!got.issue_url?.endsWith(`/issues/${number}`)) return none(`comment ${ev.commentId} is not on #${number}`);
+    if (String(got.user?.id) !== cfg.app) return none(`comment ${ev.commentId} is not the App's`);
+  }
+  let prompt = `${cfg.prompts}${FAMILY[kind]}`;
+  if (kind === 'sub-issue-file') {
+    if (!ROLES[ev.type]) return none(`a ${ev.type || 'missing'} type: a sub-issue is a Feature or Bug`);
+    if (!ev.title) return none('no title');
+    prompt = `${prompt} ${ev.type}: ${ev.title}${ev.ask ? `\nAsk: ${ev.ask}` : ''}`;
+    core.setOutput('item_type', ev.type);
+  }
+
+  core.setOutput('stage', kind === 'sub-issue-file' ? 'file' : 'spec');
+  core.setOutput('number', String(number));
+  core.setOutput('family', String(family));
+  core.setOutput('change', 'own');
+  core.setOutput('plan', String(type !== 'Bug' || labels.includes(NEEDS_PLAN)));
+  core.setOutput('label', '');
+  core.setOutput('title', issue.title || '');
+  core.setOutput('role', ROLES[type]);
+  core.setOutput('writes', String(type === 'Feature' && labels.includes('spec')));
+  core.setOutput('prompt', prompt);
+  // the report, the message or the merge is the turn's subject: the prompt leads into the
+  // thread's unseen posts; the make turn's is the whole turn, as on a tick
+  core.setOutput('prompt_when', kind === 'sub-issue-file' ? 'always' : 'lead');
+  // a machine's turn waits its turn in the family's queue
+  core.setOutput('takeover', 'false');
+  sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
+  core.info(`#${number}: ${kind}${about ? ` of #${about}` : ''}${family !== number ? `, family #${family}` : ''}`);
 }
 
 async function run({ github, context, core, getOctokit, env = process.env }) {
   const cfg = settings(env);
   const ev = eventOf(context);
   core.setOutput('stage', 'none');
+  if (ev.kind) return familyTurn({ github, context, core, cfg, ev });
   const comment = ev.event === 'issue_comment' && ev.action === 'created';
   const labelled = ev.event === 'issues' && ev.action === 'labeled' && !!ev.label;
   if (!comment && !labelled) return core.info(`${ev.event}.${ev.action}: not a turn`);
@@ -121,13 +225,19 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
 
   const labels = (issue.labels || []).map((l) => (typeof l === 'string' ? l : l.name));
   const type = issue.type?.name || '';
+  // the App's `spec approved` counts on a sub-issue only, so its parent is read for it alone
+  const parented = label === APPROVED && actor === cfg.app && !issue.pull_request
+    ? (await parentOf(github, context.repo, number)) > 0
+    : false;
   const { stage, why } = stageOf({
-    comment, label, labels, type,
+    comment, label, labels, type, parented,
     isPR: !!issue.pull_request,
     byOwner: actor === cfg.owner,
     byApp: actor === cfg.app,
+    parent: !!issue.sub_issues_summary?.total,
   });
   core.setOutput('stage', stage);
+  if (why) core.setOutput('why', why);
   core.setOutput('number', String(number));
   // a turn's family, and whether this is a sub-issue's first: nothing the agent wrote on it yet
   let family = number;
@@ -140,6 +250,7 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
     }
   }
   core.setOutput('family', String(family));
+  sessionOf(core, { number, family, parent: !!issue.sub_issues_summary?.total });
   // what `spec approved` opens: a sub-issue's change into its family's branch, a parent's
   // change once its sub-issues are closed, or a change of its own
   let change = 'own';
@@ -149,8 +260,10 @@ async function run({ github, context, core, getOctokit, env = process.env }) {
       const { data: subs } = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', { ...context.repo, issue_number: number, per_page: 100 });
       const open = (subs || []).filter((i) => i.state === 'open' && (i.labels || []).some((l) => (l.name || l) === 'agent'));
       if (open.length) {
+        const still = `sub-issues still open: ${open.map((i) => `#${i.number}`).join(', ')}`;
         core.setOutput('stage', 'none');
-        return core.info(`#${number}: none (sub-issues still open: ${open.map((i) => `#${i.number}`).join(', ')})`);
+        core.setOutput('why', still);
+        return core.info(`#${number}: none (${still})`);
       }
       change = 'parent';
     }

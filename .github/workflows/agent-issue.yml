@@ -14,6 +14,12 @@ name: 🧭 Agent · Issue
 # n8n decides when this runs: it drops the noise and sends what is a turn as an
 # `agent-issue` dispatch, a pointer the route job reads back from GitHub (spec §8.4).
 #
+# A family runs itself (spec 2026-11-24): a sub-issue thinks in a session of its own,
+# issue-<family>/<number>, forked from the parent's issue-<family>, and hands back with
+# `report`; the parent's turns end in `actions` and keep `open_questions`. n8n carries them
+# out and wakes the next turn with a family dispatch: `sub-issue-closed`, `sub-issue-reported`
+# and `parent-message` are spec turns, `sub-issue-file` the make-sub-issue turn.
+#
 # The job gates name ids, not variables: a job's `if` is decided before any runner, so
 # only GitHub's own event data can vouch for the sender. 4399427 is Dr K, 235398881 the
 # kubed-io App (n8n's dispatches). Who else counts inside a run comes from the claude
@@ -42,8 +48,8 @@ jobs:
   route:
     name: Route
     if: >-
-      github.event_name == 'repository_dispatch' && github.event.action == 'agent-issue' &&
-      github.event.sender.id == 235398881
+      github.event_name == 'repository_dispatch' && github.event.sender.id == 235398881 &&
+      contains(fromJSON('["agent-issue","sub-issue-closed","sub-issue-reported","parent-message","sub-issue-file"]'), github.event.action)
     runs-on: ubuntu-26.04
     permissions:
       contents: read
@@ -61,6 +67,10 @@ jobs:
       prompt_when: ${{ steps.route.outputs.prompt_when }}
       takeover: ${{ steps.route.outputs.takeover }}
       title: ${{ steps.route.outputs.title }}
+      session: ${{ steps.route.outputs.session }}
+      fork_from: ${{ steps.route.outputs.fork_from }}
+      kin: ${{ steps.route.outputs.kin }}
+      item_type: ${{ steps.route.outputs.item_type }}
     steps:
 
     # a label waits for the family's make job, which the router looks for among the runs with
@@ -186,8 +196,10 @@ jobs:
         # a label's turn is a kb prompt (superpowers library)
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}
-        # the family's conversation: a sub-issue goes on in the session that wrote it
-        session_key: issue-${{ needs.route.outputs.family }}
+        # a sub-issue's own session, its first turn a fork of the parent's (R-SM12, R-SM13);
+        # the parent's, and an issue's alone, issue-<number>
+        session_key: ${{ needs.route.outputs.session }}
+        fork_from: ${{ needs.route.outputs.fork_from }}
         allowed_tools: ${{ env.WRITES == 'true' && 'Read,Glob,Grep,Write,Edit' || 'Read,Glob,Grep' }}
         disallowed_tools: ${{ env.WRITES == 'true' && 'Bash,NotebookEdit' || 'Bash,Edit,Write,MultiEdit,NotebookEdit' }}
         live_messages: true
@@ -227,6 +239,45 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
         append: ${{ steps.commit.outputs.summary }}
+
+    # a sub-issue hands back to its parent with `report`; a parent's turn ends in `actions`.
+    # n8n posts the one and carries out the other (R-SM17, R-SM21); its answer never fails
+    # the turn
+    - name: Hand Back
+      if: >-
+        needs.route.outputs.kin == 'sub-issue' && fromJSON(steps.agent.outputs.output || '{}').report ||
+        needs.route.outputs.kin == 'parent' && fromJSON(steps.agent.outputs.output || '{}').actions[0]
+      continue-on-error: true
+      uses: kubed-io/actions/issue-agent/handback@main
+      with:
+        output: ${{ steps.agent.outputs.output }}
+        kin: ${{ needs.route.outputs.kin }}
+        number: ${{ needs.route.outputs.number }}
+        parent: ${{ needs.route.outputs.family }}
+
+    # the parent's open questions, kept on it and on the family's pull request to main when
+    # that is open (R-SM22a), with a token of their own: the turn's never writes pull requests
+    - name: App Token for the Open Questions
+      id: questions
+      if: >-
+        needs.route.outputs.kin == 'parent' &&
+        toJSON(fromJSON(steps.agent.outputs.output || '{}').open_questions) != 'null'
+      continue-on-error: true
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-issues: write
+        permission-pull-requests: write
+
+    - name: Open Questions
+      if: steps.questions.outputs.token != ''
+      continue-on-error: true
+      uses: kubed-io/actions/issue-agent/questions@main
+      with:
+        github_token: ${{ steps.questions.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
+        output: ${{ steps.agent.outputs.output }}
 
     - name: The Commit Failed
       if: steps.commit.outcome == 'failure'
@@ -381,6 +432,16 @@ jobs:
           Closes #${{ needs.route.outputs.number }}
 
           ${{ env.CHANGE == 'sub' && format('Part of #{0}: merges into {1}.', needs.route.outputs.family, env.BASE) || env.CHANGE == 'parent' && 'The family''s work, each part merged here from its own sub-issue''s change.' || format('Starts from #{0}''s notes.', needs.route.outputs.number) }}
+
+    # the family's pull request carries the parent's open questions, the list its last turn
+    # kept, for Dr K to answer there (R-SM22a)
+    - name: Open Questions
+      if: env.CHANGE == 'parent' && steps.pr.outputs.number != ''
+      continue-on-error: true
+      uses: kubed-io/actions/issue-agent/questions@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ needs.route.outputs.number }}
 
     # A PR that opens conflicting with its base runs no checks (GitHub starts no
     # pull_request workflow on one), so no agent would hear of it: "Fresh from the Base"
@@ -573,18 +634,22 @@ jobs:
         owner: "4399427"
         app: "235398881"
 
-  # the agent writes the sub-issue whole, against its type's form, in the family's session;
-  # the job files it under the parent (spec 2026-11-03 R-M11)
+  # the agent writes the sub-issue whole, against its type's form, in the parent's session;
+  # the job files it under the parent (spec 2026-11-03 R-M11). On Dr K's tick (accept), or on
+  # the parent's `file` action (the route's `file` stage, R-SM19)
   make-sub-issue:
     # the family in the name: issue-route finds it by it, and a label then waits (R-L3)
-    name: "Make the Sub-issue · #${{ needs.accept.outputs.family }}"
-    needs: accept
-    if: github.event_name == 'repository_dispatch' && needs.accept.outputs.ok == 'true'
+    name: "Make the Sub-issue · #${{ needs.accept.outputs.family || needs.route.outputs.family }}"
+    needs: [route, accept]
+    # one of the two ran; the other is skipped
+    if: >-
+      github.event_name == 'repository_dispatch' && !cancelled() &&
+        (needs.accept.outputs.ok == 'true' || needs.route.outputs.stage == 'file')
     runs-on: claude
     environment: claude
     # one issue turn at a time in the family; ticks queue, in order
     concurrency:
-      group: agent-issue-${{ needs.accept.outputs.family }}
+      group: agent-issue-${{ needs.accept.outputs.family || needs.route.outputs.family }}
       cancel-in-progress: false
       queue: max
     timeout-minutes: 30
@@ -593,6 +658,12 @@ jobs:
       issues: write
     env:
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
+      # the thread it answers on, its family, the issue to file under and the item's type: a
+      # tick's, or the parent's own for a `file` action
+      MAKE_NUMBER: ${{ needs.accept.outputs.number || needs.route.outputs.number }}
+      MAKE_FAMILY: ${{ needs.accept.outputs.family || needs.route.outputs.family }}
+      MAKE_PARENT: ${{ needs.accept.outputs.parent || needs.route.outputs.family }}
+      MAKE_TYPE: ${{ needs.accept.outputs.type || needs.route.outputs.item_type }}
     steps:
 
     - name: App Token
@@ -615,7 +686,7 @@ jobs:
       id: form
       uses: kubed-io/actions/issue-template@main
       with:
-        type: ${{ needs.accept.outputs.type }}
+        type: ${{ env.MAKE_TYPE }}
 
     # the scratchpad, once around the job: two agent runs in one job share a cache key
     - name: Restore the Scratchpad
@@ -623,8 +694,8 @@ jobs:
       uses: actions/cache/restore@v6
       with:
         path: .issue/scratch
-        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.accept.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
-        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.accept.outputs.number }}-
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.MAKE_NUMBER }}-${{ github.run_id }}-${{ github.run_attempt }}
+        restore-keys: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.MAKE_NUMBER }}-
 
     # the answer's comment, up before the agent runs; comment/end writes it
     - name: Comment
@@ -632,7 +703,7 @@ jobs:
       uses: kubed-io/actions/comment/start@main
       with:
         github_token: ${{ steps.app.outputs.token }}
-        number: ${{ needs.accept.outputs.number }}
+        number: ${{ env.MAKE_NUMBER }}
         live: true
 
     # the role files, from the repo this workflow lives in at the commit it runs from; moved out
@@ -658,15 +729,18 @@ jobs:
         comment_id: ${{ steps.comment.outputs.comment_id }}
         scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
-        number: ${{ needs.accept.outputs.number }}
+        number: ${{ env.MAKE_NUMBER }}
         settings: ${{ env.AGENT_ROLES }}/spec/settings.json
         schema: ${{ steps.form.outputs.schema }}
         trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,${{ steps.app.outputs.app-slug }}[bot]
         opt_in_label: agent
-        prompt: "/mcp__plugin_kubed-runner_superpowers__superpowers_make-sub-issue ${{ needs.accept.outputs.type }}: ${{ needs.accept.outputs.title }}"
+        # a `file` action's comes from the route, with its ask on a line of its own
+        prompt: >-
+          ${{ needs.route.outputs.prompt || format('/mcp__plugin_kubed-runner_superpowers__superpowers_make-sub-issue {0}: {1}',
+          needs.accept.outputs.type, needs.accept.outputs.title) }}
         prompt_when: always
-        # the family's one conversation (R-F2)
-        session_key: issue-${{ needs.accept.outputs.family }}
+        # the parent's session: it decides what the sub-issue is (R-SM15)
+        session_key: issue-${{ env.MAKE_FAMILY }}
         allowed_tools: Read,Glob,Grep
         disallowed_tools: Bash,Edit,Write,MultiEdit,NotebookEdit
         live_messages: true
@@ -679,16 +753,16 @@ jobs:
         github_token: ${{ steps.app.outputs.token }}
         form: ${{ steps.form.outputs.form }}
         output: ${{ steps.agent.outputs.output }}
-        parent: ${{ needs.accept.outputs.parent }}
+        parent: ${{ env.MAKE_PARENT }}
         labels: agent
-        number: ${{ needs.accept.outputs.number }}
+        number: ${{ env.MAKE_NUMBER }}
 
     - name: Answer
       if: steps.comment.outputs.comment_id != ''
       uses: kubed-io/actions/comment/end@main
       with:
         github_token: ${{ steps.app.outputs.token }}
-        number: ${{ needs.accept.outputs.number }}
+        number: ${{ env.MAKE_NUMBER }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
 
     - name: Save the Scratchpad
@@ -697,4 +771,4 @@ jobs:
       uses: actions/cache/save@v6
       with:
         path: .issue/scratch
-        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.accept.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ env.MAKE_NUMBER }}-${{ github.run_id }}-${{ github.run_attempt }}

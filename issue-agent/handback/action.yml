@@ -1,0 +1,40 @@
+name: Issue Agent · Hand-back
+description: >
+  A family turn's hand-back to n8n: a sub-issue's `report`, or a parent's `actions`, POSTed to
+  the agent-flow callback (AGENT_FLOW_CALLBACK_URL on the runner, AGENT_FLOW_N8N_TOKEN in the
+  job's env). Nothing is sent when the field is empty, and n8n's answer never fails the job.
+
+inputs:
+  output:
+    description: The turn's role output, as JSON (issue-agent's `output`).
+    required: true
+  kin:
+    description: "issue-route's `kin`: `sub-issue` sends `report`, `parent` sends `actions`; anything else sends nothing."
+    required: true
+  number:
+    description: The issue the turn was on.
+    required: true
+  parent:
+    description: The family's top issue.
+    required: true
+
+outputs:
+  sent:
+    description: "`report` or `actions` when n8n took it; empty otherwise."
+    value: ${{ steps.post.outputs.sent }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Hand Back
+    id: post
+    uses: actions/github-script@v9
+    env:
+      OUTPUT: ${{ inputs.output }}
+      KIN: ${{ inputs.kin }}
+      NUMBER: ${{ inputs.number }}
+      PARENT: ${{ inputs.parent }}
+    with:
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/handback.js`).run({ context, core });

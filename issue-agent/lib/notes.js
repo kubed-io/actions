@@ -91,4 +91,4 @@ async function run({ github, context, core }) {
   core.setOutput('kept', 'true');
 }
 
-module.exports = { NOTES, LIMIT, escape, readBlock, stripBlocks, writeBlock, unwrap, withNotes, run };
+module.exports = { NOTES, LIMIT, escape, readBlock, removeBlock, stripBlocks, writeBlock, unwrap, withNotes, run };

@@ -54,7 +54,7 @@ function situation({ label, labels = OPTED_IN, type = 'Feature', by = DRK, pr = 
 // the situation's outputs
 const both = (s) => situation(s).dispatch();
 
-const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true' };
+const SPEC = { number: '5', family: '5', change: 'own', title: 'Flows remember the window', role: 'spec', prompt_when: 'quiet', plan: 'true', session: 'issue-5', fork_from: '', kin: 'alone' };
 
 test("the owner's comment on an opted-in Feature is a spec turn in their words, queued", async () => {
   assert.deepEqual(await both({}), { ...SPEC, stage: 'spec', label: '', writes: 'false', prompt: '', takeover: 'false' });
@@ -318,4 +318,192 @@ test('without an actions token there is no look: the label takes over, as before
   assert.equal((await t.dispatch()).takeover, 'true');
   assert.deepEqual([t.tokens, t.actions.calls], [[], []]);
   assert.match(t.go.core.notices[0], /no actions_token, so no look for a make job in family #3; spec takes over/);
+});
+
+// Sessions (spec 2026-11-24 R-SM12, R-SM13): a sub-issue thinks in a thread of its own, forked
+// from its parent's; the parent, and an issue alone, keep issue-<number>
+
+test("a sub-issue's turn is its own session, issue-<family>/<number>, forked from the family's", async () => {
+  const out = await both({ parent: 3, comments: answered });
+  assert.deepEqual([out.session, out.fork_from, out.kin], ['issue-3/5', 'issue-3', 'sub-issue']);
+});
+
+test("a parent's turn, and an issue's alone, are issue-<number>, forked from nothing", async () => {
+  const parent = await both({ subs: [sub(6, 'open')] });
+  assert.deepEqual([parent.session, parent.fork_from, parent.kin], ['issue-5', '', 'parent']);
+  const alone = await both({});
+  assert.deepEqual([alone.session, alone.fork_from, alone.kin], ['issue-5', '', 'alone']);
+});
+
+// The App's `spec approved` (spec 2026-11-24 R-SM19, R-SM20): the parent approves a sub-issue's
+// spec on Dr K's behalf, inside its family only
+
+test("the App's spec approved on an agent sub-issue hands off its change into the family's branch", async () => {
+  const out = await both({ ...APPROVE, by: APP, parent: 3, comments: answered });
+  assert.deepEqual([out.stage, out.family, out.change, out.number], ['handoff', '3', 'sub', '5']);
+});
+
+test("the App's spec approved on a top-level issue or a parent is nothing, and says why", async () => {
+  const top = situation({ ...APPROVE, by: APP });
+  assert.deepEqual([(await top.dispatch()).stage, top.go.core.outputs.why], ['none', "the App's spec approved on a top-level issue"]);
+  const parent = situation({ ...APPROVE, by: APP, subs: [sub(6, 'closed')] });
+  assert.deepEqual([(await parent.dispatch()).stage, parent.go.core.outputs.why], ['none', "the App's spec approved on a parent: only Dr K's opens the family's change"]);
+});
+
+test("the App's spec approved on a sub-issue without agent is nothing; its other labels and comments are still nothing", async () => {
+  const out = await both({ label: 'spec approved', labels: ['spec'], by: APP, parent: 3 });
+  assert.deepEqual([out.stage, out.why], ['none', 'not opted in']);
+  assert.equal((await both({ label: 'agent', labels: [], by: APP, parent: 3 })).stage, 'none');
+  assert.equal((await both({ label: 'spec', by: APP, parent: 3 })).stage, 'none');
+  assert.equal((await both({ by: APP, parent: 3, comments: answered })).stage, 'none');
+});
+
+test("Dr K's labels route as before, on a sub-issue and on a parent", async () => {
+  const approved = await both({ ...APPROVE, parent: 3, comments: answered });
+  assert.deepEqual([approved.stage, approved.change, approved.takeover], ['handoff', 'sub', 'true']);
+  const parent = await both({ ...APPROVE, subs: [sub(6, 'closed')] });
+  assert.deepEqual([parent.stage, parent.change], ['handoff', 'parent']);
+  const label = await both({ label: 'agent', labels: [], parent: 3, comments: answered });
+  assert.deepEqual([label.stage, label.takeover, label.prompt], ['spec', 'true', '']);
+  // a Dr K label reads no parent before the stage is known
+  const t = situation({ label: 'spec' });
+  await t.dispatch();
+  assert.equal(t.github.calls.filter((c) => c.name === PARENT).length, 1);
+});
+
+// n8n's family dispatches (spec 2026-11-24 R-SM10, R-SM17, R-SM19, R-E2): each a type of its
+// own and a pointer the route reads back. #3 is the parent, #5 and #6 its sub-issues, #9 an
+// issue alone, #12 a parent of another family (#13)
+const FAMILY_ISSUES = {
+  3: { number: 3, title: 'Flows', labels: ['agent'], type: 'Feature', subs: 2 },
+  5: { number: 5, title: 'Flows remember the window', labels: ['agent'], type: 'Feature', state: 'closed' },
+  6: { number: 6, title: 'Flows remember the tab', labels: ['agent'], type: 'Bug', state: 'open' },
+  9: { number: 9, title: 'Alone', labels: ['agent'], type: 'Feature' },
+  12: { number: 12, title: 'Other', labels: ['agent'], type: 'Feature', subs: 1 },
+  13: { number: 13, title: 'Other part', labels: ['agent'], type: 'Feature' },
+};
+const UP = { 5: 3, 6: 3, 13: 12 };
+const url = (n) => `https://api.github.com/repos/kubed-io/selenium-flow/issues/${n}`;
+// 40: the 📨 report on #3, 41: the parent's message on #5, both the App's
+const FAMILY_COMMENTS = { 40: { id: 40, user: { id: APP }, issue_url: url(3) }, 41: { id: 41, user: { id: APP }, issue_url: url(5) } };
+
+function dispatched(kind, payload, { issues = {}, comments = {} } = {}) {
+  const all = { ...FAMILY_ISSUES, ...issues };
+  const notes = { ...FAMILY_COMMENTS, ...comments };
+  const github = fake.github({
+    'issues.get': ({ issue_number: n }) => {
+      const i = all[n];
+      if (!i) return fake.notFound();
+      return { number: i.number, title: i.title, state: i.state || 'open', labels: i.labels.map((name) => ({ name })), ...(i.type ? { type: { name: i.type } } : {}), ...(i.subs ? { sub_issues_summary: { total: i.subs } } : {}), ...(i.pr ? { pull_request: { url: 'x' } } : {}) };
+    },
+    'issues.getComment': ({ comment_id: id }) => notes[id] || fake.notFound(),
+    [PARENT]: ({ issue_number: n }) => (UP[n] ? { number: UP[n] } : fake.notFound()),
+    'issues.listComments': [],
+    'issues.listEvents': [],
+  });
+  const go = async () => {
+    const core = fake.core();
+    const context = fake.context({ eventName: 'repository_dispatch', payload: { action: kind, client_payload: payload, sender: { id: APP } } });
+    await route.run({ github, context, core, getOctokit: () => { throw new Error('no look'); }, env: ENV });
+    go.core = core;
+    return core.outputs;
+  };
+  return { github, go };
+}
+const send = async (kind, payload, over) => dispatched(kind, payload, over).go();
+
+const PARENT_TURN = { stage: 'spec', number: '3', family: '3', change: 'own', plan: 'true', label: '', title: 'Flows', role: 'spec', writes: 'false', prompt_when: 'lead', takeover: 'false', session: 'issue-3', fork_from: '', kin: 'parent' };
+
+test('sub-issue-closed is a parent turn with sub-issue-closed, leading, queued', async () => {
+  assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }),
+    { ...PARENT_TURN, prompt: `${P}sub-issue-closed` });
+});
+
+test("sub-issue-reported is a parent turn with sub-issue-reported, on the App's report on the parent", async () => {
+  assert.deepEqual(await send('sub-issue-reported', { parent: 3, number: 5, comment_id: 40 }),
+    { ...PARENT_TURN, prompt: `${P}sub-issue-reported` });
+});
+
+test("parent-message is the sub-issue's turn with parent-message, in its own session forked from the parent's", async () => {
+  assert.deepEqual(await send('parent-message', { number: 5, comment_id: 41 }),
+    { ...PARENT_TURN, number: '5', title: 'Flows remember the window', prompt: `${P}parent-message`, session: 'issue-3/5', fork_from: 'issue-3', kin: 'sub-issue' });
+});
+
+test("sub-issue-file is the make-sub-issue turn in the parent's session: type and title, then the ask", async () => {
+  const out = await send('sub-issue-file', { parent: 3, type: 'Bug', title: 'Flows lose the tab', ask: 'The tab is its own fix.\nIt merges first.' });
+  assert.deepEqual(out, { ...PARENT_TURN, stage: 'file', item_type: 'Bug', prompt: `${P}make-sub-issue Bug: Flows lose the tab\nAsk: The tab is its own fix. It merges first.`, prompt_when: 'always' });
+});
+
+test('a family dispatch reads its pointer back: a sub-issue of another family, or of none, is nothing', async () => {
+  for (const [kind, payload] of [
+    ['sub-issue-closed', { parent: 3, number: 13, merged: true }],
+    ['sub-issue-closed', { parent: 3, number: 9, merged: true }],
+    ['sub-issue-reported', { parent: 3, number: 13, comment_id: 40 }],
+  ]) {
+    const out = await send(kind, payload);
+    assert.equal(out.stage, 'none', `${kind} ${JSON.stringify(payload)}`);
+    assert.match(out.why, /is not #3's sub-issue/);
+  }
+});
+
+test("a parent turn is on a family's top issue only: a sub-issue named as the parent is nothing", async () => {
+  assert.equal((await send('sub-issue-closed', { parent: 5, number: 6, merged: true })).stage, 'none');
+  assert.equal((await send('sub-issue-file', { parent: 5, type: 'Feature', title: 'x', ask: 'y' })).stage, 'none');
+  // an issue alone may file its first sub-issue
+  assert.equal((await send('sub-issue-file', { parent: 9, type: 'Feature', title: 'x', ask: 'y' })).stage, 'file');
+});
+
+test("parent-message is on a sub-issue only: a top-level issue or a parent is nothing", async () => {
+  const top = await send('parent-message', { number: 9, comment_id: 41 }, { comments: { 41: { id: 41, user: { id: APP }, issue_url: url(9) } } });
+  assert.deepEqual([top.stage, top.why], ['none', 'not a sub-issue']);
+  const parent = await send('parent-message', { number: 3, comment_id: 40 });
+  assert.equal(parent.stage, 'none');
+});
+
+test("the report or message must be the App's comment on the thread the turn is on", async () => {
+  for (const [kind, payload, comments] of [
+    ['sub-issue-reported', { parent: 3, number: 5, comment_id: 40 }, { 40: { id: 40, user: { id: DRK }, issue_url: url(3) } }],
+    ['sub-issue-reported', { parent: 3, number: 5, comment_id: 40 }, { 40: { id: 40, user: { id: APP }, issue_url: url(5) } }],
+    ['sub-issue-reported', { parent: 3, number: 5, comment_id: 77 }, {}],
+    ['sub-issue-reported', { parent: 3, number: 5 }, {}],
+    ['parent-message', { number: 5, comment_id: 41 }, { 41: { id: 41, user: { id: 12345 }, issue_url: url(5) } }],
+    ['parent-message', { number: 5, comment_id: 40 }, {}],
+  ]) {
+    const out = await send(kind, payload, { comments });
+    assert.equal(out.stage, 'none', `${kind} ${JSON.stringify(payload)}`);
+  }
+});
+
+test('a family dispatch on an issue not opted in, not a Feature or Bug, a pull request, or after spec approved is nothing', async () => {
+  for (const three of [
+    { labels: [] },
+    { type: 'Task' },
+    { pr: true },
+    { labels: ['agent', 'spec approved'] },
+  ]) {
+    const issues = { 3: { ...FAMILY_ISSUES[3], ...three } };
+    assert.equal((await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues })).stage, 'none', JSON.stringify(three));
+    assert.equal((await send('sub-issue-file', { parent: 3, type: 'Feature', title: 'x', ask: 'y' }, { issues })).stage, 'none', JSON.stringify(three));
+  }
+});
+
+test('sub-issue-file needs a Feature or Bug and a title', async () => {
+  assert.equal((await send('sub-issue-file', { parent: 3, type: 'Task', title: 'x', ask: 'y' })).stage, 'none');
+  assert.equal((await send('sub-issue-file', { parent: 3, type: 'Feature', title: ' ', ask: 'y' })).stage, 'none');
+  const bare = await send('sub-issue-file', { parent: 3, type: 'Feature', title: 'Flows keep the tab' });
+  assert.equal(bare.prompt, `${P}make-sub-issue Feature: Flows keep the tab`);
+});
+
+test('a family dispatch without its numbers reads nothing', async () => {
+  for (const [kind, payload] of [
+    ['sub-issue-closed', { number: 5 }],
+    ['sub-issue-closed', { parent: 3 }],
+    ['sub-issue-reported', { parent: 3, comment_id: 40 }],
+    ['parent-message', { comment_id: 41 }],
+    ['sub-issue-file', { type: 'Feature', title: 'x' }],
+  ]) {
+    const t = dispatched(kind, payload);
+    assert.equal((await t.go()).stage, 'none');
+    assert.deepEqual(t.github.calls, []);
+  }
 });

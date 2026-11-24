@@ -1,8 +1,9 @@
 name: Issue Route
 description: >
   Decides what an event on a work item is for the agents: a spec turn, the hand-off to a
-  plan, or nothing, and the kb prompt the turn starts with. Reads the issue only; runs no
-  Claude. Answers n8n's `agent-issue` dispatch, re-reading who caused it.
+  plan, the make-sub-issue turn or nothing, the kb prompt the turn starts with and the session
+  it thinks in. Reads the issue only; runs no Claude. Answers n8n's `agent-issue` dispatch and
+  its family dispatches, re-reading who caused them.
 
 inputs:
   github_token:
@@ -28,8 +29,11 @@ inputs:
 
 outputs:
   stage:
-    description: "`spec`, `handoff` or `none`."
+    description: "`spec`, `handoff`, `file` (the make-sub-issue turn, on the parent's `file` action) or `none`."
     value: ${{ steps.route.outputs.stage }}
+  why:
+    description: Why the stage is `none`, when the issue was read.
+    value: ${{ steps.route.outputs.why }}
   number:
     description: The issue.
     value: ${{ steps.route.outputs.number }}
@@ -61,12 +65,29 @@ outputs:
   prompt:
     description: >-
       The turn's prompt: `spec-draft` for the `spec` label; on a sub-issue's first turn,
-      `sub-issue`, or `debug-report` for a Bug; `debug-report` for a Bug's `agent` label; else
-      empty.
+      `sub-issue`, or `debug-report` for a Bug; `debug-report` for a Bug's `agent` label; a
+      family dispatch's own (`sub-issue-closed`, `sub-issue-reported`, `parent-message`, and
+      `make-sub-issue <type>: <title>` with an `Ask: ` line for `sub-issue-file`); else empty.
     value: ${{ steps.route.outputs.prompt }}
   prompt_when:
-    description: "`lead` for `debug-report` and `sub-issue`, which lead the thread's unseen posts into the turn; else `quiet`."
+    description: >-
+      `lead` for `debug-report`, `sub-issue` and the family dispatches' spec turns, which lead the
+      thread's unseen posts into the turn; `always` for `sub-issue-file`; else `quiet`.
     value: ${{ steps.route.outputs.prompt_when }}
+  session:
+    description: >-
+      The session the turn thinks in: `issue-<family>/<number>` on a sub-issue, else
+      `issue-<number>`.
+    value: ${{ steps.route.outputs.session }}
+  fork_from:
+    description: "On a sub-issue, `issue-<family>`: a new session starts as a fork of the parent's. Else empty."
+    value: ${{ steps.route.outputs.fork_from }}
+  kin:
+    description: "`sub-issue`, `parent` (it has sub-issues) or `alone`."
+    value: ${{ steps.route.outputs.kin }}
+  item_type:
+    description: On the `file` stage, the new sub-issue's type, `Feature` or `Bug`.
+    value: ${{ steps.route.outputs.item_type }}
   takeover:
     description: >-
       `true` for a label, which takes the issue over; a comment waits its turn, and so does a

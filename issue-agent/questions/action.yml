@@ -1,0 +1,37 @@
+name: Issue Agent · Open Questions
+description: >
+  The parent's open questions: a turn's `open_questions` kept on the parent, collapsed, and on
+  the family's pull request to main (head issue-<parent>) as its `## Open questions` section.
+  Without `output` (the hand-off that opens that pull request), the section comes from the
+  list kept on the parent. A turn without the field changes nothing.
+
+inputs:
+  github_token:
+    description: A token that may write issues and pull requests.
+    required: true
+  number:
+    description: The family's parent.
+    required: true
+  output:
+    description: The parent turn's role output, as JSON; empty in the hand-off.
+    required: false
+    default: ""
+  default_branch:
+    description: The family's pull request's base.
+    required: false
+    default: ${{ github.event.repository.default_branch }}
+
+runs:
+  using: composite
+  steps:
+
+  - name: Open Questions
+    uses: actions/github-script@v9
+    env:
+      NUMBER: ${{ inputs.number }}
+      OUTPUT: ${{ inputs.output }}
+      DEFAULT: ${{ inputs.default_branch }}
+    with:
+      github-token: ${{ inputs.github_token }}
+      script: |
+        await require(`${process.env.GITHUB_ACTION_PATH}/../lib/questions.js`).run({ github, context, core });
