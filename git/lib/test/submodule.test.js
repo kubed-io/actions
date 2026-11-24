@@ -10,7 +10,7 @@ const REJECTED = (why) => ` ! [rejected]        HEAD -> master (${why})\nerror: 
 
 // a checkout with a wiki changed inside it; `pushes` are what each push answers, in turn
 // `missing`: the refs a fetch finds nothing at; `startOf` names the commit a new wiki branch starts from
-function setup(pushes, { target, defaultBranch, fetchFails = false, missing = [], startOf } = {}) {
+function setup(pushes, { target, defaultBranch, fetchFails = false, missing = [], flaky = false, startOf } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'git-submodule-'));
   fs.mkdirSync(path.join(root, 'wiki'));
   fs.writeFileSync(path.join(root, 'wiki/.git'), 'gitdir: x');
@@ -21,6 +21,7 @@ function setup(pushes, { target, defaultBranch, fetchFails = false, missing = []
       const line = args.slice(2).join(' ');
       calls.push(line);
       if (line.startsWith('status')) return { exitCode: 0, stdout: ' M Home.md\n', stderr: '' };
+      if (line.startsWith('fetch') && flaky) return { exitCode: 128, stdout: '', stderr: "fatal: unable to access 'https://github.com/kubed-io/x.wiki.git/': Could not resolve host: github.com\n" };
       if (line.startsWith('fetch') && (fetchFails || missing.includes(line.split(' ').pop()))) return { exitCode: 128, stdout: '', stderr: "fatal: couldn't find remote ref issue-137\n" };
       if (line.startsWith('push')) {
         const [exitCode, stderr] = pushes.shift() || [0, ''];
@@ -130,4 +131,12 @@ test("a base pin that cannot be fetched starts from the checkout's pin, and says
   assert.deepEqual(await t.go(), ['wiki']);
   assert.deepEqual(tries(t.exec.calls), ['fetch', 'fetch', 'push']);
   assert.ok(t.core.notices.some((m) => /wiki: issue-28 starts from the checkout's pin: fam75e4 could not be fetched/.test(m)));
+});
+
+test('a fetch that failed for any other reason is no missing branch: nothing starts it from the base\'s pin', async () => {
+  const asked = [];
+  const t = setup([], { target: 'issue-28', defaultBranch: 'main', flaky: true, startOf: async (sub) => { asked.push(sub); return 'fam75e4'; } });
+  await t.go();
+  assert.deepEqual(asked, []);
+  assert.ok(!t.exec.calls.some((c) => c.startsWith('rebase')));
 });

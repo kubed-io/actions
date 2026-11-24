@@ -321,12 +321,13 @@ jobs:
   # design there. Its open sub-issue PRs are brought up to date, as the repo's push workflow
   # does main's after a merge: a PR left behind conflicts on the docs pointer, and one whose
   # base brought a workflow file is told a person must merge it (quick-mcp #32). After the
-  # parent's turn, so one run covers both. Not on the claude runner: no agent runs here
+  # parent's turn, so one run covers both; always(), so a takeover that cancels that turn still
+  # passes on the merge it was woken for. Not on the claude runner: no agent runs here
   family-prs:
     name: Family PRs Up to Date
     needs: [route, spec]
     if: >-
-      github.event_name == 'repository_dispatch' && !cancelled() &&
+      github.event_name == 'repository_dispatch' && always() &&
         needs.route.outputs.stage == 'spec' && needs.route.outputs.kin == 'parent' &&
         (github.event.client_payload.family_event == 'sub-issue-closed' || needs.spec.outputs.sha != '')
     runs-on: ubuntu-26.04

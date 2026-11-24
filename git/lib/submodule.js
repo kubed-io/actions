@@ -41,6 +41,8 @@ function branchOf(root, sub) {
 }
 
 const TRIES = 3;
+// what git says when the remote has no such branch
+const MISSING = /couldn't find remote ref/;
 // a push the remote refused only because its branch is ahead: worth a rebase and another go
 const BEHIND = /\((fetch first|non-fast-forward)\)/;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -93,7 +95,9 @@ async function push({ github, core, exec, root, subs, message, author, auth, tar
       // a branch's first wiki commit has no remote branch to rebase onto: it starts at the pin
       const fetched = await exec.getExecOutput('git', ['-C', cwd, 'fetch', '--no-tags', 'origin', branch], { silent: true, ignoreReturnCode: true, env });
       if (!fetched.exitCode) await git(exec, cwd, ['rebase', '-X', 'theirs', 'FETCH_HEAD'], { env });
-      else if (attempt === 1 && startOf) await startAt({ exec, core, cwd, sub, branch, env, from: await startOf(sub) });
+      // only a branch the remote has not got starts anywhere; a fetch that failed otherwise
+      // (the network, say) leaves the commit on the pin, and a push onto a branch that exists fails
+      else if (attempt === 1 && startOf && MISSING.test(fetched.stderr || '')) await startAt({ exec, core, cwd, sub, branch, env, from: await startOf(sub) });
       const { exitCode, stderr = '' } = await exec.getExecOutput('git', ['-C', cwd, 'push', 'origin', `HEAD:refs/heads/${branch}`], { silent: true, ignoreReturnCode: true, env });
       if (!exitCode) break;
       const why = stderr.trim();

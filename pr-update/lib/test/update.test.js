@@ -57,13 +57,17 @@ function conflicted(conflicts, over = {}) {
   };
 }
 
+// open PRs by base, for a run that follows family branches
+const byBase = (lists) => ({ base }) => lists[base] || [];
+
 const PR5 = { number: 5, head: { ref: 'issue-5', sha: 'head5', repo: { full_name: 'kubed-io/x' } } };
 
 function setup({ prs = [PR5], behind = 1, updateBranch = {}, routes = {}, files = {}, api = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-update-'));
   for (const [f, text] of Object.entries(files)) fs.writeFileSync(path.join(root, f), text);
   const github = fake.github({
-    'pulls.list': prs,
+    // a list for main, none on any other base; or by base, as a function
+    'pulls.list': typeof prs === 'function' ? prs : ({ base }) => (base === 'main' ? prs : []),
     'repos.compareCommitsWithBasehead': { behind_by: behind },
     'pulls.updateBranch': updateBranch,
     'git.createBlob': { sha: 'sent' },
@@ -268,7 +272,7 @@ const lintChanged = ({ basehead }) => (basehead === 'head15...issue-12'
   : { behind_by: 1 });
 
 test('a base that changed a workflow is left for a person: the PR is told once, and nothing is tried', async () => {
-  const t = setup({ prs: [PR15], api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.listComments': [], 'issues.createComment': {} } });
+  const t = setup({ prs: byBase({ 'issue-12': [PR15] }), api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.listComments': [], 'issues.createComment': {} } });
   assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'issue-15', result: 'needs a person: .github/workflows/lint.yml (asked)' }]);
   assert.deepEqual(called(t, 'pulls.updateBranch'), []);
   assert.deepEqual(t.exec.calls.filter((c) => !c.startsWith('symbolic-ref') && !c.startsWith('rev-parse')), []);
@@ -281,7 +285,7 @@ test('a base that changed a workflow is left for a person: the PR is told once, 
 
 test('a PR already told about that workflow change is not told again', async () => {
   const told = [{ body: '<!-- pr-update: workflows issue-12 .github/workflows/lint.yml@ee31 -->\nA person must merge' }];
-  const t = setup({ prs: [PR15], api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.listComments': told, 'issues.createComment': {} } });
+  const t = setup({ prs: byBase({ 'issue-12': [PR15] }), api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.listComments': told, 'issues.createComment': {} } });
   assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'issue-15', result: 'needs a person: .github/workflows/lint.yml (asked before)' }]);
   assert.deepEqual(called(t, 'issues.createComment'), []);
   assert.deepEqual(called(t, 'pulls.updateBranch'), []);
@@ -289,12 +293,65 @@ test('a PR already told about that workflow change is not told again', async () 
 
 test("a workflow change on the base of a PR that is not an agent's is only its row", async () => {
   const mine = { ...PR15, head: { ...PR15.head, ref: 'feat/x' } };
-  const t = setup({ prs: [mine], api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.createComment': {} } });
+  const t = setup({ prs: byBase({ 'issue-12': [mine] }), api: { 'repos.compareCommitsWithBasehead': lintChanged, 'issues.createComment': {} } });
   assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'feat/x', result: 'needs a person: .github/workflows/lint.yml' }]);
   assert.deepEqual(called(t, 'issues.createComment'), []);
 });
 
 test('a base whose changes are not workflows is updated as before', async () => {
-  const t = setup({ prs: [PR15], api: { 'repos.compareCommitsWithBasehead': ({ basehead }) => (basehead.startsWith('head15...') ? { ahead_by: 1, files: [{ filename: 'src/x.py', sha: 'b1' }] } : { behind_by: 1 }) } });
+  const t = setup({ prs: byBase({ 'issue-12': [PR15] }), api: { 'repos.compareCommitsWithBasehead': ({ basehead }) => (basehead.startsWith('head15...') ? { ahead_by: 1, files: [{ filename: 'src/x.py', sha: 'b1' }] } : { behind_by: 1 }) } });
   assert.deepEqual(await t.go({ base: 'issue-12' }), [{ number: 32, branch: 'issue-15', result: 'updated' }]);
+});
+
+// main's update moves a family's branch (its PR to main): the sub-issue PRs into it follow
+const FAMILY = { number: 16, head: { ref: 'issue-16', sha: 'head16', repo: { full_name: 'kubed-io/x' } } };
+const SUB = { number: 31, head: { ref: 'issue-28', sha: 'head28', repo: { full_name: 'kubed-io/x' } } };
+
+test("a family's branch that main's update moved brings its sub-issue PRs up to date, in rows of their own", async () => {
+  const t = setup({ prs: byBase({ main: [FAMILY], 'issue-16': [SUB] }) });
+  assert.deepEqual(await t.go(), [
+    { number: 16, branch: 'issue-16', result: 'updated' },
+    { number: 31, branch: 'issue-28', result: 'updated', base: 'issue-16' },
+  ]);
+  assert.deepEqual(called(t, 'pulls.list').map((c) => c.params.base), ['main', 'issue-16', 'issue-28']);
+  assert.deepEqual(called(t, 'pulls.updateBranch').map((c) => c.params.pull_number), [16, 31]);
+});
+
+test('a family branch that did not move, or a head that is no family branch, is not followed', async () => {
+  const other = { number: 7, head: { ref: 'feat/x', sha: 'h7', repo: { full_name: 'kubed-io/x' } } };
+  const t = setup({ prs: byBase({ main: [FAMILY, other], 'issue-16': [SUB], 'feat/x': [SUB] }), behind: 0 });
+  await t.go();
+  assert.deepEqual(called(t, 'pulls.list').map((c) => c.params.base), ['main']);
+  const u = setup({ prs: byBase({ main: [other], 'feat/x': [SUB] }) });
+  await u.go();
+  assert.deepEqual(called(u, 'pulls.list').map((c) => c.params.base), ['main']);
+});
+
+test('a cycle of bases is followed once each: no base is updated twice in a run', async () => {
+  const back = { number: 40, head: { ref: 'issue-16', sha: 'head16', repo: { full_name: 'kubed-io/x' } } };
+  const into = { number: 41, head: { ref: 'issue-28', sha: 'head28', repo: { full_name: 'kubed-io/x' } } };
+  const t = setup({ prs: byBase({ main: [FAMILY], 'issue-16': [into], 'issue-28': [back] }) });
+  const rows = await t.go();
+  assert.deepEqual(called(t, 'pulls.list').map((c) => c.params.base), ['main', 'issue-16', 'issue-28']);
+  assert.deepEqual(rows.map((r) => `${r.base || 'main'}#${r.number}`), ['main#16', 'issue-16#41', 'issue-28#40']);
+});
+
+test("a workflow change on a followed family branch is a person's merge there too, asked once", async () => {
+  const api = {
+    'repos.compareCommitsWithBasehead': ({ basehead }) => (basehead === 'head28...issue-16'
+      ? { ahead_by: 1, files: [{ filename: '.github/workflows/lint.yml', sha: 'ee31' }] } : { behind_by: 1, files: [] }),
+    'issues.listComments': [], 'issues.createComment': {},
+  };
+  const t = setup({ prs: byBase({ main: [FAMILY], 'issue-16': [SUB] }), api });
+  assert.deepEqual(await t.go(), [
+    { number: 16, branch: 'issue-16', result: 'updated' },
+    { number: 31, branch: 'issue-28', result: 'needs a person: .github/workflows/lint.yml (asked)', base: 'issue-16' },
+  ]);
+  assert.deepEqual(called(t, 'issues.createComment').map((c) => c.params.issue_number), [31]);
+  assert.deepEqual(called(t, 'pulls.updateBranch').map((c) => c.params.pull_number), [16]);
+});
+
+test('the summary has a table for each base a run updated', () => {
+  const md = pr.summaryOf('main', [{ number: 16, branch: 'issue-16', result: 'updated' }, { number: 31, branch: 'issue-28', result: 'updated', base: 'issue-16' }]);
+  assert.match(md, /### Open PRs on `main`[\s\S]*\| #16 \| `issue-16` \| updated \|[\s\S]*### Open PRs on `issue-16`[\s\S]*\| #31 \| `issue-28` \| updated \|/);
 });

@@ -312,8 +312,16 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   return { ...row, result: resolved.length ? `merged & resolved: ${resolved.join(', ')}` : 'merged' };
 }
 
-// every open PR on `base` whose head is in this repository; one PR's trouble is its row
-async function update({ github, core, exec, owner, repo, base, root, changelog = 'CHANGELOG.md', prefix = 'issue-', env = process.env }) {
+// a family's branch (`issue-<P>`), the base of its sub-issues' PRs
+const FAMILY = /^issue-\d+$/;
+// a row whose PR's head this run moved
+const moved = (row) => row.result === 'updated' || row.result.startsWith('merged');
+
+// every open PR on `base` whose head is in this repository; one PR's trouble is its row. A
+// family's branch this moved (its PR to main updated) is then a base too: its sub-issues' PRs
+// follow, their rows naming it as `base`. `visited` keeps any base to once a run.
+async function update({ github, core, exec, owner, repo, base, root, changelog = 'CHANGELOG.md', prefix = 'issue-', env = process.env, visited = new Set() }) {
+  visited.add(base);
   const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', base, per_page: 100 });
   changelog = changelog.replace(/^\.\//, '');
   const mine = prs.filter((pr) => pr.head?.repo?.full_name === `${owner}/${repo}`);
@@ -334,9 +342,21 @@ async function update({ github, core, exec, owner, repo, base, root, changelog =
     core.info(`#${row.number} ${row.branch}: ${row.result}`);
     rows.push(row);
   }
+  for (const row of rows.slice()) {
+    if (!moved(row) || !FAMILY.test(row.branch) || visited.has(row.branch)) continue;
+    const followed = await update({ github, core, exec, owner, repo, base: row.branch, root, changelog, prefix, env, visited });
+    rows.push(...followed.map((r) => ({ ...r, base: r.base || row.branch })));
+  }
   // the checkout back where the job had it
   if (state.moved && start) await git(exec, root, ['-c', 'advice.detachedHead=false', 'checkout', '--quiet', '--force', start], { env, ok: true });
   return rows;
+}
+
+// a table for the base, then one for each family branch the run followed
+function summaryOf(base, rows) {
+  const bases = [...new Set(rows.map((r) => r.base).filter(Boolean))];
+  const strip = ({ base: _, ...r }) => r;
+  return [table(base, rows.filter((r) => !r.base)), ...bases.map((b) => table(b, rows.filter((r) => r.base === b).map(strip)))].join('\n');
 }
 
 function table(base, rows) {
@@ -357,7 +377,7 @@ async function run({ github, context, core, exec }) {
   const { owner, repo } = context.repo;
   const rows = await update({ github, core, exec, owner, repo, base, root: top.out.trim(), changelog: env.CHANGELOG || 'CHANGELOG.md', prefix: env.PREFIX ?? 'issue-', env: gitEnv });
   core.setOutput('results', JSON.stringify(rows));
-  await core.summary.addRaw(table(base, rows)).write();
+  await core.summary.addRaw(summaryOf(base, rows)).write();
 }
 
-module.exports = { run, update, unionHunks, unmerged, changes, messageOf, table, authEnv };
+module.exports = { run, update, unionHunks, unmerged, changes, messageOf, table, summaryOf, authEnv };

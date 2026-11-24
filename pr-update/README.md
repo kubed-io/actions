@@ -81,7 +81,11 @@ the head starts with `prefix`, the PR gets one comment saying a person must merg
 found again by its marker (the base, each path and its blob), so a later run does not post it
 twice. Nothing dispatches or retries it.
 
-A family's branch (`issue-<P>`) is a base too: agent-issue.yml runs this step on it after a
+A family's branch (`issue-<P>`) that the run moved, its PR to main updated or merged, is then
+a base too: its sub-issues' PRs are brought up to date the same way, their rows naming it as
+`base` and the summary a table for it. Each base is updated once a run, so a cycle stops.
+
+agent-issue.yml also runs this step on a family's branch after a
 sub-issue's change merges into it (n8n's `sub-issue-closed` wake-up) and after the parent's
 turn commits there, as its hand-off does after opening a sub-issue's PR into it.
 
@@ -94,4 +98,4 @@ turn commits there, as its hand-off does after opening a sub-issue's PR into it.
 
 | Output | |
 |---|---|
-| `results` | JSON list of `{number, branch, result}` |
+| `results` | JSON list of `{number, branch, result}`, and `base` on a followed family branch's rows |
