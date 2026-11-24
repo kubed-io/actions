@@ -203,7 +203,11 @@ function flags({ agentsFile, agent, schema, mcpFile, settingsFile, mcpServers = 
   if (mcpServers.length) allow.push('ListMcpResourcesTool', 'ReadMcpResourceTool');
   if (allow.length) args.push('--allowedTools', q(allow.join(',')));
   if ((over.disallowed || []).length) args.push('--disallowedTools', q(over.disallowed.join(',')));
-  if (session) args.push(...(session.resumed ? ['--resume', session.id] : ['--session-id', session.id, '--name', q(session.title)]));
+  if (session) {
+    if (session.resumed) args.push('--resume', session.id);
+    else if (session.fork) args.push('--resume', session.fork, '--fork-session', '--session-id', session.id, '--name', q(session.title));
+    else args.push('--session-id', session.id, '--name', q(session.title));
+  }
   return args.join(' ');
 }
 
@@ -294,11 +298,15 @@ async function run({ github, context, core }) {
   let session = null;
   if (env.SESSION_KEY) {
     if (!env.CLAUDE_CODE_PROJECT_DIR_NAME) core.warning('session_key is set but CLAUDE_CODE_PROJECT_DIR_NAME is not, so sessions cannot resume here');
-    const id = uuid5(`https://github.com/${env.GITHUB_REPOSITORY}#${env.SESSION_KEY}`);
+    const idOf = (key) => uuid5(`https://github.com/${env.GITHUB_REPOSITORY}#${key}`);
     const home = env.CLAUDE_CONFIG_DIR || path.join(env.HOME || '', '.claude');
-    const transcript = path.join(home, 'projects', env.CLAUDE_CODE_PROJECT_DIR_NAME || 'none', `${id}.jsonl`);
+    const has = (id) => fs.existsSync(path.join(home, 'projects', env.CLAUDE_CODE_PROJECT_DIR_NAME || 'none', `${id}.jsonl`));
+    const id = idOf(env.SESSION_KEY);
     const name = title ? `${env.GITHUB_REPOSITORY.split('/').pop()}#${number} ${title}` : env.SESSION_KEY;
-    session = { id, title: name, resumed: fs.existsSync(transcript) };
+    session = { id, title: name, resumed: has(id) };
+    // a new session starts as a fork of fork_from's, when that one has a transcript
+    const from = (env.FORK_FROM || '').trim();
+    if (!session.resumed && from && has(idOf(from))) session.fork = idOf(from);
   }
 
   const over = {

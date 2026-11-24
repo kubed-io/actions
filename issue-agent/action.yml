@@ -71,6 +71,10 @@ inputs:
     description: uuid5(repo + key) is the session id, resumed where /claude has its transcript.
     required: false
     default: ""
+  fork_from:
+    description: A session key. When session_key has no transcript yet and this one does, the new session starts as a fork of it.
+    required: false
+    default: ""
   trusted:
     description: Comma-separated user ids and bots (id or login) whose messages count; defaults to the runner's CLAUDE_OWNER_ID and CLAUDE_TRUSTED_BOTS.
     required: false
@@ -228,6 +232,7 @@ runs:
       ALLOWED_TOOLS: ${{ inputs.allowed_tools }}
       DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
       SESSION_KEY: ${{ inputs.session_key }}
+      FORK_FROM: ${{ inputs.fork_from }}
       SCRATCH_DIR: ${{ inputs.scratch_dir }}
       LIVE_MESSAGES: ${{ inputs.live_messages }}
       LANE: ${{ inputs.lane }}

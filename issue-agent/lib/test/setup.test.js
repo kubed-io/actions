@@ -123,7 +123,7 @@ function scene({ pr = false } = {}) {
     AGENT: '.issue/roles/claude/agents/plan.md', SCHEMA: '.issue/roles/claude/agents/plan.schema.json',
     APPEND_SYSTEM_PROMPT: 'In this job, plans go under docs/.', MCP_CONFIG: '{"mcpServers":{"kb":{"url":"${KB_URL}"}}}', KB_URL: 'https://kb',
     REVIEW: 'true', THREADS: '', MODEL: '', MAX_TURNS: '', PERMISSION_MODE: '', ALLOWED_TOOLS: '', DISALLOWED_TOOLS: '',
-    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '', SETTINGS: '', LANE: '',
+    SESSION_KEY: 'pr-81', SCRATCH_DIR: '.issue', LIVE_MESSAGES: '', SETTINGS: '', LANE: '', FORK_FROM: '',
   });
   for (const name of ['AGENT_FLOW_N8N_TOKEN', 'AGENT_FLOW_CALLBACK_URL', 'CLAUDE_MCP_PROFILES']) delete process.env[name];
   const github = fake.github({
@@ -173,6 +173,58 @@ test('a session key without a project dir name warns that resume is off', async 
   await setup.run({ github, context: fake.context(), core });
   assert.ok(core.notices.some((m) => /cannot resume here/.test(m)));
   assert.equal(core.outputs.resumed, 'false');
+});
+
+function transcript(key) {
+  const id = setup.uuid5(`https://github.com/kubed-io/selenium-flow#${key}`);
+  fs.writeFileSync(path.join(process.env.CLAUDE_CONFIG_DIR, `projects/-projects-kubed-io-selenium-flow/${id}.jsonl`), '');
+  return id;
+}
+
+test('forks when the session is new and fork_from has a transcript', async () => {
+  const { github } = scene();
+  const idP = transcript('issue-5');
+  const idM = setup.uuid5('https://github.com/kubed-io/selenium-flow#issue-5/81');
+  Object.assign(process.env, { SESSION_KEY: 'issue-5/81', FORK_FROM: 'issue-5' });
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(core.outputs.args.includes(`--resume ${idP} --fork-session --session-id ${idM}`));
+  assert.ok(core.outputs.args.includes('--name'));
+  assert.equal(core.outputs.session_id, idM);
+  assert.equal(core.outputs.resumed, 'false');
+});
+
+test('resumes its own session once it exists', async () => {
+  const { github } = scene();
+  transcript('issue-5');
+  const idM = transcript('issue-5/81');
+  Object.assign(process.env, { SESSION_KEY: 'issue-5/81', FORK_FROM: 'issue-5' });
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(core.outputs.args.includes(`--resume ${idM}`));
+  assert.ok(!core.outputs.args.includes('--fork-session'));
+});
+
+test('starts fresh when neither exists', async () => {
+  const { github } = scene();
+  const idM = setup.uuid5('https://github.com/kubed-io/selenium-flow#issue-5/81');
+  Object.assign(process.env, { SESSION_KEY: 'issue-5/81', FORK_FROM: 'issue-5' });
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(core.outputs.args.includes(`--session-id ${idM}`));
+  assert.ok(!core.outputs.args.includes('--resume'));
+  assert.ok(!core.outputs.args.includes('--fork-session'));
+});
+
+test('ignores fork_from when empty', async () => {
+  const { github } = scene();
+  transcript('issue-5');
+  const idM = setup.uuid5('https://github.com/kubed-io/selenium-flow#issue-5/81');
+  Object.assign(process.env, { SESSION_KEY: 'issue-5/81', FORK_FROM: '' });
+  const core = fake.core();
+  await setup.run({ github, context: fake.context(), core });
+  assert.ok(core.outputs.args.includes(`--session-id ${idM} --name`));
+  assert.ok(!core.outputs.args.includes('--fork-session'));
 });
 
 test('the hook settings are the channel README\'s: hook.js on PostToolBatch and Stop', () => {
