@@ -1,0 +1,49 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "commit_message": {
+      "type": "string",
+      "description": "Only when this job lets you write files: the commit message for what you wrote this turn, in the repository's style."
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "notes",
+        "spec",
+        "multi"
+      ],
+      "description": "What this issue needs: notes alone, a spec, or several issues (multi), suggested in sub_issues."
+    },
+    "sub_issues": {
+      "type": "array",
+      "description": "Only when the work is several changes that each merge on their own, or when Dr K asks for more: the sub-issues to suggest, in the order to do them. Dr K ticks the ones to file.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "Feature",
+              "Bug"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "The issue's title."
+          },
+          "why": {
+            "type": "string",
+            "description": "One line: what this part is, and why it is its own issue."
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "why"
+        ]
+      }
+    }
+  }
+}

@@ -149,6 +149,22 @@ jobs:
         number: ${{ needs.route.outputs.number }}
         live: true
 
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/agents
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
+
     - name: Plan Agent
       if: steps.still.outputs.stage == 'plan'
       id: agent
@@ -158,8 +174,8 @@ jobs:
         scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json
-        schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
+        settings: ${{ env.AGENT_ROLES }}/plan/settings.json
+        schema: ${{ env.AGENT_ROLES }}/plan/schema.json
         allowed_tools: Read,Glob,Grep,Write,Edit
         disallowed_tools: Bash,NotebookEdit
         header: "📄 Plan · [{{ output.plan_path }}]({{ link:output.plan_path }})"
@@ -321,6 +337,22 @@ jobs:
         live: true
         prompt: ${{ needs.route.outputs.prompt_when == 'always' && needs.route.outputs.prompt || '' }}
 
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/agents
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
+
     - name: Code Agent
       if: steps.still.outputs.stage == 'code'
       id: agent
@@ -330,8 +362,8 @@ jobs:
         scratch_cache: false
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
-        settings: ${{ env.CLAUDE_AGENTS }}/code/settings.json
-        schema: ${{ env.CLAUDE_AGENTS }}/code/schema.json
+        settings: ${{ env.AGENT_ROLES }}/code/settings.json
+        schema: ${{ env.AGENT_ROLES }}/code/schema.json
         allowed_tools: Read,Edit,Write,Glob,Grep,Bash,Agent
         prompt: ${{ needs.route.outputs.prompt }}
         prompt_when: ${{ needs.route.outputs.prompt_when }}

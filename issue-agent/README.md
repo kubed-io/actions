@@ -43,8 +43,8 @@ On the claude runner, a role's agent comes from a plugin instead, and its `setti
 which (kubed-io/talent-show's `kubed-runner`). Each role's settings sit beside its schema:
 
 ```yaml
-    settings: ${{ env.CLAUDE_AGENTS }}/plan/settings.json   # turns kubed-runner on, agent kubed-runner:plan
-    schema: ${{ env.CLAUDE_AGENTS }}/plan/schema.json
+    settings: ${{ env.AGENT_ROLES }}/plan/settings.json   # turns kubed-runner on, agent kubed-runner:plan
+    schema: ${{ env.AGENT_ROLES }}/plan/schema.json
 ```
 
 The plugin brings the agent's MCP servers, and each agent's `tools` list is what it may use.

@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["looks good", "changes requested", "needs a human"],
+      "description": "looks good: nothing must change, the round ends. changes requested: the code agent answers your line comments. needs a human: say what Dr K should look at."
+    }
+  },
+  "required": ["verdict"]
+}
