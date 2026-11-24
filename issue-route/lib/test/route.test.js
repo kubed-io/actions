@@ -540,7 +540,7 @@ test('a family dispatch on an issue not opted in, not a Feature or Bug, a pull r
 test('sub-issue-closed on a parent without agent runs when the closed sub-issue carries agent', async () => {
   const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
   assert.deepEqual(await send('sub-issue-closed', { parent: 3, number: 5, merged: true }, { issues }),
-    { ...PARENT_TURN, opt_in_label: '', prompt: `${P}sub-issue-closed` });
+    { ...PARENT_TURN, opt_in_label: 'none', prompt: `${P}sub-issue-closed` });
 });
 
 test('sub-issue-closed and -reported on a parent without agent are nothing when the sub-issue lacks agent', async () => {
@@ -560,7 +560,7 @@ test('sub-issue-file on a parent without agent runs with an agent sub-issue, and
   const file = { parent: 3, type: 'Bug', title: 'Flows lose the tab', ask: 'y' };
   const issues = { 3: { ...FAMILY_ISSUES[3], labels: [] } };
   const via = await send('sub-issue-file', file, { issues });
-  assert.deepEqual([via.stage, via.opt_in_label], ['file', '']);
+  assert.deepEqual([via.stage, via.opt_in_label], ['file', 'none']);
   const bare = { ...issues, 5: { ...FAMILY_ISSUES[5], labels: [] }, 6: { ...FAMILY_ISSUES[6], labels: [] }, 7: { ...FAMILY_ISSUES[7], labels: [] } };
   const out = await send('sub-issue-file', file, { issues: bare });
   assert.deepEqual([out.stage, out.why], ['none', 'not opted in']);

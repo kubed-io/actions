@@ -215,7 +215,7 @@ async function familyTurn({ github, context, core, cfg, ev }) {
   }
 
   // admitted through its sub-issue, the parent carries no label for the gate to check
-  core.setOutput('opt_in_label', viaSub ? '' : 'agent');
+  core.setOutput('opt_in_label', viaSub ? 'none' : 'agent');
   core.setOutput('stage', kind === 'sub-issue-file' ? 'file' : 'spec');
   core.setOutput('number', String(number));
   core.setOutput('family', String(family));

@@ -91,8 +91,8 @@ outputs:
     value: ${{ steps.route.outputs.item_type }}
   opt_in_label:
     description: >-
-      The label the turn's gate checks, `agent`; empty for a family wake-up admitted through
-      R-SM29 (an unlabelled parent opted in by its `agent` sub-issue), which has no label to check.
+      The label the turn's gate checks, `agent`; the literal `none` for a family wake-up admitted through
+      R-SM29 (an unlabelled parent opted in by its `agent` sub-issue), which has no label to check (a literal, so a missing output never reads as it).
     value: ${{ steps.route.outputs.opt_in_label }}
   takeover:
     description: >-
