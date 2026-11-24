@@ -66,6 +66,7 @@ commit and the working tree is left as it was, so changes it did not select stay
 | `allow_empty` | no | `false` | Commit with no changes, so a PR can open on a new branch |
 | `trailers` | no | — | `Key: value` lines after the message, a blank line between (`Agent: done`) |
 | `submodules` | no | — | Submodules it may commit inside, one per line (a wiki): changes in one that `files` reaches are committed and pushed with git first |
+| `submodule_base` | no | — | A branch whose submodule pointer a submodule branch this commit starts begins at, instead of the checkout's; an existing one is never moved |
 | `author` | no | — | The App's slug, whose bot authors a submodule's commit; needed only when one changed |
 | `keep_to` | no | — | A folder from the top: a failed commit's changes are written there, so they are not lost |
 
@@ -89,7 +90,9 @@ commit and the working tree is left as it was, so changes it did not select stay
   wiki.yml) writes it, so a branch's pages reach it by merging. A commit to the default
   branch goes to `.gitmodules`' `branch`, else `master`. It is rebased onto that branch's
   remote head when there is one (a file both changed takes this commit's version), else
-  starts the branch from the pin, and is pushed with git. A push refused because the branch moved again
+  starts the branch from the pin, or with `submodule_base` from the commit that branch points
+  the submodule at (this commit alone moved onto it: a sub-issue's wiki branch starts from its
+  family's), and is pushed with git. A push refused because the branch moved again
   meanwhile is fetched, rebased and pushed again, up to 3 tries a second or few apart; any
   other failure, or a third refusal, fails the commit (and `keep_to` keeps it). A submodule
   not listed is never pushed. That commit goes through the Git Data API (blobs, a tree, a

@@ -9,9 +9,12 @@
 // branch .gitmodules names (else master), as before. The commit is rebased onto that branch's
 // remote head first, when it has one: another run may have moved it past the pin, and a file
 // both changed takes this commit's version. A branch with no wiki branch yet starts one from
-// the pin. A push refused because the head moved again meanwhile is fetched, rebased and
-// pushed again, up to TRIES in all (spec 2026-11-12 R-L10); any other failure, or the last
-// refusal, is the caller's to keep.
+// the pin, or, given `startOf`, from the commit it names: a sub-issue's wiki branch starts
+// where its family's branch points the wiki, this commit alone moved onto it, so it has the
+// family's earlier specs (quick-mcp #31: issue-28's started at master, without issue-16's
+// pin). A wiki branch that exists is never moved. A push refused because the head moved
+// again meanwhile is fetched, rebased and pushed again, up to TRIES in all (spec 2026-11-12
+// R-L10); any other failure, or the last refusal, is the caller's to keep.
 
 const fs = require('fs');
 const path = require('path');
@@ -58,8 +61,23 @@ function wikiBranch(root, sub, target, defaultBranch) {
   return target && defaultBranch && target !== defaultBranch ? target : branchOf(root, sub);
 }
 
-// commits and pushes each submodule with changes inside it; returns those it pushed
-async function push({ github, core, exec, root, subs, message, author, auth, target, defaultBranch, wait = sleep }) {
+// a new submodule branch: this commit (HEAD, on the pin) moved onto `from`, a file both
+// changed taking this commit's version; left on the pin when there is no `from` or it cannot be
+// fetched
+async function startAt({ exec, core, cwd, sub, branch, env, from }) {
+  if (!from) return;
+  const fetched = await exec.getExecOutput('git', ['-C', cwd, 'fetch', '--no-tags', 'origin', from], { silent: true, ignoreReturnCode: true, env });
+  if (fetched.exitCode) {
+    core.warning(`${sub}: ${branch} starts from the checkout's pin: ${from} could not be fetched (${(fetched.stderr || '').trim() || `exit ${fetched.exitCode}`})`);
+    return;
+  }
+  await git(exec, cwd, ['rebase', '-X', 'theirs', '--onto', 'FETCH_HEAD', 'HEAD~1'], { env });
+  core.info(`${sub}: ${branch} starts from ${from}`);
+}
+
+// commits and pushes each submodule with changes inside it; returns those it pushed.
+// `startOf(sub)`: the commit a submodule branch that does not exist yet starts from, '' for the pin
+async function push({ github, core, exec, root, subs, message, author, auth, target, defaultBranch, startOf, wait = sleep }) {
   const pushed = [];
   for (const sub of subs) {
     const cwd = path.join(root, sub);
@@ -75,6 +93,7 @@ async function push({ github, core, exec, root, subs, message, author, auth, tar
       // a branch's first wiki commit has no remote branch to rebase onto: it starts at the pin
       const fetched = await exec.getExecOutput('git', ['-C', cwd, 'fetch', '--no-tags', 'origin', branch], { silent: true, ignoreReturnCode: true, env });
       if (!fetched.exitCode) await git(exec, cwd, ['rebase', '-X', 'theirs', 'FETCH_HEAD'], { env });
+      else if (attempt === 1 && startOf) await startAt({ exec, core, cwd, sub, branch, env, from: await startOf(sub) });
       const { exitCode, stderr = '' } = await exec.getExecOutput('git', ['-C', cwd, 'push', 'origin', `HEAD:refs/heads/${branch}`], { silent: true, ignoreReturnCode: true, env });
       if (!exitCode) break;
       const why = stderr.trim();

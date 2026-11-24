@@ -9,7 +9,8 @@ const fake = require('./fake');
 const REJECTED = (why) => ` ! [rejected]        HEAD -> master (${why})\nerror: failed to push some refs to 'https://github.com/kubed-io/x.wiki.git'\n`;
 
 // a checkout with a wiki changed inside it; `pushes` are what each push answers, in turn
-function setup(pushes, { target, defaultBranch, fetchFails = false } = {}) {
+// `missing`: the refs a fetch finds nothing at; `startOf` names the commit a new wiki branch starts from
+function setup(pushes, { target, defaultBranch, fetchFails = false, missing = [], startOf } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'git-submodule-'));
   fs.mkdirSync(path.join(root, 'wiki'));
   fs.writeFileSync(path.join(root, 'wiki/.git'), 'gitdir: x');
@@ -20,7 +21,7 @@ function setup(pushes, { target, defaultBranch, fetchFails = false } = {}) {
       const line = args.slice(2).join(' ');
       calls.push(line);
       if (line.startsWith('status')) return { exitCode: 0, stdout: ' M Home.md\n', stderr: '' };
-      if (line.startsWith('fetch') && fetchFails) return { exitCode: 128, stdout: '', stderr: "fatal: couldn't find remote ref issue-137\n" };
+      if (line.startsWith('fetch') && (fetchFails || missing.includes(line.split(' ').pop()))) return { exitCode: 128, stdout: '', stderr: "fatal: couldn't find remote ref issue-137\n" };
       if (line.startsWith('push')) {
         const [exitCode, stderr] = pushes.shift() || [0, ''];
         return { exitCode, stdout: '', stderr };
@@ -30,10 +31,11 @@ function setup(pushes, { target, defaultBranch, fetchFails = false } = {}) {
   };
   const waits = [];
   const go = () => submodule.push({
-    github: fake.github({ 'users.getByUsername': { id: 235398881 } }), core: fake.core(), exec, root,
-    subs: ['wiki'], message: 'docs: x', author: 'kubed-io', auth: {}, target, defaultBranch, wait: async (ms) => waits.push(ms),
+    github: fake.github({ 'users.getByUsername': { id: 235398881 } }), exec, root,
+    subs: ['wiki'], message: 'docs: x', author: 'kubed-io', auth: {}, target, defaultBranch, startOf, wait: async (ms) => waits.push(ms), core: t.core,
   });
-  return { exec, waits, go };
+  const t = { exec, waits, go, core: fake.core() };
+  return t;
 }
 
 // each try: fetch, rebase, push
@@ -92,4 +94,40 @@ test("a branch's first wiki commit starts its wiki branch from the pin: nothing 
   assert.deepEqual(await t.go(), ['wiki']);
   assert.deepEqual(tries(t.exec.calls), ['fetch', 'push']);
   assert.deepEqual(pushedTo(t.exec.calls), ['HEAD:refs/heads/issue-137']);
+});
+
+// a sub-issue's wiki branch starts where its family's code branch points the wiki, not where
+// the checkout does (quick-mcp #31: issue-28's started at master, without issue-16's pin)
+test("a branch's first wiki commit starts from the base's pin: this commit alone, onto it", async () => {
+  const asked = [];
+  const t = setup([], { target: 'issue-28', defaultBranch: 'main', missing: ['issue-28'], startOf: async (sub) => { asked.push(sub); return 'fam75e4'; } });
+  assert.deepEqual(await t.go(), ['wiki']);
+  assert.deepEqual(asked, ['wiki']);
+  const moves = t.exec.calls.filter((c) => /^(fetch|rebase|push)/.test(c));
+  assert.deepEqual(moves, [
+    'fetch --no-tags origin issue-28', 'fetch --no-tags origin fam75e4', 'rebase -X theirs --onto FETCH_HEAD HEAD~1',
+    'push origin HEAD:refs/heads/issue-28',
+  ]);
+});
+
+test('a wiki branch that already exists is left alone: rebased onto, never moved to the base\'s pin', async () => {
+  const asked = [];
+  const t = setup([], { target: 'issue-28', defaultBranch: 'main', startOf: async (sub) => { asked.push(sub); return 'fam75e4'; } });
+  await t.go();
+  assert.deepEqual(asked, []);
+  assert.deepEqual(tries(t.exec.calls), ['fetch', 'rebase', 'push']);
+  assert.ok(t.exec.calls.includes('rebase -X theirs FETCH_HEAD'));
+});
+
+test("a base with no pin starts the wiki branch from the checkout's pin, as before", async () => {
+  const t = setup([], { target: 'issue-28', defaultBranch: 'main', missing: ['issue-28'], startOf: async () => '' });
+  await t.go();
+  assert.deepEqual(tries(t.exec.calls), ['fetch', 'push']);
+});
+
+test("a base pin that cannot be fetched starts from the checkout's pin, and says so", async () => {
+  const t = setup([], { target: 'issue-28', defaultBranch: 'main', missing: ['issue-28', 'fam75e4'], startOf: async () => 'fam75e4' });
+  assert.deepEqual(await t.go(), ['wiki']);
+  assert.deepEqual(tries(t.exec.calls), ['fetch', 'fetch', 'push']);
+  assert.ok(t.core.notices.some((m) => /wiki: issue-28 starts from the checkout's pin: fam75e4 could not be fetched/.test(m)));
 });

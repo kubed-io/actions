@@ -43,6 +43,15 @@ inputs:
       git, then its pointer moves in this commit. Any other submodule is never pushed.
     required: false
     default: ""
+  submodule_base:
+    description: >
+      A branch of this repository: a submodule branch this commit starts (one that `submodules`
+      lets it commit inside, with no branch on its remote yet) starts from the commit this
+      branch points the submodule at, this commit moved onto it, not from the checkout's
+      pointer. A sub-issue's wiki branch so starts from its family's. An existing submodule
+      branch is never moved. None when empty.
+    required: false
+    default: ""
   author:
     description: The App's slug; its bot authors a submodule's commit. Needed only when one changed.
     required: false
@@ -98,6 +107,7 @@ runs:
       ALLOW_EMPTY: ${{ inputs.allow_empty }}
       TRAILERS: ${{ inputs.trailers }}
       SUBMODULES: ${{ inputs.submodules }}
+      SUBMODULE_BASE: ${{ inputs.submodule_base }}
       AUTHOR: ${{ inputs.author }}
       KEEP_TO: ${{ inputs.keep_to }}
       TOKEN: ${{ inputs.token }}

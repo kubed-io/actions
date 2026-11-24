@@ -294,6 +294,17 @@ async function run({ github, context, core, exec }) {
   core.setOutput('summary', summary({ ignored, runUrl }));
 }
 
+// the commit a branch points a submodule at, '' when it has no such submodule (or no such branch)
+async function pinOn({ github, owner, repo, ref, sub }) {
+  try {
+    const { data } = await github.rest.repos.getContent({ owner, repo, path: sub, ref });
+    return data?.type === 'submodule' ? data.sha : '';
+  } catch (e) {
+    if (e.status === 404) return '';
+    throw e;
+  }
+}
+
 async function commit({ github, context, core, exec }) {
   const env = process.env;
   const { owner, repo } = context.repo;
@@ -314,7 +325,9 @@ async function commit({ github, context, core, exec }) {
     // the wiki commit goes where it always did
     const defaultBranch = context.payload?.repository?.default_branch
       || (await github.rest.repos.get({ owner, repo }).catch(() => null))?.data?.default_branch;
-    await submodules.push({ github, core, exec, root, subs, message, author: env.AUTHOR, auth: authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL), target: branch, defaultBranch });
+    // a submodule branch this commit starts goes where `submodule_base` points the submodule
+    const startOf = env.SUBMODULE_BASE ? (sub) => pinOn({ github, owner, repo, ref: env.SUBMODULE_BASE, sub }) : null;
+    await submodules.push({ github, core, exec, root, subs, message, author: env.AUTHOR, auth: authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL), target: branch, defaultBranch, startOf });
   }
 
   const changes = parseStatus(await git(exec, ['status', '--porcelain=v1', '-z', '--untracked-files=all']));

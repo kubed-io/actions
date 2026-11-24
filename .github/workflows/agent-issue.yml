@@ -118,6 +118,9 @@ jobs:
       # the `spec` label gives the agent a branch, and files that are committed
       WRITES: ${{ needs.route.outputs.writes }}
       BRANCH: issue-${{ needs.route.outputs.number }}
+      # a sub-issue's branch is cut from its family's, and its wiki branch from the family's
+      # wiki pin, so it starts with its siblings' specs (R-B2, R-B12; quick-mcp #31)
+      FAMILY_BRANCH: ${{ needs.route.outputs.kin == 'sub-issue' && format('issue-{0}', needs.route.outputs.family) || '' }}
       # the agent-flow channel's token: n8n's messages reach the running turn
       AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
     steps:
@@ -131,12 +134,23 @@ jobs:
         permission-contents: write
         permission-issues: write
 
+    # the family's branch, made from the default branch by whichever job needs it first (R-B1)
+    - name: Family Branch
+      if: env.WRITES == 'true' && env.FAMILY_BRANCH != ''
+      uses: kubed-io/actions/git/branch@main
+      with:
+        token: ${{ steps.app.outputs.token }}
+        branch: ${{ env.FAMILY_BRANCH }}
+        issue: ${{ needs.route.outputs.family }}
+
+    # found when it exists; a sub-issue's new one starts from the family's branch
     - name: Branch
       if: env.WRITES == 'true'
       uses: kubed-io/actions/git/branch@main
       with:
         token: ${{ steps.app.outputs.token }}
         branch: ${{ env.BRANCH }}
+        base: ${{ env.FAMILY_BRANCH }}
         issue: ${{ needs.route.outputs.number }}
 
     - name: Checkout
@@ -222,6 +236,9 @@ jobs:
         files: docs
         # the wiki has no commit API: pushed with git, its pointer in this commit
         submodules: ${{ inputs.wiki }}
+        # a sub-issue's first wiki commit starts its wiki branch at the family's pin, even on a
+        # branch cut before it joined; one that exists is never moved
+        submodule_base: ${{ env.FAMILY_BRANCH }}
         author: ${{ steps.app.outputs.app-slug }}
         # what a failed commit leaves is kept in the scratchpad for the next turn
         keep_to: .issue/scratch/uncommitted
@@ -398,9 +415,11 @@ jobs:
         submodules: ${{ inputs.wiki == 'docs' }}
         persist-credentials: false
 
-    # the wiki's head has every spec pushed so far, this issue's among them
+    # the wiki's head has every spec pushed so far, this issue's among them. A sub-issue's
+    # change stays at its family's pin, where the branch now starts: the wiki's master has
+    # none of the family's specs, and its own wiki branch would start there (quick-mcp #31)
     - name: Point at the Wiki
-      if: steps.ahead.outputs.by == '0' && inputs.wiki == 'docs'
+      if: steps.ahead.outputs.by == '0' && inputs.wiki == 'docs' && env.CHANGE != 'sub'
       run: git submodule update --remote docs
 
     - name: Start Commit

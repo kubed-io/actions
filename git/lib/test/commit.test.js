@@ -8,7 +8,7 @@ const fake = require('./fake');
 
 // a checkout on disk: `files` are what the working tree holds
 function setup({ files = {}, env = {} } = {}) {
-  for (const k of ['MESSAGE', 'FILES', 'IGNORE', 'BRANCH', 'ALLOW_EMPTY', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME', 'TRAILERS', 'SUBMODULES', 'AUTHOR', 'KEEP_TO', 'GITHUB_RUN_ID']) delete process.env[k];
+  for (const k of ['MESSAGE', 'FILES', 'IGNORE', 'BRANCH', 'ALLOW_EMPTY', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME', 'TRAILERS', 'SUBMODULES', 'SUBMODULE_BASE', 'AUTHOR', 'KEEP_TO', 'GITHUB_RUN_ID']) delete process.env[k];
   Object.assign(process.env, { MESSAGE: 'docs: recordings', ...env });
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'git-commit-'));
   for (const [file, contents] of Object.entries(files)) {
@@ -573,4 +573,44 @@ test('with no merge in progress a submodule commit still has one parent', async 
   const github = fake.github(treeRoutes());
   await commit.run({ github, context: fake.context(), core: fake.core(), exec: git(root, [' M wiki', '?? a.txt'], linked(root, { at: 'f00d' })) });
   assert.deepEqual(call(github, 'git.createCommit').parents, ['head']);
+});
+
+// a sub-issue's wiki branch starts at its family's pin (quick-mcp #31)
+test("with submodule_base, a submodule's new branch starts from the commit that branch points it at", async () => {
+  const root = setup({ files: { 'wiki/.git': 'gitdir: x', 'wiki/Home.md': 'h' }, env: { SUBMODULES: 'wiki', SUBMODULE_BASE: 'issue-16', AUTHOR: 'kubed-io', TOKEN: 't', BRANCH: 'issue-28' } });
+  fs.writeFileSync(path.join(root, '.gitmodules'), '[submodule "wiki"]\n\tpath = wiki\n\turl = x\n');
+  const sub = path.join(root, 'wiki');
+  const exec = git(root, [' M wiki'], {
+    ...linked(root, { at: 'f00d' }),
+    [`-C ${sub} status --porcelain`]: ' M Home.md\n',
+    [`-C ${sub} fetch --no-tags origin issue-28`]: { exitCode: 128, stderr: "fatal: couldn't find remote ref issue-28" },
+  });
+  const github = fake.github({
+    ...treeRoutes({ 'heads/issue-28': 'head' }), 'users.getByUsername': { id: 235398881 },
+    'repos.getContent': ({ path: p, ref }) => (p === 'wiki' && ref === 'issue-16' ? { type: 'submodule', sha: 'fam75e4' } : fake.notFound()),
+  });
+  await commit.run({ github, context: fake.context({ payload: { repository: { default_branch: 'main' } } }), core: fake.core(), exec });
+  const inSub = exec.calls.filter((c) => c[1] === '-C' && c[2] === sub).map((c) => c.slice(3).join(' '));
+  assert.deepEqual(inSub.filter((c) => /^(fetch|rebase|push)/.test(c)), [
+    'fetch --no-tags origin issue-28', 'fetch --no-tags origin fam75e4', 'rebase -X theirs --onto FETCH_HEAD HEAD~1',
+    'push origin HEAD:refs/heads/issue-28',
+  ]);
+});
+
+test('without submodule_base, or with one that pins nothing there, a new submodule branch starts from the pin', async () => {
+  for (const base of ['', 'issue-16']) {
+    const root = setup({ files: { 'wiki/.git': 'gitdir: x', 'wiki/Home.md': 'h' }, env: { SUBMODULES: 'wiki', SUBMODULE_BASE: base, AUTHOR: 'kubed-io', TOKEN: 't', BRANCH: 'issue-28' } });
+    fs.writeFileSync(path.join(root, '.gitmodules'), '[submodule "wiki"]\n\tpath = wiki\n\turl = x\n');
+    const sub = path.join(root, 'wiki');
+    const exec = git(root, [' M wiki'], {
+      ...linked(root, { at: 'f00d' }),
+      [`-C ${sub} status --porcelain`]: ' M Home.md\n',
+      [`-C ${sub} fetch --no-tags origin issue-28`]: { exitCode: 128, stderr: "fatal: couldn't find remote ref issue-28" },
+    });
+    const github = fake.github({ ...treeRoutes({ 'heads/issue-28': 'head' }), 'users.getByUsername': { id: 235398881 }, 'repos.getContent': () => fake.notFound() });
+    await commit.run({ github, context: fake.context({ payload: { repository: { default_branch: 'main' } } }), core: fake.core(), exec });
+    const inSub = exec.calls.filter((c) => c[1] === '-C' && c[2] === sub).map((c) => c.slice(3).join(' '));
+    assert.deepEqual(inSub.filter((c) => /^(fetch|rebase|push)/.test(c)), ['fetch --no-tags origin issue-28', 'push origin HEAD:refs/heads/issue-28']);
+    assert.equal(Boolean(call(github, 'repos.getContent')), Boolean(base));
+  }
 });

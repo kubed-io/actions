@@ -46,7 +46,8 @@ function context(over = {}) {
   return { repo: { owner: 'kubed-io', repo: 'actions' }, payload: {}, ...over };
 }
 
-// routes: the start of a git command line (`status`, `rev-parse --abbrev-ref`) → stdout
+// routes: the start of a git command line (`status`, `rev-parse --abbrev-ref`) → stdout, or
+// `{ exitCode, stdout, stderr }` for a command that fails
 function exec(routes = {}) {
   const calls = [];
   const out = (args) => {
@@ -58,7 +59,11 @@ function exec(routes = {}) {
   return {
     calls,
     exec: async (cmd, args) => { calls.push([cmd, ...args]); return 0; },
-    getExecOutput: async (cmd, args) => { calls.push([cmd, ...args]); return { exitCode: 0, stdout: out(args), stderr: '' }; },
+    getExecOutput: async (cmd, args) => {
+      calls.push([cmd, ...args]);
+      const got = out(args);
+      return got && typeof got === 'object' ? { exitCode: 0, stdout: '', stderr: '', ...got } : { exitCode: 0, stdout: got, stderr: '' };
+    },
   };
 }
 
