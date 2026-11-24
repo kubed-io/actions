@@ -18,6 +18,14 @@
 // `parent-message` marker counts as the owner's comment on the family PR of the parent it
 // names: open, head issue-<P> in this repo, base the default branch, a body that closes #P.
 //
+// A downstream PR adopts an upstream epic's release (spec 2026-11-24 upstream releases): its body
+// carries the epic's marker, and its issue, issue-<N>'s, the same one, by the App or Dr K
+// (`upstream`). There the App's comment that opens with n8n's `upstream-release` or
+// `upstream-message` note for that epic counts as the owner's comment, and the App's `plan
+// approved` into the default branch as his label, after the opening (R-UR11). A final's note
+// leads its code turn with upstream-final (R-UR14). Its code turns are `held` in draft until the
+// App's final note for its epic is on the PR or its issue (R-UR19); every other code turn is not.
+//
 // Copilot's review is a second opinion, however it was asked for: out of draft, every one
 // that says something is a turn, in its own words like the owner's. Copilot's newer reviews
 // reach the relay as `edited` only, so its `edited` counts as its review; anyone else's edit
@@ -30,6 +38,10 @@
 // own: failed checks, a review asking for changes, a Bug's fix, a conflict pr-update left.
 
 const { lastLabeledBy } = require('../../issue-agent/lib/gate');
+const { markerOf, noteOf, sameRef } = require('../../issue-agent/lib/upstream');
+
+// the C1 marker, as a line of the PR's body: a downstream PR
+const MARKED = /^<!-- upstream: [^\n]* -->$/m;
 
 // a review that says Copilot could not review (a cancelled or failed run, nothing it could
 // read): nothing to answer
@@ -87,22 +99,23 @@ function settings(env) {
   };
 }
 
-// The stage an event is for, from who caused it and what it was
-function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished, byParent = false }) {
+// The stage an event is for, from who caused it and what it was. `byUpstream`: the epic's note
+// on its downstream PR, a comment, which counts as the owner's
+function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopilot, copilotOk = true, draft, finished, byParent = false, byUpstream = false }) {
   if (dispatched) return approved ? 'code' : 'none';
-  if (!approved) return byOwner && !pushed ? 'plan' : 'none';
+  if (!approved) return (byOwner || byUpstream) && !pushed ? 'plan' : 'none';
   // a review wakes the code agent when it is the owner's or Copilot's: the agent's own
   // thread replies arrive as reviews too, by the App, and must not wake it again
   if (review) return byOwner || (byCopilot && copilotOk) ? 'code' : 'none';
   // a comment, the label: the owner's, read back from GitHub; the parent's message on its family
   // PR, and its label on a sub-issue's PR, too
-  if (!pushed) return byOwner || byParent ? 'code' : 'none';
+  if (!pushed) return byOwner || byParent || byUpstream ? 'code' : 'none';
   return draft && (byOwner || byApp) && !finished ? 'code' : 'none';
 }
 
 // What a turn with no words of its own starts with: a kb prompt, sent as a slash command,
 // so the methodology's own text drives the turn
-function promptOf({ dispatched, reason, labelled, pushed, base, paths }, prefix) {
+function promptOf({ dispatched, reason, labelled, pushed, base, paths, upstreamFinal = false }, prefix) {
   const turn = (name) => `${prefix}${name}`;
   // fix: a Bug's change with no plan, started by its hand-off, built from the approved report
   // conflict: pr-update could not bring the branch up to date after a merge into its base
@@ -115,8 +128,23 @@ function promptOf({ dispatched, reason, labelled, pushed, base, paths }, prefix)
   };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (labelled) return turn('plan-approved');
+  // the epic's final: move the pins and finish (R-UR14, R-UR15)
+  if (upstreamFinal) return turn('upstream-final');
   if (pushed) return turn('next-task');
   return '';
+}
+
+// the App's final note for the epic, on the PR or its issue
+async function finalNoted({ github, context, cfg, upstream, numbers }) {
+  for (const n of numbers) {
+    const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: n, per_page: 100 });
+    const final = comments.some((c) => {
+      const note = String(c.user?.id) === cfg.app ? noteOf(c.body) : null;
+      return note?.kind === 'release' && note.final && sameRef(note.upstream, upstream);
+    });
+    if (final) return true;
+  }
+  return false;
 }
 
 async function run({ github, context, core, env = process.env }) {
@@ -131,6 +159,23 @@ async function run({ github, context, core, env = process.env }) {
   const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
   const ours = pr.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`;
   if (pr.state !== 'open' || !ours || !pr.head.ref.startsWith(cfg.prefix)) return core.info(`#${number} is not the agents'`);
+
+  // a downstream PR: the epic its issue's marker names (R-UR7); a marked body whose issue does
+  // not vouch for it is no downstream PR, but its code turns stay held
+  const marked = MARKED.test(pr.body || '');
+  let upstream = '';
+  const issueNumber = Number(/^\d+$/.test(pr.head.ref.slice(cfg.prefix.length)) ? pr.head.ref.slice(cfg.prefix.length) : 0);
+  if (marked && issueNumber) {
+    let issue = null;
+    try {
+      ({ data: issue } = await github.rest.issues.get({ ...context.repo, issue_number: issueNumber }));
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+    upstream = markerOf(issue, cfg)?.ref || '';
+    core.info(upstream ? `#${number}: downstream of ${upstream}` : `#${number}: a marked body, but #${issueNumber} carries no marker by the App or Dr K`);
+  }
+  core.setOutput('upstream', upstream);
 
   const carried = viaRoute ? e.client_payload?.event : '';
   const via = e.client_payload?.action;
@@ -162,6 +207,8 @@ async function run({ github, context, core, env = process.env }) {
     if (actor === cfg.copilot) copilotOk = !pr.draft && !failedReview(got);
   }
   let byParent = false;
+  let byUpstream = false;
+  let upstreamFinal = false;
   if (commented) {
     const commentId = Number(e.client_payload?.comment_id) || 0;
     let got = null;
@@ -178,7 +225,13 @@ async function run({ github, context, core, env = process.env }) {
     if (actor === cfg.app) {
       const parent = parentMessage(pr, got, `${context.repo.owner}/${context.repo.repo}`);
       byParent = parent > 0;
-      core.info(byParent ? `#${number}: the message of #${parent}, the family's parent` : `#${number}: the App's comment is no parent's message on its family PR`);
+      // the epic's note, on its downstream PR (R-UR11)
+      const note = upstream && !byParent ? noteOf(got.body) : null;
+      byUpstream = ['release', 'message'].includes(note?.kind) && sameRef(note.upstream, upstream);
+      upstreamFinal = byUpstream && note.kind === 'release' && note.final;
+      core.info(byParent ? `#${number}: the message of #${parent}, the family's parent`
+        : byUpstream ? `#${number}: the ${note.kind} of ${upstream}${upstreamFinal ? ', its final' : ''}`
+          : `#${number}: the App's comment is no parent's message on its family PR, nor its epic's note`);
     }
   }
   const approved = pr.labels.some((l) => l.name === cfg.label);
@@ -187,11 +240,13 @@ async function run({ github, context, core, env = process.env }) {
     if (!approved) return core.info(`agent-route: ${cfg.label} is no longer on #${number}`);
     const events = await github.paginate(github.rest.issues.listEvents, { ...context.repo, issue_number: number, per_page: 100 });
     actor = String(lastLabeledBy(events, cfg.label)?.id ?? 'unknown');
-    // the App's, for the parent: into issue-<P> only, and after the PR opened
+    // the App's, for the parent: into issue-<P> only, or for the epic: a downstream PR into the
+    // default branch (R-UR11); and after the PR opened
     if (actor === cfg.app) {
       const family = /^\d+$/.test((pr.base?.ref || '').slice(cfg.prefix.length)) && pr.base.ref.startsWith(cfg.prefix);
-      byParent = family && !atOpening(events, lastLabeled(events, cfg.label), cfg.app);
-      if (!byParent) core.info(`#${number}: the App's ${cfg.label} ${family ? 'came with the opening' : `on a PR into ${pr.base?.ref || 'nothing'}`}: not the parent's`);
+      const epic = !!upstream && !!pr.base?.ref && pr.base.ref === pr.base?.repo?.default_branch;
+      byParent = (family || epic) && !atOpening(events, lastLabeled(events, cfg.label), cfg.app);
+      if (!byParent) core.info(`#${number}: the App's ${cfg.label} ${family || epic ? 'came with the opening' : `on a PR into ${pr.base?.ref || 'nothing'}`}: not the parent's or the epic's`);
     }
   }
   // the run that finished the plan said so on its commit: its push wakes nothing
@@ -205,6 +260,8 @@ async function run({ github, context, core, env = process.env }) {
     byApp: actor === cfg.app,
     byCopilot: actor === cfg.copilot,
     byParent,
+    byUpstream,
+    upstreamFinal: upstreamFinal && approved,
     draft: pr.draft,
     finished: FINISHED.test(head.commit.message),
     reason: e.client_payload?.reason,
@@ -219,7 +276,13 @@ async function run({ github, context, core, env = process.env }) {
   // a dispatched event (checks failed, a review) is the point of its run: its prompt is
   // the whole turn, and anything unread is the next one. A slash command only works at
   // the start of a turn, so it cannot follow the thread's messages
-  core.setOutput('prompt_when', dispatched ? 'always' : 'quiet');
+  // the epic's final leads into the thread's unseen posts, the note among them
+  core.setOutput('prompt_when', dispatched ? 'always' : facts.upstreamFinal ? 'lead' : 'quiet');
+  // a code turn on a downstream PR stays draft until its epic's final (R-UR19); any other's never
+  // holds, so Mark Ready runs as ever. Not a code turn: no word
+  let held = '';
+  if (stage === 'code') held = marked ? String(!(upstream && (await finalNoted({ github, context, cfg, upstream, numbers: [number, issueNumber] })))) : 'false';
+  core.setOutput('held', held);
   // the checks run whose report the code job downloads
   const runId = dispatched && facts.reason === 'ci' ? Number(e.client_payload?.run_id) || 0 : 0;
   core.setOutput('run_id', runId ? String(runId) : '');
@@ -227,7 +290,7 @@ async function run({ github, context, core, env = process.env }) {
   core.setOutput('takeover', String(labelled));
   // the dispatch's reason
   core.setOutput('reason', dispatched ? String(facts.reason || '') : '');
-  core.info(`#${number}: ${stage}`);
+  core.info(`#${number}: ${stage}${held ? `, held ${held}` : ''}`);
 }
 
 module.exports = { run, stageOf, promptOf, failedReview, parentMessage };

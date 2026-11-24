@@ -14,8 +14,9 @@ const labelEvents = (...evs) => evs.map(([event, id, name = 'plan approved']) =>
 
 // the agents' PR #7; `approved` puts the label on it, `message` is its head commit's; `got`
 // is the comment GitHub has, `events` the PR's issue events
+// `issue` is what issues.get answers (a downstream PR's issue), `threads` each thread's comments
 function setup({ eventName, payload, approved = true, draft = true, message = 'Task 3', pr = {}, review = {}, lineComments = 2,
-  got = { user: { id: DRK }, issue_url: ISSUE_URL }, events = labelEvents(['labeled', DRK]) }) {
+  got = { user: { id: DRK }, issue_url: ISSUE_URL }, events = labelEvents(['labeled', DRK]), issue, threads = {} }) {
   const github = fake.github({
     'pulls.get': {
       state: 'open', draft, labels: approved ? [{ name: 'plan approved' }] : [],
@@ -27,6 +28,8 @@ function setup({ eventName, payload, approved = true, draft = true, message = 'T
     'pulls.listCommentsForReview': Array.from({ length: lineComments }, (_, i) => ({ id: i })),
     'issues.getComment': got,
     'issues.listEvents': events,
+    'issues.get': issue ?? fake.notFound(),
+    'issues.listComments': ({ issue_number: n }) => threads[n] || [],
   });
   const core = fake.core();
   const go = () => route.run({ github, context: fake.context({ eventName, payload }), core, env: ENV });
@@ -321,4 +324,88 @@ test("agent-route: the App's comment on the family PR without the parent's marke
 
 test("agent-route: the parent's message before plan approved is nothing", async () => {
   assert.equal((await outcome(setup({ ...said({ actor: APP }), approved: false, pr: FAMILY_PR, got: fromParent() })))[0], 'none');
+});
+
+// Upstream releases (spec 2026-11-24, R-UR11, R-UR14, R-UR19): PR #212 from issue-210 into main,
+// its body with the C1 marker; issue #210 is the App's, with the same marker
+const EPIC = 'kubed-io/quick-mcp#16';
+const MARK = `<!-- upstream: ${EPIC} -->`;
+const DOWNSTREAM_PR = { number: 212, head: { sha: 'h'.repeat(40), ref: 'issue-210', repo: { full_name: 'kubed-io/selenium-flow' } }, base: { ref: 'main', repo: { default_branch: 'main' } }, body: `Closes #210\n\nAdopts a release of ${EPIC}.\n\n${MARK}` };
+const ISSUE_210 = { number: 210, user: { id: APP }, body: `Adopts a release of ${EPIC}.\n\n${MARK}\n` };
+const PR_URL = 'https://api.github.com/repos/kubed-io/selenium-flow/issues/7';
+const release = (version, final, upstream = EPIC, id = APP) => ({ user: { id }, issue_url: PR_URL, body: `<!-- upstream-release {"upstream": "${upstream}", "version": "${version}", "final": ${final}} -->\n🚀 kubed-mcp ${version}` });
+const epicSays = (upstream = EPIC) => ({ user: { id: APP }, issue_url: PR_URL, body: `<!-- upstream-message {"upstream": "${upstream}"} -->\n💬 Keep the tool name.` });
+const downstream = (over = {}) => setup({ ...said({ actor: APP }), pr: DOWNSTREAM_PR, issue: ISSUE_210, ...over });
+
+test("agent-route: an App upstream-release note is a plan turn before plan approved, a code turn after; a final one leads with upstream-final", async () => {
+  const t = downstream({ got: release('0.2.0', true) });
+  assert.deepEqual(await outcome(t), ['code', `${P}upstream-final`, 'lead']);
+  assert.equal(t.core.outputs.upstream, EPIC);
+  assert.deepEqual(await outcome(downstream({ got: release('0.2.0', true), approved: false })), ['plan', '', 'quiet']);
+  // an rc note after the approval is a code turn in its own words
+  assert.deepEqual(await outcome(downstream({ got: release('0.2.0-rc.3', false) })), ['code', '', 'quiet']);
+});
+
+test("agent-route: an App upstream-message from the epic is the owner's comment; one for another epic, on an unmarked PR, or not first in the comment is nothing", async () => {
+  assert.deepEqual(await outcome(downstream({ got: epicSays() })), ['code', '', 'quiet']);
+  assert.deepEqual(await outcome(downstream({ got: epicSays(), approved: false })), ['plan', '', 'quiet']);
+  assert.equal((await outcome(downstream({ got: epicSays('kubed-io/quick-mcp#12') })))[0], 'none');
+  assert.equal((await outcome(downstream({ got: epicSays('kubed-io/quick-mcp#160') })))[0], 'none');
+  assert.equal((await outcome(downstream({ got: { ...epicSays(), body: `Hi\n${epicSays().body}` } })))[0], 'none');
+  // the PR body has no marker: no downstream PR, so the note is the App's own
+  assert.equal((await outcome(downstream({ got: epicSays(), pr: { ...DOWNSTREAM_PR, body: 'Closes #210' } })))[0], 'none');
+  // the body's marker, but an issue that is not the App's or Dr K's, or carries no marker
+  assert.equal((await outcome(downstream({ got: epicSays(), issue: { ...ISSUE_210, user: { id: 12345 } } })))[0], 'none');
+  assert.equal((await outcome(downstream({ got: epicSays(), issue: { ...ISSUE_210, body: 'Upgrade.' } })))[0], 'none');
+  // someone else's comment with the note is nothing
+  assert.equal((await outcome(downstream({ ...said({ actor: 12345 }), got: { ...epicSays(), user: { id: 12345 } } })))[0], 'none');
+});
+
+test("agent-route: the App's plan approved on a downstream PR into main is the epic's, but not at the PR's opening", async () => {
+  const t = downstream({ ...approval({ actor: APP }), events: byParent });
+  assert.deepEqual(await outcome(t), ['code', `${P}plan-approved`, 'quiet']);
+  assert.equal(t.core.outputs.takeover, 'true');
+  const opening = [...OPENED, at('labeled', APP, 'plan approved', '2026-11-24T10:00:02Z')];
+  assert.equal((await outcome(downstream({ ...approval({ actor: APP }), events: opening })))[0], 'none');
+  // an unmarked PR into main is still nothing
+  assert.equal((await outcome(downstream({ ...approval({ actor: APP }), events: byParent, pr: { ...DOWNSTREAM_PR, body: 'Closes #210' } })))[0], 'none');
+  // into a branch that is not the default one: nothing
+  assert.equal((await outcome(downstream({ ...approval({ actor: APP }), events: byParent, pr: { ...DOWNSTREAM_PR, base: { ref: 'dev', repo: { default_branch: 'main' } } } })))[0], 'none');
+});
+
+test('held: a downstream code turn holds until an App final note for its epic is on the PR or its issue', async () => {
+  const held = async (threads, got = { user: { id: DRK }, issue_url: PR_URL }) => {
+    const t = downstream({ ...said({ actor: got.user.id }), got, threads });
+    await t.go();
+    assert.equal(t.core.outputs.stage, 'code');
+    return t.core.outputs.held;
+  };
+  assert.equal(await held({}), 'true');
+  assert.equal(await held({ 210: [release('0.2.0', true)] }), 'false');
+  assert.equal(await held({ 7: [release('0.2.0', true)] }), 'false');
+  assert.equal(await held({ 7: [release('0.2.0', true, EPIC, DRK)] }), 'true');
+  assert.equal(await held({ 7: [release('0.2.0-rc.2', false)] }), 'true');
+  assert.equal(await held({ 7: [release('0.2.0', true, 'kubed-io/quick-mcp#12')] }), 'true');
+  // the final note that wakes the turn is on the PR: the turn may leave draft
+  assert.equal(await held({ 7: [release('0.2.0', true)] }, release('0.2.0', true)), 'false');
+  // a marked body whose issue cannot vouch for it holds: the safe side
+  const t = downstream({ ...said(), got: { user: { id: DRK }, issue_url: PR_URL }, issue: fake.notFound() });
+  await t.go();
+  assert.deepEqual([t.core.outputs.stage, t.core.outputs.upstream, t.core.outputs.held], ['code', '', 'true']);
+});
+
+test('held: every non-downstream code turn says false, so Mark Ready still runs', async () => {
+  for (const ctx of [said(), approval(), dispatch('ci', { run_id: 42 }), push(APP)]) {
+    const t = setup(ctx);
+    await t.go();
+    assert.deepEqual([t.core.outputs.stage, t.core.outputs.held, t.core.outputs.upstream], ['code', 'false', ''], JSON.stringify(ctx.payload.client_payload));
+  }
+  // a plan turn, or nothing, holds nothing
+  const plan = setup({ ...said(), approved: false });
+  await plan.go();
+  assert.deepEqual([plan.core.outputs.stage, plan.core.outputs.held], ['plan', '']);
+  // a downstream plan turn names its upstream, for the plan's hand-back
+  const dplan = downstream({ ...said(), got: { user: { id: DRK }, issue_url: PR_URL }, approved: false });
+  await dplan.go();
+  assert.deepEqual([dplan.core.outputs.stage, dplan.core.outputs.upstream, dplan.core.outputs.held], ['plan', EPIC, '']);
 });

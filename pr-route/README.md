@@ -10,6 +10,8 @@ and the words its turn starts with. Reads the PR and its head commit; runs no Cl
 | The `plan approved` label | | `code`, `prompt` plan-approved, `takeover` |
 | The App's `plan approved`, the parent's (R-SM24) | | as the owner's, on a PR into `issue-<P>` only and not at its opening (a fix's own label); `none` elsewhere |
 | The App's comment that opens with `<!-- parent-message {"parent": P} -->`, the parent's message (R-SM31) | `none` | as the owner's comment, on #P's family PR only (head `issue-<P>`, base the default branch, a body that closes #P); `none` elsewhere |
+| The App's comment that opens with n8n's `upstream-release` or `upstream-message` note for the epic a downstream PR adopts (R-UR11) | `plan` | `code`, as the owner's comment; a final's note leads with `upstream-final` (`lead`) |
+| The App's `plan approved` on a downstream PR into the default branch, the epic's | | as the owner's, not at its opening |
 | A push to the draft, by the App or the owner | | `code`, `prompt` next-task; `none` when its commit says `Agent: done` |
 | Copilot's review, `submitted` or `edited`, however it was asked for | | `code`, in its own words like the owner's; `none` on a draft or when it says Copilot could not review |
 | An `agent-code` dispatch | | `code`: `ci` → checks-failed with `run_id`, `review` → review-came-in, `fix` → fix-approved, `conflict` → merge the base in the checkout, uncommitted |
@@ -45,5 +47,14 @@ GitHub's event data can vouch for a sender before a runner starts. The token nee
 | `label` | `plan approved` | |
 | `prompts` | `/mcp__superpowers__superpowers_` | |
 
+A downstream PR (spec 2026-11-24 upstream releases) carries the epic's marker,
+`<!-- upstream: <owner>/<repo>#<P> -->`, as a line of its body. The route reads its issue (the
+head `issue-<N>`'s) and takes the epic from that issue's marker, by the App or Dr K, as
+`upstream`. Its code turns are `held` (`true`) until the App's final note for that epic is on the
+PR or the issue, so the code agent's `done` leaves it draft while it works against rcs (R-UR19).
+A marked body whose issue does not vouch for it holds too. Every other code turn is `held`
+`false`, so the job's Mark Ready runs as ever; a plan turn, or none, is empty. The token also
+needs `issues: read`.
+
 Outputs: `stage` (`plan`, `code`, `none`), `number`, `head`, `prompt`, `prompt_when`,
-`takeover`, `run_id`, `reason` (a dispatch's).
+`takeover`, `run_id`, `reason` (a dispatch's), `upstream`, `held`.

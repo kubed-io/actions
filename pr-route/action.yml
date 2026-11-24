@@ -48,7 +48,7 @@ outputs:
     description: The turn's prompt, when the event has no words of its own.
     value: ${{ steps.route.outputs.prompt }}
   prompt_when:
-    description: issue-agent's `prompt_when`, `always` for a dispatch, else `quiet`.
+    description: issue-agent's `prompt_when`, `always` for a dispatch, `lead` for an epic's final note, else `quiet`.
     value: ${{ steps.route.outputs.prompt_when }}
   takeover:
     description: "`true` when the approval label takes the PR over."
@@ -59,6 +59,16 @@ outputs:
   reason:
     description: An `agent-code` dispatch's reason (`ci`, `review`, `fix`); empty for any other event, an `agent-route` dispatch included.
     value: ${{ steps.route.outputs.reason }}
+  upstream:
+    description: >-
+      On a downstream PR (its body carries the C1 marker), the epic its issue's marker names,
+      `<owner>/<repo>#<P>`; empty otherwise.
+    value: ${{ steps.route.outputs.upstream }}
+  held:
+    description: >-
+      On a code turn: `true` while a downstream PR waits for its epic's final, which keeps it
+      draft; `false` on every other code turn. Empty when the turn is not code.
+    value: ${{ steps.route.outputs.held }}
 
 runs:
   using: composite
