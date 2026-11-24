@@ -102,6 +102,7 @@ jobs:
     steps:
 
     - name: Tell n8n the Verdict
+      continue-on-error: true
       uses: kubed-io/actions/issue-agent/handback@main
       with:
         body: ${{ needs.route.outputs.handback }}
@@ -134,7 +135,9 @@ jobs:
         ${{ needs.route.outputs.target == 'family' &&
           '/mcp__plugin_kubed-runner_superpowers__superpowers_review-sub-issue' ||
           '/mcp__plugin_kubed-runner_superpowers__superpowers_review' }}
-      # a sub-issue's summary for the parent, between markers review-route reads it back from
+      # the reply's header: a sub-issue's adds its summary for the parent, between markers
+      # review-route reads it back from
+      DEFAULT_HEADER: "**Verdict: {{ output.verdict }}**"
       FAMILY_HEADER: |-
         **Verdict: {{ output.verdict }}**
 
@@ -229,9 +232,7 @@ jobs:
         schema: ${{ env.AGENT_ROLES }}/review/schema.json
         prompt: ${{ env.REVIEW_PROMPT }}
         prompt_when: always
-        header: >-
-          ${{ needs.route.outputs.target == 'family' && env.FAMILY_HEADER ||
-            '**Verdict: {{ output.verdict }}**' }}
+        header: ${{ needs.route.outputs.target == 'family' && env.FAMILY_HEADER || env.DEFAULT_HEADER }}
         review: "true"
         threads: "false"
         # the Checks job's dispatch is github-actions': Claude starts only for an allowed bot
@@ -271,6 +272,7 @@ jobs:
       if: >-
         steps.still.outputs.wanted == 'true' && (always()) &&
         needs.route.outputs.target == 'family' && steps.check.outputs.handback != ''
+      continue-on-error: true
       uses: kubed-io/actions/issue-agent/handback@main
       with:
         body: ${{ steps.check.outputs.handback }}

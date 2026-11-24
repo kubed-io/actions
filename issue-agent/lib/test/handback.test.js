@@ -73,9 +73,16 @@ test("a body made elsewhere (a review's verdict) goes to n8n as it is; an empty 
   const { posts, core } = await handBack({ body: JSON.stringify(VERDICT) });
   assert.deepEqual(posts.map((p) => [p.url, p.body]), [['http://n8n/cb', VERDICT]]);
   assert.equal(core.outputs.sent, 'verdict');
-  for (const body of ['', '  ', 'not json', '{}']) {
+  for (const body of ['', '  ']) {
     const none = await handBack({ body });
     assert.deepEqual([none.posts, none.core.notices], [[], []], body);
+  }
+  // a body of any other type, or none, warns and sends nothing
+  for (const body of ['not json', '{}', '[]', '{"type":"merge","number":7}', '{"type":7}']) {
+    const none = await handBack({ body });
+    assert.equal(none.posts.length, 0, body);
+    assert.match(none.core.notices[0], /not one n8n takes \(verdict, report, actions\)/, body);
+    assert.equal(none.core.outputs.sent, undefined, body);
   }
   const down = await handBack({ body: JSON.stringify(VERDICT), fails: new Error('connect ECONNREFUSED') });
   assert.match(down.core.notices[0], /the verdict was not sent: connect ECONNREFUSED/);

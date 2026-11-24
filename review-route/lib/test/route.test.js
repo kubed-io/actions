@@ -93,6 +93,12 @@ test('target is default for base main', async () => {
   const t = setup({ pr: { head: { sha: B, ref: 'issue-12', repo: { full_name: 'kubed-io/selenium-flow' } }, base: { ref: 'main' } } });
   await t.go();
   assert.deepEqual([t.core.outputs.number, t.core.outputs.target], ['7', 'default']);
+  // only the prefix and a number is a family's branch
+  for (const ref of ['issue-foo', 'issue-', 'issue-12a']) {
+    const other = setup({ pr: { base: { ref } } });
+    await other.go();
+    assert.deepEqual([other.core.outputs.number, other.core.outputs.target], ['7', 'default'], ref);
+  }
 });
 
 test('asked about a PR the agents did not build, it passes straight away', async () => {

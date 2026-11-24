@@ -26,15 +26,20 @@ function bodyOf({ kin, output, repo, number, parent, runId }) {
   return null;
 }
 
-// a body that came made: sent when it names its type
-function made(text) {
-  const body = (text || '').trim() ? parse(text) : null;
-  return body && typeof body === 'object' && typeof body.type === 'string' ? body : null;
+// the bodies n8n's callback takes
+const TYPES = ['verdict', 'report', 'actions'];
+
+// a body that came made: sent only when it is one of the callback's types
+function made(text, core) {
+  const body = parse(text);
+  if (body && typeof body === 'object' && TYPES.includes(body.type)) return body;
+  core.warning(`the body is not one n8n takes (${TYPES.join(', ')}): nothing is sent`);
+  return null;
 }
 
 async function run({ context, core, fetch = globalThis.fetch, env = process.env }) {
   const { owner, repo } = context.repo;
-  const body = (env.BODY || '').trim() ? made(env.BODY) : bodyOf({
+  const body = (env.BODY || '').trim() ? made(env.BODY, core) : bodyOf({
     kin: env.KIN,
     output: parse(env.OUTPUT),
     repo: `${owner}/${repo}`,
