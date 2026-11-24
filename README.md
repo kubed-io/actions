@@ -42,6 +42,7 @@ use any secret the repo defines.
 | [agent-issue.yml](.github/workflows/agent-issue.yml) | The spec agent on an issue, and the hand-off to a draft PR and its plan. Called on the `agent-issue` dispatch |
 | [agent-pr.yml](.github/workflows/agent-pr.yml) | The plan and code agents on an agents' PR. Called on the `agent-code` and `agent-route` dispatches |
 | [agent-review.yml](.github/workflows/agent-review.yml) | The review agent and its `Agent review` status. Called on the `agent-review` dispatch |
+| [agent-renovate.yml](.github/workflows/agent-renovate.yml) | The renovate agent on a Renovate PR: what the bump needs as one follow-up commit, and a verdict. Called on the `agent-renovate` dispatch |
 
 ```yaml
 jobs:
@@ -68,6 +69,11 @@ it. The caller grants the jobs' permissions, the union of the jobs' own.
 A repo's own setup for the code agent, past Python, is a composite action at
 `.github/actions/agent-setup/`; agent-pr.yml runs it when the checkout has one.
 
+agent-renovate.yml takes no inputs. Its dispatch is `{pull_request, reason, comment_id}`,
+`reason` being `opened`, `comment` (with the comment's id) or `updated`. Its role files are
+[.github/agents/renovate/](.github/agents/renovate/), whose settings deny deploying, committing
+and merging, and give the automatic compact the agent's keep-list.
+
 ### kubectl.yml inputs
 
 | Input | Default | Description |
@@ -88,6 +94,7 @@ Copy [.github/app/](.github/app/) into the repo's `.github/workflows/`, unchange
 | [plan.yml](.github/app/plan.yml) | the build and the plan on a PR, in one summary; a repo's own `pr.yml` stays free for its PR chores |
 | [kubectl.yml](.github/app/kubectl.yml) | any of them on demand, of the app or any kustomization in the repo, on `DEFAULT_RUNNER` or GitHub's |
 | [renovate.yml](.github/app/renovate.yml) | Renovate on a dashboard tick, a merge, weekly and on demand |
+| [agent-renovate.yml](.github/app/agent-renovate.yml) | the renovate agent on a Renovate PR, on n8n's `agent-renovate` dispatch |
 
 The workflows read their settings from the repo's variables, so every repo names them alike.
 An input of the same purpose overrides one. The repo needs:

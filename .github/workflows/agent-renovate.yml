@@ -1,0 +1,250 @@
+name: 🤖 Agent · Renovate
+
+# The renovate agent on a Renovate PR (head `renovate/*`): what the bump needs beyond the
+# version, made as one follow-up commit on Renovate's branch, the build diff proved, and a
+# verdict in a comment: `approve` (✅ Approved, no GitHub review), `changes made` or
+# `question` for Dr K. It never moves a version, deploys or merges.
+#
+# n8n (Agent flow · intake) sends the `agent-renovate` dispatch, {pull_request, reason,
+# comment_id}: `opened` when Renovate opens the PR, `comment` when Dr K comments on it,
+# `updated` when Renovate pushes to it. One conversation per repo (`session_key: renovate`),
+# so one turn per repo at a time: n8n queues the next PR and dispatches it when the channel's
+# `ended` callback, which says `lane: renovate`, comes in. The concurrency group is only the
+# backstop: GitHub keeps one pending run and replaces it, so it cannot be the queue.
+#
+# The commit carries `Agent: renovate`: n8n tells it from Renovate's own pushes by that, as
+# both are the App's. A Renovate push while the turn runs stops it (`superseded`): nothing is
+# committed, no verdict is posted, and n8n queues a fresh `updated` turn.
+#
+# The gate names ids, not variables: a job's `if` is decided before any runner, so only
+# GitHub's own event data can vouch for the sender. 235398881 is the kubed-io App's bot
+# (n8n's dispatch), 4399427 Dr K.
+#
+# A repo calls this from its agent-renovate.yml (.github/app/), on the `agent-renovate`
+# dispatch. The job on the claude runner runs for a dispatch only: the runner group lists this
+# file, and a dispatch always runs the caller on the default branch, never a branch's copy.
+
+on:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+
+  renovate:
+    name: Renovate
+    if: >-
+      github.event_name == 'repository_dispatch' && github.event.action == 'agent-renovate' &&
+      (github.event.sender.id == 235398881 || github.event.sender.id == 4399427)
+    runs-on: claude
+    environment: claude
+    # one renovate turn per repo, its one conversation; n8n's queue keeps the order
+    concurrency:
+      group: agent-renovate-${{ github.repository }}
+      cancel-in-progress: false
+    # past the App token's hour: what follows the turn is on a token minted after it
+    timeout-minutes: 120
+    # the agent's own token (claude-code-action's): it reads, the App's token writes
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    env:
+      # the agent-flow channel's token: n8n's messages reach the running turn
+      AGENT_FLOW_N8N_TOKEN: ${{ secrets.AGENT_FLOW_N8N_TOKEN }}
+      # one long conversation per repo: every Claude process in the job compacts at about 200k
+      # tokens (a frontmatter autoCompactWindow is ignored under --agent)
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: "200000"
+      # for the runner's backstop `ended` (job-completed.sh), when the session dies without
+      # saying it: the channel's own callbacks take issue-agent's `lane`
+      AGENT_FLOW_LANE: renovate
+    steps:
+
+    # the payload proves nothing: the PR is read back, and it must be an open Renovate PR of
+    # this repo, the reason one of the three
+    - name: The Pull Request
+      id: pr
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NUMBER: ${{ github.event.client_payload.pull_request }}
+        REASON: ${{ github.event.client_payload.reason }}
+        COMMENT_ID: ${{ github.event.client_payload.comment_id }}
+      run: |
+        case "$NUMBER" in ''|*[!0-9]*) echo "::error::no pull request number"; exit 1 ;; esac
+        case "$REASON" in
+        opened|updated) when=always ;;
+        # Dr K's comment is the turn, after the prompt
+        comment) when=lead ;;
+        *) echo "::error::reason is opened, comment or updated, not '${REASON}'"; exit 1 ;;
+        esac
+        gh api "repos/${GITHUB_REPOSITORY}/pulls/${NUMBER}" > "$RUNNER_TEMP/pr.json"
+        state=$(jq -r .state "$RUNNER_TEMP/pr.json")
+        head=$(jq -r .head.ref "$RUNNER_TEMP/pr.json")
+        repo=$(jq -r .head.repo.full_name "$RUNNER_TEMP/pr.json")
+        if [ "$state" != open ] || [ "$repo" != "$GITHUB_REPOSITORY" ] ||
+          [ "${head#renovate/}" = "$head" ]; then
+          echo "::notice::#${NUMBER} is no open Renovate PR here (${state}, ${repo}:${head})"
+          exit 0
+        fi
+        [ "$REASON" != comment ] || echo "::notice::the turn answers Dr K's comment ${COMMENT_ID}"
+        {
+          echo "wanted=true"
+          echo "head=${head}"
+          echo "title=$(jq -r .title "$RUNNER_TEMP/pr.json" | tr -d '\r\n')"
+          echo "prompt=/mcp__plugin_kubed-runner_superpowers__superpowers_renovate-${REASON}"
+          echo "prompt_when=${when}"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: App Token
+      if: steps.pr.outputs.wanted == 'true'
+      id: app
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+
+    # the branch itself, with every branch's history: the agent builds main from a worktree of
+    # origin/main
+    - name: Checkout
+      if: steps.pr.outputs.wanted == 'true'
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ steps.pr.outputs.head }}
+        fetch-depth: 0
+        persist-credentials: false
+
+    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
+    # of the workspace so the agent has nothing of them to commit
+    - name: Role Files
+      if: steps.pr.outputs.wanted == 'true'
+      uses: actions/checkout@v7
+      with:
+        repository: ${{ job.workflow_repository }}
+        ref: ${{ job.workflow_sha }}
+        path: .agent-flow
+        sparse-checkout: .github/agents
+        persist-credentials: false
+
+    - name: Role Files Out of the Tree
+      if: steps.pr.outputs.wanted == 'true'
+      run: |
+        mv .agent-flow "$RUNNER_TEMP/agent-flow"
+        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/agents" >> "$GITHUB_ENV"
+
+    # the agent proves its build diff with kubectl build
+    - name: KRM Setup
+      if: steps.pr.outputs.wanted == 'true'
+      uses: kubed-io/actions/krm-setup@main
+
+    # app repos ignore neither the thread files nor krm-setup's clone: the follow-up commit is
+    # the agent's changes alone
+    - name: Keep the Job's Files Out of the Commit
+      if: steps.pr.outputs.wanted == 'true'
+      run: printf '%s\n' /.issue/ /.krm/ >> .git/info/exclude
+
+    # the answer's comment, up before the agent runs; comment/end writes it
+    - name: Comment
+      id: comment
+      if: steps.pr.outputs.wanted == 'true'
+      uses: kubed-io/actions/comment/start@main
+      with:
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ github.event.client_payload.pull_request }}
+        live: true
+        prompt: ${{ steps.pr.outputs.prompt_when == 'always' && steps.pr.outputs.prompt || '' }}
+
+    - name: Renovate Agent
+      if: steps.pr.outputs.wanted == 'true'
+      id: agent
+      uses: kubed-io/actions/issue-agent@main
+      with:
+        comment_id: ${{ steps.comment.outputs.comment_id }}
+        github_token: ${{ steps.app.outputs.token }}
+        number: ${{ github.event.client_payload.pull_request }}
+        settings: ${{ env.AGENT_ROLES }}/renovate/settings.json
+        schema: ${{ env.AGENT_ROLES }}/renovate/schema.json
+        # the turn's words are a kb prompt (superpowers library), by the dispatch's reason
+        prompt: ${{ steps.pr.outputs.prompt }}
+        prompt_when: ${{ steps.pr.outputs.prompt_when }}
+        header: "**Verdict: {{ output.verdict }}**"
+        threads: "false"
+        # n8n's dispatch is the App's: Claude starts only for an allowed bot
+        trusted: ${{ env.CLAUDE_OWNER_ID }},${{ env.CLAUDE_TRUSTED_BOTS }},235398881,kubed-io[bot]
+        # one conversation per repo, compacted by CLAUDE_CODE_AUTO_COMPACT_WINDOW alone
+        session_key: renovate
+        live_messages: true
+        lane: renovate
+        # its steps after the turn post on a token minted as it ends
+        app_client_id: ${{ vars.GH_CLIENT_ID }}
+        app_private_key: ${{ secrets.GH_APP_KEY }}
+
+    # a turn a Renovate push stopped posts no verdict: its answer is this line alone
+    - name: A Superseded Turn
+      if: >-
+        steps.pr.outputs.wanted == 'true' &&
+        fromJSON(steps.agent.outputs.output || '{}').verdict == 'superseded'
+      env:
+        NUMBER: ${{ github.event.client_payload.pull_request }}
+      run: |
+        for part in "$RUNNER_TEMP/issue-comment/${NUMBER}/parts/"*-issue-agent.md; do
+          [ -f "$part" ] || continue
+          echo "Renovate updated the branch while this turn ran: a fresh turn follows." > "$part"
+        done
+
+    # the turn may have outlasted the App token's hour: the commit and the answer are on a
+    # fresh one. A failed mint leaves them on the first
+    - name: Fresh App Token
+      if: steps.pr.outputs.wanted == 'true'
+      id: fresh
+      continue-on-error: true
+      uses: actions/create-github-app-token@v3
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        permission-contents: write
+        permission-pull-requests: write
+        permission-issues: write
+
+    - name: Changes
+      id: changes
+      if: >-
+        steps.pr.outputs.wanted == 'true' && steps.agent.outputs.output != '' &&
+        fromJSON(steps.agent.outputs.output).verdict != 'superseded'
+      run: |
+        if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::the tree is clean: no follow-up commit"
+        fi
+
+    # what the bump needs, one signed commit on Renovate's branch. Never over a push
+    # Renovate made meanwhile: git/commit refuses when the branch moved on a path it writes
+    - name: Commit the Follow-up
+      id: commit
+      if: steps.changes.outputs.changed == 'true'
+      # a refused commit is said in the answer; the job fails after it
+      continue-on-error: true
+      uses: kubed-io/actions/git/commit@main
+      with:
+        token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
+        branch: ${{ steps.pr.outputs.head }}
+        message: "renovate: what ${{ steps.pr.outputs.title }} needs"
+        trailers: "Agent: renovate"
+        # the App cannot write workflow files, and one in the commit refuses all of it
+        ignore: .github/workflows/**
+
+    - name: Answer
+      if: steps.comment.outputs.comment_id != ''
+      uses: kubed-io/actions/comment/end@main
+      with:
+        github_token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
+        number: ${{ github.event.client_payload.pull_request }}
+        comment_id: ${{ steps.agent.outputs.comment_id }}
+        append: ${{ steps.commit.outputs.summary }}
+
+    - name: The Commit Failed
+      if: steps.commit.outcome == 'failure'
+      run: echo "::error::the commit failed; its answer says why" && exit 1

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "agent": "kubed-runner:renovate",
+  "enabledPlugins": {
+    "kubed-runner@talent-show": true
+  },
+  "disableClaudeAiConnectors": true,
+  "permissions": {
+    "deny": [
+      "Bash(kubectl up:*)",
+      "Bash(kubectl apply:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)",
+      "Bash(git clean:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr review:*)"
+    ]
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat <<'EOF'\nThis conversation is the renovate agent's memory of one repository, one Renovate pull request after\nanother. The summary must keep:\n- every pin in this repository: its name, its file, its current version, where its releases and\n  upgrade notes come from, and the quirks a bump of it has needed (renamed or removed values, a chart\n  that moved repo, CRD changes, defaults that changed meaning);\n- every answer and ruling Dr K gave, in his words when they are short, and what it applies to;\n- for each earlier pull request: its number, its bumps, its verdict, what its follow-up commit changed\n  and why, and anything left open;\n- the pull request in progress: its number, the head it was read at, what is checked and what is left.\nDrop tool output, file listings and diffs once their conclusion is recorded.\nEOF"
+          }
+        ]
+      }
+    ]
+  }
+}
