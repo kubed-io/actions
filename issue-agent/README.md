@@ -83,7 +83,7 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 | `append_system_prompt` | `""` | This job's extras, inline or a path |
 | `prompt` | `""` | The event's turn, for an event with no words |
 | `prompt_when` | `quiet` | `quiet`: only when nothing new; `always`: every run, quoted above the reply |
-| `header` | `""` | Template above the reply: `{{ output.<field> }}`, `{{ link:output.<field> }}` (the file's wiki page when it is in a wiki submodule, else its blob), `{{ run_url }}`, `{{ session_id }}`, `{{ number }}`, `{{ blob }}` |
+| `header` | `""` | Template above the reply: `{{ output.<field> }}`, `{{ link:output.<field> }}` (the file's wiki page when it is in a wiki submodule, else its blob), `{{ run_url }}`, `{{ session_id }}`, `{{ number }}`, `{{ blob }}`. A header with output fields, none of them given, is left off |
 | `review`, `threads` | `false`, `true` | The PR fields the agent gets |
 | `session_key` | `""` | Resumable session |
 | `trusted` | the runner's `CLAUDE_OWNER_ID`, `CLAUDE_TRUSTED_BOTS` | Ids and bots whose messages count |

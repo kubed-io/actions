@@ -41,6 +41,12 @@ inputs:
     description: "review-route's `target`: `family` also makes the verdict's body for n8n."
     required: false
     default: default
+  retry_of:
+    description: >
+      When this review is n8n's retry of an errored one, that errored run's id (the
+      `review-error` dispatch's `run_id`); empty otherwise.
+    required: false
+    default: ""
 
 outputs:
   verdict:
@@ -50,7 +56,9 @@ outputs:
     description: >
       For a `family` review that finished, its `verdict` body for n8n (issue-agent/handback's
       `body`), with the output's `summary`; the last allowed review asking for changes is
-      `needs a human`. Empty otherwise.
+      `needs a human`. For any review that ended without a verdict, a `review-error` body
+      (`retry_of` the run n8n retried, or 0), which n8n retries once and then hands back.
+      Empty otherwise.
     value: ${{ steps.verdict.outputs.handback }}
 
 runs:
@@ -69,6 +77,7 @@ runs:
       REVIEW_ID: ${{ inputs.review_id }}
       COMMENT_ID: ${{ inputs.comment_id }}
       TARGET: ${{ inputs.target }}
+      RETRY_OF: ${{ inputs.retry_of }}
     with:
       github-token: ${{ inputs.github_token }}
       script: |

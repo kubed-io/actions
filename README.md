@@ -16,7 +16,7 @@ Reusable GitHub Actions for kubed-io repos, and the reusable workflows built on 
 | [git/commit](git/) | Commits the checkout's changes to a branch through the API, so every commit is GitHub-signed; a wiki submodule's changes pushed with git first; a failed commit's changes kept, and a summary of what is not on the branch |
 | [git/pr](git/) | Opens a PR from a branch, draft by default with labels, or finds the open one; `draft: false` marks a found draft ready |
 | [pr-checks](pr-checks/) | Writes what a PR's checks found for an agent: the code scanning alerts open on it, new first with their threads, and the head's failure and warning annotations |
-| [issue-agent/handback](issue-agent/) | A family turn's hand-back to n8n: a sub-issue's `report`, a parent's `actions`, make-sub-issue's `filed`, or a sub-issue review's `verdict`, POSTed to the agent-flow callback; n8n's answer never fails the job |
+| [issue-agent/handback](issue-agent/) | A family turn's hand-back to n8n: a sub-issue's `report`, a parent's `actions`, make-sub-issue's `filed`, a sub-issue review's `verdict`, or a review's `review-error`, POSTed to the agent-flow callback; n8n's answer never fails the job |
 | [issue-agent/questions](issue-agent/) | The parent's `open_questions`, kept on it and as the `## Open questions` section of the family's PR to main, with its `## Open sub-issues` |
 | [issue-route](issue-route/) | Decides what n8n's `agent-issue` dispatch is, a family wake-up among them: a spec turn, the hand-off to a plan, the make-sub-issue turn or nothing, and the session the turn thinks in |
 | [issue-template](issue-template/) | Turns an issue form into a JSON schema for an agent's output: one form by type or name, or a catalog of sub-issues to suggest |
@@ -107,7 +107,10 @@ prompt, and hands its verdict to the same callback after the check, as
 `{type: "verdict", repo, number, sha, verdict, summary, review_id, run_id}`; a pass carried to
 a new head goes too, from a short job on the claude runner, and so does a `needs a human` when
 the PR stops at the review or fix cap, or its last allowed review asks for changes. Other PRs
-are reviewed as before.
+are reviewed as before. A review on any PR that ends without a verdict posts no
+"**Verdict:**" header and sends `{type: "review-error", repo, number, sha, run_id, retry_of}`:
+n8n dispatches the first error on a head again (`reason: review-error`, `run_id`), and a second
+from that retry goes to the parent on a sub-issue PR, or to Dr K on the PR.
 
 agent-renovate.yml takes no inputs. Its dispatch is `{pull_request, reason, comment_id}`,
 `reason` being `opened`, `comment` (with the comment's id) or `updated`. Its role files are

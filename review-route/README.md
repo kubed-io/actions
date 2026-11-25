@@ -93,6 +93,8 @@ since review-route reads back only the reviewer's statuses.
     review_id: ${{ steps.answer.outputs.review_id }}
     comment_id: ${{ steps.answer.outputs.comment_id }}
     target: ${{ needs.route.outputs.target }}
+    # n8n's retry (the kubed-io App) of an errored review names the run it retries
+    retry_of: ${{ github.event.client_payload.reason == 'review-error' && github.event.sender.id == 235398881 && github.event.client_payload.run_id || '' }}
 ```
 
 `answer` is the job's comment/end, which runs first: the review agent's answer is one
@@ -100,5 +102,7 @@ comment, or one review when it has line comments.
 
 Outputs: `verdict`, and `handback`: for a `family` target, the review's body for n8n,
 `{type: "verdict", repo, number, sha, verdict, summary, review_id, run_id}` with the output's
-`summary`; empty for `default` or a review that did not finish. The last allowed review
-asking for changes (`last`) is handed back as `needs a human` (R-SM28).
+`summary`; empty for a `default` review's verdict. The last allowed review asking for changes
+(`last`) is handed back as `needs a human` (R-SM28). A review that did not finish, on any
+target, gives `{type: "review-error", repo, number, sha, run_id, retry_of}` (R-SM35), with
+`retry_of` from the `retry_of` input: the errored run n8n's retry was for, or 0.

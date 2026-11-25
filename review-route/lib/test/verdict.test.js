@@ -50,10 +50,34 @@ test("a family review's verdict is handed back to n8n, summary and all", async (
   assert.deepEqual([asked.verdict, asked.summary, asked.review_id], ['changes requested', '', 0]);
 });
 
-test('a default review, or one that did not finish, hands nothing back', async () => {
-  for (const over of [{ OUTPUT: '{"verdict":"looks good","summary":"x"}' }, { TARGET: 'default', OUTPUT: '{"verdict":"looks good"}' }, { TARGET: 'family', OUTPUT: '' }]) {
+test("a default review's verdict hands nothing back", async () => {
+  for (const over of [{ OUTPUT: '{"verdict":"looks good","summary":"x"}' }, { TARGET: 'default', OUTPUT: '{"verdict":"looks good"}' }, { TARGET: 'default', OUTPUT: '{"verdict":"changes requested"}' }]) {
     assert.equal((await set(over)).handback, '', JSON.stringify(over));
   }
+});
+
+test('a review that ends without a verdict tells n8n it errored, on any PR (R-SM35)', async () => {
+  for (const TARGET of ['family', 'default', undefined]) {
+    for (const OUTPUT of ['', '{}', 'not json', '{"verdict":""}', '{"summary":"x"}']) {
+      const s = await set({ TARGET, OUTPUT });
+      assert.equal(s.state, 'error', `${TARGET} ${OUTPUT}`);
+      assert.deepEqual(JSON.parse(s.handback), {
+        type: 'review-error', repo: 'kubed-io/selenium-flow', number: 7, sha: 'abc', run_id: 5, retry_of: 0,
+      }, `${TARGET} ${OUTPUT}`);
+    }
+  }
+});
+
+test("an errored review that was n8n's retry names the run it retried (R-SM35)", async () => {
+  const s = await set({ TARGET: 'family', OUTPUT: '', RETRY_OF: '41' });
+  assert.equal(JSON.parse(s.handback).retry_of, 41);
+  for (const RETRY_OF of ['', 'x', '-3', '0']) {
+    assert.equal(JSON.parse((await set({ OUTPUT: '', RETRY_OF })).handback).retry_of, 0, RETRY_OF);
+  }
+  // a verdict is a verdict, retry or not
+  const pass = JSON.parse((await set({ TARGET: 'family', OUTPUT: '{"verdict":"looks good"}', RETRY_OF: '41' })).handback);
+  assert.equal(pass.type, 'verdict');
+  assert.equal('retry_of' in pass, false);
 });
 
 test("a family's last allowed review asking for changes hands back needs a human (R-SM28)", async () => {

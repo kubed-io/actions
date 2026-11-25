@@ -25,6 +25,12 @@ name: 🔍 Agent · Review
 # for the parent to answer (R-SM28). Any other PR, the family's own to main included, is
 # reviewed as before.
 #
+# A review that ends without a verdict (the agent failed, or gave no output) sets the status to
+# error, posts no "**Verdict:**" header, and tells n8n with a `review-error` body, on any PR.
+# n8n dispatches the first error on a head again (`reason: review-error`, the errored run's
+# id); a second, from that retry, goes to the parent on a sub-issue PR and to Dr K on any
+# other (R-SM35 to R-SM37).
+#
 # Copilot never stands in: asked for on a change, its review is a second opinion that wakes
 # the code agent through agent-pr.yml, and the review agent reviews as always.
 #
@@ -250,13 +256,18 @@ jobs:
         review_id: ${{ steps.answer.outputs.review_id }}
         comment_id: ${{ steps.answer.outputs.comment_id }}
         target: ${{ needs.route.outputs.target }}
+        # n8n's retry of an errored review names the run it retries (R-SM35)
+        retry_of: >-
+          ${{ github.event.client_payload.reason == 'review-error' &&
+            github.event.sender.id == 235398881 && github.event.client_payload.run_id || '' }}
 
-    # a sub-issue's verdict to n8n, which merges a pass into the family's branch (R-SM4);
-    # its refusal never fails the job
+    # a sub-issue's verdict to n8n, which merges a pass into the family's branch (R-SM4); and
+    # any review without a verdict, which n8n retries once and then hands back (R-SM35). Its
+    # refusal never fails the job
     - name: Tell n8n the Verdict
       if: >-
         steps.still.outputs.wanted == 'true' && (always()) &&
-        needs.route.outputs.target == 'family' && steps.check.outputs.handback != ''
+        steps.check.outputs.handback != ''
       continue-on-error: true
       uses: kubed-io/actions/issue-agent/handback@main
       with:

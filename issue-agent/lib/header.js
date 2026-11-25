@@ -8,7 +8,10 @@
 //   {{ number }}                 the issue or PR
 //   {{ blob }}                   the PR head's blob URL
 //
-// A name with no value renders empty, so a missing field never shows its braces.
+// A name with no value renders empty, so a missing field never shows its braces. A header
+// drawn from the output is left off when the output gave none of its fields: a run that ended
+// without one says nothing in its name (a review without a verdict posts no "**Verdict: **",
+// spec 2026-11-24 R-SM37).
 
 const path = require('path');
 
@@ -18,11 +21,17 @@ function lookup(values, name) {
 
 function fillHeader(template, values, { link } = {}) {
   if (!(template || '').trim()) return '';
-  return template.replace(/\{\{\s*(link:)?([\w.]+)\s*\}\}/g, (_, linked, name) => {
+  let fromOutput = 0;
+  let filled = 0;
+  const text = template.replace(/\{\{\s*(link:)?([\w.]+)\s*\}\}/g, (_, linked, name) => {
     const v = lookup(values, name);
-    if (v == null || typeof v === 'object') return '';
+    const output = name.startsWith('output.');
+    if (output) fromOutput += 1;
+    if (v == null || typeof v === 'object' || String(v) === '') return '';
+    if (output) filled += 1;
     return linked && link ? link(String(v)) : String(v);
   }).trim();
+  return fromOutput && !filled ? '' : text;
 }
 
 // the submodules that are a repository's wiki, from .gitmodules' text, with each wiki's

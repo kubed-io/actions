@@ -82,11 +82,18 @@ test("a body made elsewhere (a review's verdict) goes to n8n as it is; an empty 
   for (const body of ['not json', '{}', '[]', '{"type":"merge","number":7}', '{"type":7}']) {
     const none = await handBack({ body });
     assert.equal(none.posts.length, 0, body);
-    assert.match(none.core.notices[0], /not one n8n takes \(verdict, report, actions, filed, upstream-report\)/, body);
+    assert.match(none.core.notices[0], /not one n8n takes \(verdict, review-error, report, actions, filed, upstream-report\)/, body);
     assert.equal(none.core.outputs.sent, undefined, body);
   }
   const down = await handBack({ body: JSON.stringify(VERDICT), fails: new Error('connect ECONNREFUSED') });
   assert.match(down.core.notices[0], /the verdict was not sent: connect ECONNREFUSED/);
+});
+
+test("a review that errored goes to n8n as its review-error body (R-SM35)", async () => {
+  const ERRORED = { type: 'review-error', repo: 'kubed-io/selenium-flow', number: 7, sha: 'abc', run_id: 5, retry_of: 0 };
+  const { posts, core } = await handBack({ body: JSON.stringify(ERRORED) });
+  assert.deepEqual(posts.map((p) => p.body), [ERRORED]);
+  assert.equal(core.outputs.sent, 'review-error');
 });
 
 test("make-sub-issue's filing goes to n8n as the filed body: the new number and its parent", async () => {

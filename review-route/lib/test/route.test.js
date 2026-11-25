@@ -421,3 +421,20 @@ test("a family PR at the fix cap hands n8n a needs-a-human verdict; under it, no
   await other.go();
   assert.equal(other.core.outputs.handback, '');
 });
+
+test("n8n's retry of an errored review reviews the same head again; the error is no review (R-SM35)", async () => {
+  const errored = { context: 'Agent review', creator: { id: BOT }, state: 'error', description: 'the review did not finish', target_url: 'https://run/41' };
+  const statuses = { [A]: [mine('failure', 'changes requested')], [B]: [errored] };
+  const t = setup({
+    statuses, pr: { base: { ref: 'issue-12' } },
+    payload: { action: 'agent-review', client_payload: { pull_request: 7, reason: 'review-error', run_id: 41, sha: B }, sender: { id: 235398881 } },
+  });
+  await t.go();
+  // the errored head is not counted: one review so far, this is the second
+  assert.deepEqual(t.posted(), ['pending: reviewing (2 of 3)']);
+  assert.deepEqual(t.core.outputs, { number: '7', sha: B, last: 'false', target: 'family', handback: '' });
+  // the checks pointer for that head does not review it again on its own
+  const pointer = setup({ statuses });
+  await pointer.go();
+  assert.deepEqual([pointer.posted(), pointer.core.outputs.number], [[], '']);
+});

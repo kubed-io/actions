@@ -2,7 +2,8 @@
 // which n8n posts on the parent and wakes it with; a parent's `actions`, which n8n carries out
 // in order. Each goes to the agent-flow callback with the channel's token. Nothing goes when the
 // field is empty, and n8n's answer never fails the job: a refusal or no answer is a warning.
-// A body made elsewhere (review-route's `verdict`, R-SM4) goes as it is, in place of these.
+// A body made elsewhere (review-route's `verdict`, R-SM4, or its `review-error`, R-SM35) goes as
+// it is, in place of these.
 // make-sub-issue hands back the number it filed (`filed`, R-SM25), and n8n starts its first turn.
 // A downstream issue's turn reports to its upstream epic (`upstream-report`, spec 2026-11-24
 // upstream releases, R-UR9), and so does its PR's plan turn, saying its plan is ready.
@@ -44,7 +45,7 @@ function bodyOf({ kin, output, repo, number, parent, upstream, pullRequest, runI
 }
 
 // the bodies n8n's callback takes
-const TYPES = ['verdict', 'report', 'actions', 'filed', 'upstream-report'];
+const TYPES = ['verdict', 'review-error', 'report', 'actions', 'filed', 'upstream-report'];
 
 // a filed body names the new sub-issue and its parent, two different issues
 const id = (n) => Number.isInteger(n) && n > 0;
