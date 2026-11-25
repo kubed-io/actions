@@ -86,5 +86,7 @@ runs:
       PROMPTS: ${{ inputs.prompts }}
     with:
       github-token: ${{ inputs.github_token }}
+      # it only reads: a GitHub 5xx is retried, not a dropped turn (selenium-flow, 2026-11-25)
+      retries: 3
       script: |
         await require(`${process.env.GITHUB_ACTION_PATH}/lib/route.js`).run({ github, context, core });
