@@ -11,10 +11,18 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 | Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
 | A new head, checks green | `pending`: reviewing (n of max) | `number`, `sha`, `last`, `target` for the review job |
-| `max_reviews` verdicts without a pass | `failure`: needs a human | |
+| `max_reviews` verdicts in a round without a pass | `failure`: needs a human | |
 
 A head is judged once; an `agent-review` dispatch asks again, and the owner's own dispatch
 is never capped.
+
+The caps count one round (R-SM39): only the commits since its start are counted, the start
+being the newer of the latest sub-issue merge into the PR's head (a commit whose first line is
+GitHub's `Merge pull request #N from <owner>/issue-M`) and the latest parent message on the
+PR (an `app` comment starting `<!-- parent-message`; only commits created after it count). A
+family PR grows with every merged sub-issue, and earlier rounds no longer use up its cap. A
+PR with neither counts all its commits. A carried verdict is still looked for in the whole
+history.
 
 An applied suggestion is a commit GitHub made from the PR's page (committer `web-flow`,
 verified), co-authored by the `reviewer`, whose every added line is a line of a suggestion
@@ -45,9 +53,10 @@ GitHub's event data can vouch for a sender before a runner starts.
 Copilot never stands in for the review agent: asked for on a PR, its review is a second
 opinion that wakes the code agent through pr-route.
 
-The token needs `pull-requests: read`, `statuses: write`, `actions: read` (the artifact) and
-`contents: write` (the dispatch). The review job must set its verdict as the same bot, the
-`reviewer`, since only its statuses count.
+The token needs `pull-requests: read`, `issues: read` (the parent messages),
+`statuses: write`, `actions: read` (the artifact) and `contents: write` (the dispatch). The
+review job must set its verdict as the same bot, the `reviewer`, since only its statuses
+count.
 
 | Input | Default | |
 |---|---|---|
@@ -56,8 +65,9 @@ The token needs `pull-requests: read`, `statuses: write`, `actions: read` (the a
 | `reviewer` | `41898282` | github-actions[bot]: whose statuses and suggestions are the review agent's |
 | `trusted` | | User ids whose run or dispatch may start a review |
 | `owner` | | The user id whose dispatch is never capped |
-| `max_reviews` | `3` | |
-| `max_fixes` | `3` | Commits with failed checks before a human |
+| `app` | `235398881` | The kubed-io App's bot: whose parent message starts a round |
+| `max_reviews` | `5` | Reviews in a round without a pass before a human |
+| `max_fixes` | `5` | Commits with failed checks in a round before a human |
 | `branch_prefix` | `issue-` | |
 | `labels` | `plan approved` | Labels a PR the agents built has, comma-separated |
 | `checks_artifact` | `checks-report` | |

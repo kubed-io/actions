@@ -29,14 +29,18 @@ inputs:
   owner:
     description: The user id whose own dispatch is never capped.
     required: true
+  app:
+    description: The kubed-io App's bot user id, whose parent message on a PR starts a round.
+    required: false
+    default: "235398881"
   max_reviews:
-    description: Reviews on one PR without a pass before it goes to a human.
+    description: Reviews in one round of a PR without a pass before it goes to a human.
     required: false
-    default: "3"
+    default: "5"
   max_fixes:
-    description: Commits with failed checks before it goes to a human.
+    description: Commits with failed checks in one round before it goes to a human.
     required: false
-    default: "3"
+    default: "5"
   branch_prefix:
     description: Head branches the agents build start with this.
     required: false
@@ -86,6 +90,7 @@ runs:
       REVIEWER: ${{ inputs.reviewer }}
       TRUSTED: ${{ inputs.trusted }}
       OWNER: ${{ inputs.owner }}
+      APP: ${{ inputs.app }}
       MAX_REVIEWS: ${{ inputs.max_reviews }}
       MAX_FIXES: ${{ inputs.max_fixes }}
       PREFIX: ${{ inputs.branch_prefix }}

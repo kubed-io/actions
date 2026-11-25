@@ -55,9 +55,10 @@ permissions: {}
 
 env:
   CHECK: Agent review
-  # reviews, and commits whose checks failed, on one PR before it is handed to Dr K
-  MAX_REVIEWS: 3
-  MAX_FIXES: 3
+  # reviews, and commits whose checks failed, in one round of a PR before it is handed to
+  # Dr K: since its latest sub-issue merge or parent message (R-SM39)
+  MAX_REVIEWS: 5
+  MAX_FIXES: 5
 
 jobs:
 
@@ -75,6 +76,8 @@ jobs:
       contents: write
       actions: read
       pull-requests: read
+      # the parent messages, a round's start
+      issues: read
       statuses: write
     outputs:
       number: ${{ steps.route.outputs.number }}
@@ -92,6 +95,7 @@ jobs:
         check: ${{ env.CHECK }}
         trusted: 4399427,41898282,235398881
         owner: "4399427"
+        app: "235398881"
         max_reviews: ${{ env.MAX_REVIEWS }}
         max_fixes: ${{ env.MAX_FIXES }}
 

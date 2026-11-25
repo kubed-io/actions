@@ -28,6 +28,11 @@ const familyBranch = (prefix, ref) => (ref || '').startsWith(prefix) && /^\d+$/.
 // what a family review left for the parent, between the markers agent-review.yml's header
 // puts around it
 const SUMMARY = /<!-- review-summary -->\n?([\s\S]*?)\n?<!-- \/review-summary -->/;
+// a round's start (R-SM39): a sub-issue's PR merged into this one through GitHub's merge,
+// or n8n's parent message on it, posted as the App (pr-route's PARENT_MESSAGE)
+const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const subIssueMerge = (prefix) => new RegExp(`^Merge pull request #\\d+ from [^/]+/${escape(prefix)}\\d+(?:\\s|$)`);
+const PARENT_MESSAGE = /^<!-- parent-message /;
 
 function settings(env) {
   return {
@@ -40,6 +45,7 @@ function settings(env) {
     prefix: env.PREFIX,
     labels: csv(env.LABELS),
     artifact: env.ARTIFACT,
+    app: env.APP,
   };
 }
 
@@ -187,17 +193,29 @@ async function run({ github, context, core, env = process.env }) {
   if (!cfg.trusted.includes(actor)) return core.info(`${actor} cannot start an agent`);
 
   // the PR's commits, oldest first, and the review agent's status on each before the head
-  const all = (await github.paginate(github.rest.pulls.listCommits, { ...repo, pull_number: number, per_page: 100 }))
-    .map((c) => c.sha);
+  const commits = await github.paginate(github.rest.pulls.listCommits, { ...repo, pull_number: number, per_page: 100 });
+  const all = commits.map((c) => c.sha);
   const judged = [];
   for (const ref of all.filter((c) => c !== sha).reverse()) {
     const s = await mineOn(ref);
     if (s && (s.state === 'success' || s.state === 'failure')) judged.push({ ref, ...s });
   }
 
+  // the caps count this round's commits only: from the latest sub-issue merge, and created
+  // after the latest parent message, so the newer of the two starts it (R-SM39)
+  const merged = subIssueMerge(cfg.prefix);
+  const from = commits.findLastIndex((c) => merged.test((c.commit?.message || '').split('\n')[0]));
+  const comments = await github.paginate(github.rest.issues.listComments, { ...repo, issue_number: number, per_page: 100 }) || [];
+  const said = comments.filter((c) => String(c.user?.id) === cfg.app && PARENT_MESSAGE.test(c.body || ''))
+    .map((c) => Date.parse(c.created_at)).filter(Number.isFinite);
+  const saidAt = said.length ? Math.max(...said) : null;
+  const inRound = new Set(commits.slice(Math.max(from, 0))
+    .filter((c) => saidAt === null || Date.parse(c.commit?.committer?.date) > saidAt).map((c) => c.sha));
+  const round = judged.filter((s) => inRound.has(s.ref));
+
   // red: the code agent gets the run, the review waits for green
   if (checks === 'failed') {
-    const fixes = judged.filter(failedChecks).length;
+    const fixes = round.filter(failedChecks).length;
     if (fixes >= cfg.maxFixes) {
       await stalled(`needs a human: checks failed on ${fixes + 1} commits`, checksRun.html_url);
       return core.info(`checks failed on ${fixes + 1} commits: over to a human`);
@@ -246,8 +264,8 @@ async function run({ github, context, core, env = process.env }) {
     }
   }
 
-  // reviews so far: commits with a verdict of the review agent's own, not a carried one
-  const done = judged.filter((s) => VERDICT.test(s.description)).length;
+  // reviews this round: commits with a verdict of the review agent's own, not a carried one
+  const done = round.filter((s) => VERDICT.test(s.description)).length;
   // the owner's own dispatch is never capped
   const capped = !(dispatched && actor === cfg.owner);
   if (capped && done >= cfg.maxReviews) {
