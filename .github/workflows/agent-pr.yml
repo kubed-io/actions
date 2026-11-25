@@ -80,7 +80,8 @@ jobs:
         copilot: "175728472"
 
   plan:
-    name: Plan
+    # the thread in the name: n8n finds a lost turn's placeholder by it (R-L24)
+    name: "Plan · #${{ needs.route.outputs.number }}"
     needs: route
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'plan'
     runs-on: claude
@@ -225,7 +226,8 @@ jobs:
         key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   code:
-    name: Code
+    # the thread in the name: n8n finds a lost turn's placeholder by it (R-L24)
+    name: "Code · #${{ needs.route.outputs.number }}"
     needs: route
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'code'
     runs-on: claude

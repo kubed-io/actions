@@ -227,9 +227,10 @@ test('ignores fork_from when empty', async () => {
   assert.ok(!core.outputs.args.includes('--fork-session'));
 });
 
-test('the hook settings are the channel README\'s: hook.js on PostToolBatch and Stop', () => {
+test('the hook settings are the channel README\'s: hook.js on PostToolBatch, Stop and StopFailure', () => {
   const hook = [{ hooks: [{ type: 'command', command: 'bun /home/runner/channel/hook.js' }] }];
-  assert.deepEqual(setup.hookSettings(), { hooks: { PostToolBatch: hook, Stop: hook } });
+  // StopFailure: a turn the Claude limit stopped says so in its ended (R-L12)
+  assert.deepEqual(setup.hookSettings(), { hooks: { PostToolBatch: hook, Stop: hook, StopFailure: hook } });
 });
 
 // the claude runner's env, with the channel's profile beside the others

@@ -159,9 +159,10 @@ function envelope({ role, review, threads }) {
 const CHANNEL_HOOK = 'bun /home/runner/channel/hook.js';
 const REPLY_TOOL = 'mcp__agent-flow__reply';
 
+// StopFailure: a turn the Claude limit stopped tells its ended so (R-L12)
 function hookSettings(command = CHANNEL_HOOK) {
   const hook = [{ hooks: [{ type: 'command', command }] }];
-  return { hooks: { PostToolBatch: hook, Stop: hook } };
+  return { hooks: { PostToolBatch: hook, Stop: hook, StopFailure: hook } };
 }
 
 // The job's settings with the channel's hooks added: one file, since a second --settings

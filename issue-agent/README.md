@@ -104,8 +104,10 @@ a public repository's artifacts are anyone's to download, its caches only its wo
 
 With `live_messages: true` on the claude runner, the owner's comments reach the agent while it
 works, and it can answer them at once. The run loads the runner's agent-flow channel
-(`$CLAUDE_MCP_PROFILES/channel.json`, merged into the one MCP file) and its `PostToolBatch` and
-`Stop` hooks (`--settings`), and allows `mcp__agent-flow__reply`. It needs
+(`$CLAUDE_MCP_PROFILES/channel.json`, merged into the one MCP file) and its `PostToolBatch`,
+`Stop` and `StopFailure` hooks (`--settings`), and allows `mcp__agent-flow__reply`. On
+`StopFailure` the channel's `ended` says the Claude limit stopped the turn, and n8n runs it
+again after the reset (R-L12). It needs
 `AGENT_FLOW_N8N_TOKEN` in the job's env and `AGENT_FLOW_CALLBACK_URL` on the runner; without
 them, or the profile, it warns and runs as off. The hooks are merged into the `settings`
 input's file, so the run has one `--settings`; another in `claude_args` replaces them.

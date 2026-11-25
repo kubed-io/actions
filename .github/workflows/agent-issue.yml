@@ -110,7 +110,8 @@ jobs:
         app: "235398881"
 
   spec:
-    name: Spec
+    # the thread in the name: n8n finds a lost turn's placeholder by it (R-L24)
+    name: "Spec · #${{ needs.route.outputs.number }}"
     needs: route
     if: github.event_name == 'repository_dispatch' && needs.route.outputs.stage == 'spec'
     runs-on: claude
@@ -554,7 +555,8 @@ jobs:
           -F "client_payload[pull_request]=${PR}" -f "client_payload[reason]=fix"
 
   plan:
-    name: Plan
+    # the thread in the name: n8n finds a lost turn's placeholder by it (R-L24)
+    name: "Plan · #${{ needs.handoff.outputs.pull_request }}"
     needs: handoff
     if: >-
       github.event_name == 'repository_dispatch' && needs.handoff.outputs.pull_request != '' &&
