@@ -171,24 +171,6 @@ jobs:
         fetch-depth: 0
         persist-credentials: false
 
-    # the role files, from the repo this workflow lives in at the commit it runs from; moved out
-    # of the workspace so the agent has nothing of them to commit
-    - name: Role Files
-      if: steps.pr.outputs.wanted == 'true'
-      uses: actions/checkout@v7
-      with:
-        repository: ${{ job.workflow_repository }}
-        ref: ${{ job.workflow_sha }}
-        path: .agent-flow
-        sparse-checkout: .github/roles
-        persist-credentials: false
-
-    - name: Role Files Out of the Tree
-      if: steps.pr.outputs.wanted == 'true'
-      run: |
-        mv .agent-flow "$RUNNER_TEMP/agent-flow"
-        echo "AGENT_ROLES=$RUNNER_TEMP/agent-flow/.github/roles" >> "$GITHUB_ENV"
-
     # the agent proves its build diff with kubectl build: the claude runner's image has the krm
     # tools (runner-krm's /kubed/bin and kubed-krm); GitHub's runners install them
     - name: KRM Setup
@@ -220,8 +202,8 @@ jobs:
         comment_id: ${{ steps.comment.outputs.comment_id }}
         github_token: ${{ steps.app.outputs.token }}
         number: ${{ github.event.client_payload.pull_request }}
-        settings: ${{ env.AGENT_ROLES }}/renovate/settings.json
-        schema: ${{ env.AGENT_ROLES }}/renovate/schema.json
+        settings: ${{ env.CLAUDE_ROLES }}/renovate/settings.json
+        schema: ${{ env.CLAUDE_ROLES }}/renovate/schema.json
         # the turn's words are a kb prompt (superpowers library), by the dispatch's reason
         prompt: ${{ steps.pr.outputs.prompt }}
         prompt_when: ${{ steps.pr.outputs.prompt_when }}

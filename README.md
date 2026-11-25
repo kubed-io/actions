@@ -62,11 +62,14 @@ jobs:
 
 **Agents and roles.** An *agent* is one of the kubed-runner plugin's agent files in
 kubed-io/talent-show (`plugins/kubed-runner/agents/`): who it is and how it works. An *agent
-role* is a folder in [.github/roles/](.github/roles/) (`spec`, `spec-draft`, `plan`, `code`,
-`review`, `debug`, `renovate`): the `settings.json` a job runs the agent with, its tools
-(`permissions.allow` and `deny`) included, and the `schema.json` of what it answers. `spec-draft`
-is the spec agent on a turn that writes the spec, and shares `spec`'s schema. An agent can take on one or more roles, and two roles can share an agent with
-different settings and outputs. A job checks the roles out at run time as `AGENT_ROLES`.
+role* is a folder beside them in `plugins/kubed-runner/roles/` (`spec`, `spec-draft`, `plan`,
+`code`, `review`, `debug`, `renovate`): the `settings.json` a job runs the agent with, its tools
+(`permissions.allow` and `deny`) included, and the `schema.json` of what it answers. An agent can
+take on one or more roles, and two roles can share an agent with different settings and outputs:
+`spec-draft` is the spec agent on a turn that writes the spec, with `spec`'s schema. The claude
+runner sets `CLAUDE_ROLES` to the roles in its talent-show marketplace clone, and a job passes
+`${{ env.CLAUDE_ROLES }}/<role>/settings.json` and `schema.json` to issue-agent, which only takes
+paths.
 
 Their jobs on the `claude` runner run for a `repository_dispatch` only, which always runs the
 caller on the default branch: the runner group lists these files, so no branch's caller reaches
@@ -108,7 +111,7 @@ are reviewed as before.
 
 agent-renovate.yml takes no inputs. Its dispatch is `{pull_request, reason, comment_id}`,
 `reason` being `opened`, `comment` (with the comment's id) or `updated`. Its role files are
-[.github/roles/renovate/](.github/roles/renovate/), whose settings deny deploying, committing
+kubed-runner's `roles/renovate/` in talent-show, whose settings deny deploying, committing
 and merging, and give the automatic compact the agent's keep-list.
 
 ### kubectl.yml inputs
