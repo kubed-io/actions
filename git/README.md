@@ -88,13 +88,16 @@ commit and the working tree is left as it was, so changes it did not select stay
   after the branch being committed to (`issue-137` for `issue-137`), never to the wiki's
   `master`: that is the public wiki, and only the repository's own publish (main's
   wiki.yml) writes it, so a branch's pages reach it by merging. A commit to the default
-  branch goes to `.gitmodules`' `branch`, else `master`. It is rebased onto that branch's
-  remote head when there is one (a file both changed takes this commit's version), else
-  starts the branch from the pin, or with `submodule_base` from the commit that branch points
-  the submodule at (this commit alone moved onto it: a sub-issue's wiki branch starts from its
-  family's), and is pushed with git. A push refused because the branch moved again
-  meanwhile is fetched, rebased and pushed again, up to 3 tries a second or few apart; any
-  other failure, or a third refusal, fails the commit (and `keep_to` keeps it). A submodule
+  branch goes to `.gitmodules`' `branch`, else `master`. When that branch has a remote head
+  the commit already holds, the push is a fast-forward; otherwise the head is merged in, with
+  no `-X`, so history and merge commits are kept and nothing picks a side. A passage both
+  changed fails the commit, naming the file, with nothing pushed. A branch with no remote head
+  starts from the pin, or with `submodule_base` from the commit that branch points the
+  submodule at (this commit alone cherry-picked onto it, unless the pin already holds it: a
+  sub-issue's wiki branch starts from its family's), and is pushed with git. A push refused
+  because the branch moved again meanwhile is fetched, merged and pushed again, up to 3 tries
+  a second or few apart; any other failure, or a third refusal, fails the commit, the wiki
+  commit undone so its changes are left uncommitted (and `keep_to` keeps them). A submodule
   not listed is never pushed. That commit goes through the Git Data API (blobs, a tree, a
   commit, a fast-forward of the branch), because `createCommitOnBranch` cannot write a
   gitlink; without one it is used as before.

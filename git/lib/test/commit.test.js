@@ -499,7 +499,7 @@ test('a submodule it may commit inside is committed and pushed with git first, a
   const inSub = exec.calls.filter((c) => c[1] === '-C' && c[2] === sub).map((c) => c.slice(3).join(' '));
   assert.deepEqual(inSub.filter((c) => !c.startsWith('rev-parse')), [
     'status --porcelain', 'checkout -B master', 'add -A', 'commit -m docs: recordings', 'fetch --no-tags origin master',
-    'rebase -X theirs FETCH_HEAD', 'push origin HEAD:refs/heads/master',
+    'merge-base --is-ancestor FETCH_HEAD HEAD', 'push origin HEAD:refs/heads/master',
   ]);
   assert.equal(call(github, 'users.getByUsername').username, 'kubed-io[bot]');
   assert.deepEqual(call(github, 'git.createTree').tree.find((e) => e.path === 'wiki'), { path: 'wiki', mode: '160000', type: 'commit', sha: 'f00d' });
@@ -591,8 +591,8 @@ test("with submodule_base, a submodule's new branch starts from the commit that 
   });
   await commit.run({ github, context: fake.context({ payload: { repository: { default_branch: 'main' } } }), core: fake.core(), exec });
   const inSub = exec.calls.filter((c) => c[1] === '-C' && c[2] === sub).map((c) => c.slice(3).join(' '));
-  assert.deepEqual(inSub.filter((c) => /^(fetch|rebase|push)/.test(c)), [
-    'fetch --no-tags origin issue-28', 'fetch --no-tags origin fam75e4', 'rebase -X theirs --onto FETCH_HEAD HEAD~1',
+  assert.deepEqual(inSub.filter((c) => /^(fetch|merge|cherry-pick|push)/.test(c)), [
+    'fetch --no-tags origin issue-28', 'fetch --no-tags origin fam75e4', 'merge-base --is-ancestor FETCH_HEAD HEAD',
     'push origin HEAD:refs/heads/issue-28',
   ]);
 });
@@ -610,7 +610,7 @@ test('without submodule_base, or with one that pins nothing there, a new submodu
     const github = fake.github({ ...treeRoutes({ 'heads/issue-28': 'head' }), 'users.getByUsername': { id: 235398881 }, 'repos.getContent': () => fake.notFound() });
     await commit.run({ github, context: fake.context({ payload: { repository: { default_branch: 'main' } } }), core: fake.core(), exec });
     const inSub = exec.calls.filter((c) => c[1] === '-C' && c[2] === sub).map((c) => c.slice(3).join(' '));
-    assert.deepEqual(inSub.filter((c) => /^(fetch|rebase|push)/.test(c)), ['fetch --no-tags origin issue-28', 'push origin HEAD:refs/heads/issue-28']);
+    assert.deepEqual(inSub.filter((c) => /^(fetch|merge|cherry-pick|push)/.test(c)), ['fetch --no-tags origin issue-28', 'push origin HEAD:refs/heads/issue-28']);
     assert.equal(Boolean(call(github, 'repos.getContent')), Boolean(base));
   }
 });
