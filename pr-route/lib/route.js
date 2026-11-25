@@ -115,16 +115,33 @@ function stageOf({ dispatched, approved, pushed, review, byOwner, byApp, byCopil
 
 // What a turn with no words of its own starts with: a kb prompt, sent as a slash command,
 // so the methodology's own text drives the turn
-function promptOf({ dispatched, reason, labelled, pushed, base, paths, upstreamFinal = false }, prefix) {
+// pr-update's conflict: the paths it could not settle, which the agent merges in, and the wiki's
+// files it merged with markers where both sides changed a passage (`wiki`), which the agent
+// only edits: the merge is already on the branch
+function conflictPrompt({ base, paths, wiki }) {
+  const list = (s) => String(s || '').split(',').map((p) => p.trim()).filter(Boolean);
+  const marked = list(wiki);
+  const code = list(paths).filter((p) => !marked.includes(p));
+  const named = base ? `\`${base}\`` : 'The base';
+  const markers = `this branch's wiki and the base's changed the same passages of ${marked.join(', ')}. `
+    + 'Those files hold conflict markers: `<<<<<<<` this branch\'s side, `>>>>>>>` the base\'s. Settle each by editing the file so both sides\' changes stay, '
+    + `and leave no marker anywhere in them. Run no git in the wiki${code.length ? '' : ' and merge nothing'}: the job's commit carries the wiki and the pin together.`;
+  if (!code.length && marked.length) return `${named} moved, and pr-update merged it in, the wiki too, but ${markers} Then run the checks and carry on.`;
+  return `${named} moved, and merging it into this branch conflicts in ${code.join(', ') || 'files the update could not settle'}. `
+    + 'Merge it in, resolve them so both sides\' changes stay, run the checks, and carry on. '
+    + `Merge in this checkout (\`git merge --no-commit --no-ff origin/${base || '<base>'}\`), `
+    + '`git add` what you resolved and leave it uncommitted: the job commits it as a real merge.'
+    + (marked.length ? ` In the wiki, ${markers}` : '');
+}
+
+function promptOf({ dispatched, reason, labelled, pushed, base, paths, wiki, upstreamFinal = false }, prefix) {
   const turn = (name) => `${prefix}${name}`;
   // fix: a Bug's change with no plan, started by its hand-off, built from the approved report
-  // conflict: pr-update could not bring the branch up to date after a merge into its base
+  // conflict: pr-update could not bring the branch up to date after a merge into its base, or
+  // merged its wiki with markers
   const reasons = {
     review: turn('review-came-in'), ci: turn('checks-failed'), fix: turn('fix-approved'),
-    conflict: `${base ? `\`${base}\`` : 'The base'} moved, and merging it into this branch conflicts in ${paths || 'files the update could not settle'}. `
-      + 'Merge it in, resolve them so both sides\' changes stay, run the checks, and carry on. '
-      + `Merge in this checkout (\`git merge --no-commit --no-ff origin/${base || '<base>'}\`), `
-      + '`git add` what you resolved and leave it uncommitted: the job commits it as a real merge.',
+    conflict: conflictPrompt({ base, paths, wiki }),
   };
   if (dispatched) return reasons[reason] || `Woken by ${reason || 'a dispatch'}: see what needs doing.`;
   if (labelled) return turn('plan-approved');
@@ -267,6 +284,7 @@ async function run({ github, context, core, env = process.env }) {
     reason: e.client_payload?.reason,
     base: e.client_payload?.base,
     paths: e.client_payload?.paths,
+    wiki: e.client_payload?.wiki,
   };
   const stage = stageOf(facts);
   core.setOutput('stage', stage);

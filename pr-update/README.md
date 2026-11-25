@@ -15,6 +15,7 @@ For every open PR whose base is `base` and whose head is in this repository:
 | The base changed a workflow file, which the App may not write | `needs a person: <paths>`; an agent's PR is told once, by a comment, ` (asked)` |
 | GitHub's update-branch, from the head it was at, takes | `updated` |
 | Else the base is merged into the head in the checkout, and resolves | `merged`, or `merged & resolved: pointer, changelog` |
+| It resolves, but the wiki merge left markers in a passage both sides changed | `merged & resolved: pointer (wiki conflicts: <files>)`; ` (dispatched)` when the head is an agent's |
 | A conflict it does not resolve | `needs its agent: <paths>`, the merge aborted; ` (dispatched)` when the head is an agent's |
 | The branch moved before the update (the agent committed) | `moved during the update; next merge retries` |
 | Anything else that went wrong for that PR | `failed: <why>` |
@@ -24,17 +25,26 @@ What the merge resolves:
 - **A submodule pointer** both sides moved: its remote (`.gitmodules`' url, at its
   `branch` or the remote's default) is fetched into the repository, and when its head holds
   both sides' commits the pointer moves to that head. Otherwise the two sides' commits are
-  merged (`merge-tree -X ours`: the PR's side takes a file both changed) and the merge is
-  pushed, never forced, to the PR's own wiki branch, and the pointer moves to it. A generated
-  page both changed may then be stale, which the PR's checks catch for its agent. A merge
-  that conflicts or a push that is refused leaves the pointer conflicted.
+  merged (`merge-tree`), the merge is pushed, never forced, to the PR's own wiki branch, and
+  the pointer moves to it. Never to the wiki's master or the base's wiki branch. Changes to
+  different passages merge as git merges them. A passage both sides changed keeps both, in
+  standard conflict markers labelled `wiki/<head>` (the PR's) and `wiki/<base>`; that merge
+  is pushed only when nothing else conflicts, so the code merge completes, and the PR's agent
+  is sent the `agent-code` dispatch with the files under the submodule's path as `paths` and
+  `wiki` (quick-mcp #41: `-X ours` would have dropped the base's side). The merge's dates are
+  its parents', so a retry makes the same commit. A generated page both changed may then be
+  stale, which the PR's checks catch for its agent. Any other wiki conflict (a file deleted
+  on one side, a binary), a wiki merge beside another conflict, or a refused push leaves the
+  pointer conflicted.
 - **The changelog**: each conflict hunk becomes the base's lines, then the PR's, a PR line
   identical to one of the base's kept once. Nothing outside the hunks changes.
 
 Any other conflicted path is the PR's agent's. When the head starts with `prefix`
 (`issue-` by default; empty turns it off), the agent is told: an `agent-code` dispatch,
 `{pull_request, reason: conflict, base, paths}`, which pr-route makes a code turn that
-names the base and the paths. The merge commit is made through the API with the App's
+names the base and the paths; with `wiki` it says the merge is done and the markers in
+those files are to be settled by editing them, the wiki and the pin then committed together.
+The merge commit is made through the API with the App's
 token, its message saying what was resolved: GitHub signs it, so a ruleset that wants
 changes attributed asks no extra approval, and the PR's workflows run on it. The merged
 tree is rebuilt on the head's there, sending only the blobs the base lacks. The branch
@@ -85,7 +95,9 @@ A family's branch (`issue-<P>`) that the run moved, its PR to main updated or me
 a base too: its sub-issues' PRs are brought up to date the same way, their rows naming it as
 `base` and the summary a table for it. Each base is updated once a run, so a cycle stops.
 
-agent-issue.yml also runs this step on a family's branch after a
+Each agent-flow repository's wiki.yml also runs it on every push to a family's branch, with
+that branch as the base, so a commit made straight to `issue-<P>` brings its sub-issues' PRs
+along. agent-issue.yml also runs this step on a family's branch after a
 sub-issue's change merges into it (n8n's `sub-issue-closed` wake-up) and after the parent's
 turn commits there, as its hand-off does after opening a sub-issue's PR into it.
 

@@ -86,6 +86,22 @@ test("a conflict dispatch, pr-update's, is a code turn in words: the base and th
   assert.equal(t.core.outputs.reason, 'conflict');
 });
 
+test("a conflict pr-update left in the wiki's files is a code turn to settle their markers: the merge is done, the job commits the wiki and the pin", async () => {
+  const t = setup(dispatch('conflict', { base: 'issue-16', paths: 'docs/plans/design.md', wiki: 'docs/plans/design.md' }));
+  assert.deepEqual(await outcome(t), ['code',
+    "`issue-16` moved, and pr-update merged it in, the wiki too, but this branch's wiki and the base's changed the same passages of docs/plans/design.md. "
+      + "Those files hold conflict markers: `<<<<<<<` this branch's side, `>>>>>>>` the base's. Settle each by editing the file so both sides' changes stay, "
+      + "and leave no marker anywhere in them. Run no git in the wiki and merge nothing: the job's commit carries the wiki and the pin together. Then run the checks and carry on.",
+    'always']);
+});
+
+test('wiki files beside code paths: the code merge is asked for first, then the markers', async () => {
+  const t = setup(dispatch('conflict', { base: 'main', paths: 'docs/a.md, src/x.py', wiki: 'docs/a.md' }));
+  const [, prompt] = await outcome(t);
+  assert.match(prompt, /^`main` moved, and merging it into this branch conflicts in src\/x\.py\. Merge it in,/);
+  assert.match(prompt, /the same passages of docs\/a\.md\. Those files hold conflict markers/);
+});
+
 test('a review dispatch carries no run; an unknown reason says what woke it', async () => {
   const t = setup(dispatch('review', { review_id: 9 }));
   assert.deepEqual(await outcome(t), ['code', `${P}review-came-in`, 'always']);
