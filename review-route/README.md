@@ -8,7 +8,7 @@ what was judged. Runs no Claude; the review job runs only when `number` is set.
 |---|---|---|
 | A PR the agents did not build | `success`: not built by the agents, when asked; none on a checks dispatch | |
 | Checks red on the head | `failure`: checks failed (fix n of max) | an `agent-code` dispatch, `reason: ci`, with the run |
-| Only the base merged in since the last verdict | that verdict, `no changes since <sha>: …` | |
+| Only the base merged in since the last verdict: every commit since is a merge, and the PR's diff is the same apart from the wiki's pointer | that verdict, `no changes since <sha>: …` | |
 | Only a passing review's own suggestions applied since | `success`, `suggestions applied since <sha>: …` | |
 | A new head, checks green | `pending`: reviewing (n of max) | `number`, `sha`, `last`, `target` for the review job |
 | `max_reviews` verdicts in a round without a pass | `failure`: needs a human | |

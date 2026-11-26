@@ -245,14 +245,19 @@ async function run({ github, context, core, env = process.env }) {
       }
       return true;
     };
-    // a commit that only brings the base in (Update branch) keeps it
-    const [now, then] = await Promise.all([prChanges(github, repo, pr.base.ref, sha), prChanges(github, repo, pr.base.ref, prior.ref)]);
-    if (now !== null && now === then) {
-      return carry('changes nothing of the PR\'s', `no changes since ${short(prior.ref)}: ${verdict}`);
-    }
-    // so does a pass whose own suggestions were applied, and nothing else
     const at = all.indexOf(prior.ref);
     const since = at < 0 ? [] : all.slice(at + 1);
+    // commits that only bring the base in (Update branch, a hand merge) keep it. Every commit
+    // since must be a merge: one of the PR's own that moves only the wiki's pointer is a spec
+    // change, and prChanges can't see it
+    const parents = new Map(commits.map((c) => [c.sha, c.parents?.length || 0]));
+    if (since.length && since.every((ref) => parents.get(ref) > 1)) {
+      const [now, then] = await Promise.all([prChanges(github, repo, pr.base.ref, sha), prChanges(github, repo, pr.base.ref, prior.ref)]);
+      if (now !== null && now === then) {
+        return carry('changes nothing of the PR\'s', `no changes since ${short(prior.ref)}: ${verdict}`);
+      }
+    }
+    // so does a pass whose own suggestions were applied, and nothing else
     if (prior.state === 'success' && reviewId && since.length && since.at(-1) === sha) {
       const byPath = await suggested(github, repo, number, reviewId);
       if (byPath.size) {

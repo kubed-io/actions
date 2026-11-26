@@ -40,7 +40,7 @@ const GREEN = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'success'), 
 const RED = [job('PR Tasks', 'success'), job('Test / Unit Tests', 'failure'), job('Checks', null, 'in_progress')];
 // a PR whose head is the last of `commits`, its checks run's last job pointing at itself as
 // the run ends `conclusion`: green jobs, red ones, or the run cancelled
-// a commit is its sha, or { sha, message, date } for a round's start (R-SM39)
+// a commit is its sha, or { sha, message, date, merge } for a round's start (R-SM39) or a merge
 function setup({ commits: list = [A, B], statuses = {}, conclusion = 'success', run = {}, artifacts = 1, pr = {}, routes = {}, payload, eventName = 'repository_dispatch' } = {}) {
   const commits = list.map((c) => (typeof c === 'string' ? { sha: c } : c));
   const head = commits.at(-1).sha;
@@ -53,7 +53,7 @@ function setup({ commits: list = [A, B], statuses = {}, conclusion = 'success', 
     },
     'actions.listWorkflowRunArtifacts': { artifacts: Array(artifacts).fill({}) },
     'repos.listCommitStatusesForRef': (p) => statuses[p.ref] || [],
-    'pulls.listCommits': commits.map(({ sha, message = 'a change', date }) => ({ sha, commit: { message, committer: { date } } })),
+    'pulls.listCommits': commits.map(({ sha, message = 'a change', date, merge }) => ({ sha, parents: merge ? [{}, {}] : [{}], commit: { message, committer: { date } } })),
     'repos.compareCommitsWithBasehead': (p) => diff(`@@ -1 +1 @@\n+${p.basehead.endsWith(head) ? 'now' : 'then'}`),
     'repos.createCommitStatus': {},
     'repos.createDispatchEvent': {},
@@ -144,6 +144,7 @@ test('an untrusted actor starts nothing', async () => {
 
 test('merging the base in keeps the last verdict', async () => {
   const t = setup({
+    commits: [A, { sha: B, merge: true }],
     statuses: { [A]: [mine('success', 'looks good')] },
     routes: { 'repos.compareCommitsWithBasehead': diff('@@ -9 +9 @@\n+same') },
   });
@@ -156,11 +157,34 @@ test("a branch update that only moves the docs pointer keeps the last verdict", 
   const code = { status: 'modified', filename: 'AGENTS.md', patch: '@@ -9 +9 @@\n+same' };
   const docs = (sha) => ({ status: 'modified', filename: 'docs', patch: `@@ -1 +1 @@\n-Subproject commit ${'1'.repeat(40)}\n+Subproject commit ${sha.repeat(40)}` });
   const t = setup({
+    commits: [A, { sha: B, merge: true }],
     statuses: { [A]: [mine('success', 'looks good')] },
     routes: { 'repos.compareCommitsWithBasehead': (p) => ({ files: [code, docs(p.basehead.endsWith(A) ? 'a' : 'b')] }) },
   });
   await t.go();
   assert.deepEqual(t.posted(), ['success: no changes since aaaaaaa: looks good']);
+});
+
+test("a commit of the PR's own that moves only the docs pointer is reviewed", async () => {
+  // a spec fix lives in the wiki: the PR's diff changes only by the pointer (selenium-flow #211)
+  const code = { status: 'modified', filename: 'AGENTS.md', patch: '@@ -9 +9 @@\n+same' };
+  const docs = (sha) => ({ status: 'modified', filename: 'docs', patch: `@@ -1 +1 @@\n-Subproject commit ${'1'.repeat(40)}\n+Subproject commit ${sha.repeat(40)}` });
+  const t = setup({
+    statuses: { [A]: [CHANGES()] },
+    routes: { 'repos.compareCommitsWithBasehead': (p) => ({ files: [code, docs(p.basehead.endsWith(A) ? 'a' : 'b')] }) },
+  });
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (2 of 5)']);
+});
+
+test('a merge after a commit of the PR\'s own still gets a review', async () => {
+  const t = setup({
+    commits: [A, 'c'.repeat(40), { sha: B, merge: true }],
+    statuses: { [A]: [CHANGES()] },
+    routes: { 'repos.compareCommitsWithBasehead': diff('@@ -9 +9 @@\n+same') },
+  });
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (2 of 5)']);
 });
 
 test("applying a passing review's own suggestion keeps the pass", async () => {
@@ -179,7 +203,7 @@ test('a carried pass on a family PR asks to POST its verdict', async () => {
   const COMMENT = 'https://github.com/kubed-io/selenium-flow/pull/7#issuecomment-44';
   const said = '**Verdict: looks good**\n\n<!-- review-summary -->\nThe tab is kept.\nNext: the window.\n<!-- /review-summary -->\n\nAll good.';
   const same = { 'repos.compareCommitsWithBasehead': diff('@@ -9 +9 @@\n+same'), 'issues.getComment': { body: said } };
-  const t = setup({ pr: { base: { ref: 'issue-12' } }, statuses: { [A]: [mine('success', 'looks good', COMMENT)] }, routes: same });
+  const t = setup({ commits: [A, { sha: B, merge: true }], pr: { base: { ref: 'issue-12' } }, statuses: { [A]: [mine('success', 'looks good', COMMENT)] }, routes: same });
   await t.go();
   assert.deepEqual(t.posted(), ['success: no changes since aaaaaaa: looks good']);
   assert.equal(t.core.outputs.number, '');
@@ -544,6 +568,7 @@ test('a PR without a merge or a message counts all its reviews, up to five', asy
 
 test('a verdict from before the round is still carried', async () => {
   const r = round({ before: 1, after: 0, start: 'message', status: () => mine('success', 'looks good') });
+  r.commits.at(-1).merge = true;
   const t = setup({ ...r, routes: { ...r.routes, 'repos.compareCommitsWithBasehead': diff('@@ -9 +9 @@\n+same') } });
   await t.go();
   assert.deepEqual(t.posted(), ['success: no changes since 0000000: looks good']);
