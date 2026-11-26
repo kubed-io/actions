@@ -358,3 +358,53 @@ test('the summary has a table for each base a run updated', () => {
   const md = pr.summaryOf('main', [{ number: 16, branch: 'issue-16', result: 'updated' }, { number: 31, branch: 'issue-28', result: 'updated', base: 'issue-16' }]);
   assert.match(md, /### Open PRs on `main`[\s\S]*\| #16 \| `issue-16` \| updated \|[\s\S]*### Open PRs on `issue-16`[\s\S]*\| #31 \| `issue-28` \| updated \|/);
 });
+
+// in-progress runs, and each run's jobs, as the Actions API lists them
+const runs = (list) => ({
+  'actions.listWorkflowRunsForRepo': list.map(({ id, name }) => ({ id, name })),
+  'actions.listJobsForWorkflowRun': ({ run_id: id }) => list.find((r) => r.id === id).jobs,
+});
+const job = (name, status = 'in_progress') => ({ name, status });
+
+test('a PR with a live agent turn is left alone, so its commit never meets a moved branch', async () => {
+  // selenium-flow #215: an update merged main into the branch mid-turn, and the turn's commit was refused
+  const t = setup({ api: runs([{ id: 11, name: '🛠️ Agent · Pull Request', jobs: [job('Agent / Route', 'completed'), job('Agent / Code · #5')] }]) });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'deferred: a live turn (run 11)' }]);
+  assert.deepEqual(called(t, 'pulls.updateBranch'), []);
+  assert.deepEqual(ran(t, 'fetch'), []);
+});
+
+test("another PR's turn, a finished job, a run that isn't an agent's, or this run itself defers nothing", async () => {
+  const list = [
+    { id: 11, name: '🛠️ Agent · Pull Request', jobs: [job('Agent / Code · #7'), job('Agent / Plan · #5', 'completed')] },
+    { id: 12, name: '🔀 PR', jobs: [job('Checks · #5')] },
+    { id: 13, name: '🧭 Agent · Issue', jobs: [job('Agent / Up to Date · #5')] },
+  ];
+  const t = setup({ api: runs(list) });
+  assert.deepEqual(await t.go({ self: 13 }), [{ number: 5, branch: 'issue-5', result: 'updated' }]);
+  assert.equal(called(t, 'actions.listJobsForWorkflowRun').some((c) => c.params.run_id === 13), false);
+});
+
+test("a turn on the issue a family's branch is for defers that branch's PR", async () => {
+  const family = { number: 95, head: { ref: 'issue-80', sha: 'head95', repo: { full_name: 'kubed-io/x' } } };
+  const t = setup({ prs: [family], api: runs([{ id: 21, name: '🧭 Agent · Issue', jobs: [job('Agent / Issue · #80')] }]) });
+  assert.deepEqual(await t.go(), [{ number: 95, branch: 'issue-80', result: 'deferred: a live turn (run 21)' }]);
+});
+
+test('runs that cannot be read defer nothing, with a warning', async () => {
+  const t = setup({ api: { 'actions.listWorkflowRunsForRepo': Object.assign(new Error('Resource not accessible'), { status: 403 }) } });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'updated' }]);
+});
+
+test('only: one PR of the base is brought up to date, and no other', async () => {
+  const other = { number: 6, head: { ref: 'issue-6', sha: 'head6', repo: { full_name: 'kubed-io/x' } } };
+  const t = setup({ prs: [PR5, other] });
+  assert.deepEqual(await t.go({ only: '6' }), [{ number: 6, branch: 'issue-6', result: 'updated' }]);
+  assert.deepEqual(called(t, 'pulls.updateBranch').map((c) => c.params.pull_number), [6]);
+});
+
+test('liveFor reads the number at the end of a job name only', () => {
+  const live = [{ name: 'Agent / Code · #15', run: 1 }, { name: '#5 in the middle · x', run: 2 }];
+  assert.equal(pr.liveFor(live, PR5), undefined);
+  assert.equal(pr.liveFor(live, { number: 15, head: { ref: 'renovate' } }).run, 1);
+});

@@ -287,13 +287,49 @@ async function askPerson({ github, owner, repo, base, prefix, pr, workflows }) {
 }
 
 // one PR: the result row for the summary
-async function updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr }) {
+// A live agent turn on a PR: its job checked the branch out and commits from that checkout,
+// so a merge here would move the branch under it, and its commit would be refused rather than
+// overwrite (selenium-flow #215 lost a task so). The PR is left alone, and the turn's own run
+// brings it up to date once the turn is over (agent-pr.yml's Up to Date job).
+const AGENT_RUN = /\bAgent\b/;
+async function liveTurns({ github, core, owner, repo, self }) {
+  let runs;
+  try {
+    runs = (await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { owner, repo, status: 'in_progress', per_page: 100 })) || [];
+  } catch (e) {
+    // unreadable runs: the update goes on as before, and says so
+    core.warning(`the live turns could not be read (${e.message}); no PR is deferred`);
+    return [];
+  }
+  const jobs = [];
+  for (const r of runs) {
+    if (String(r.id) === String(self) || !AGENT_RUN.test(r.name || '')) continue;
+    const list = (await github.paginate(github.rest.actions.listJobsForWorkflowRun, { owner, repo, run_id: r.id, filter: 'latest', per_page: 100 })) || [];
+    for (const j of list) if (j.status === 'in_progress') jobs.push({ name: j.name || '', run: r.id });
+  }
+  return jobs;
+}
+
+// a turn's job names its thread, `… · #<n>`: the PR's number, or the issue its branch is for
+function liveFor(live, pr) {
+  const nums = [String(pr.number), ...(/^issue-(\d+)$/.exec(pr.head.ref) || []).slice(1)];
+  return live.find((j) => {
+    const m = /#(\d+)\s*$/.exec(j.name);
+    return m && nums.includes(m[1]);
+  });
+}
+
+async function updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr, live = [] }) {
   const branch = pr.head.ref;
   const row = { number: pr.number, branch };
 
   // 1. current: the base is already in the head
   const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${pr.head.sha}` });
   if (cmp.behind_by === 0) return { ...row, result: 'current' };
+
+  // a turn working on the branch: never merged under it
+  const turn = liveFor(live, pr);
+  if (turn) return { ...row, result: `deferred: a live turn (run ${turn.run})` };
 
   // a workflow the base changed: a person's merge (quick-mcp #32)
   const workflows = await workflowChanges({ github, owner, repo, base, head: pr.head.sha });
@@ -376,11 +412,14 @@ const moved = (row) => row.result === 'updated' || row.result.startsWith('merged
 // every open PR on `base` whose head is in this repository; one PR's trouble is its row. A
 // family's branch this moved (its PR to main updated) is then a base too: its sub-issues' PRs
 // follow, their rows naming it as `base`. `visited` keeps any base to once a run.
-async function update({ github, core, exec, owner, repo, base, root, changelog = 'CHANGELOG.md', prefix = 'issue-', env = process.env, visited = new Set() }) {
+// `only` limits the base's PRs to one (a turn's own, as it ends); a followed family branch
+// takes all of its own. `self` is this run, never a live turn of its own.
+async function update({ github, core, exec, owner, repo, base, root, changelog = 'CHANGELOG.md', prefix = 'issue-', env = process.env, visited = new Set(), only = '', self = '', live = null }) {
   visited.add(base);
   const prs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', base, per_page: 100 });
   changelog = changelog.replace(/^\.\//, '');
-  const mine = prs.filter((pr) => pr.head?.repo?.full_name === `${owner}/${repo}`);
+  const mine = prs.filter((pr) => pr.head?.repo?.full_name === `${owner}/${repo}` && (!only || String(pr.number) === String(only)));
+  if (mine.length && live === null) live = await liveTurns({ github, core, owner, repo, self });
   // where the job's checkout is: its branch, else its commit
   const start = (await git(exec, root, ['symbolic-ref', '-q', '--short', 'HEAD'], { env, ok: true })).out.trim()
     || (await git(exec, root, ['rev-parse', 'HEAD'], { env, ok: true })).out.trim();
@@ -390,7 +429,7 @@ async function update({ github, core, exec, owner, repo, base, root, changelog =
   for (const pr of mine) {
     let row;
     try {
-      row = await updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr });
+      row = await updatePr({ github, core, exec, owner, repo, base, root, changelog, prefix, env, heads, state, pr, live: live || [] });
     } catch (e) {
       row = { number: pr.number, branch: pr.head.ref, result: `failed: ${e.message.split('\n')[0]}` };
       core.warning(`#${pr.number}: ${e.message}`);
@@ -400,7 +439,7 @@ async function update({ github, core, exec, owner, repo, base, root, changelog =
   }
   for (const row of rows.slice()) {
     if (!moved(row) || !FAMILY.test(row.branch) || visited.has(row.branch)) continue;
-    const followed = await update({ github, core, exec, owner, repo, base: row.branch, root, changelog, prefix, env, visited });
+    const followed = await update({ github, core, exec, owner, repo, base: row.branch, root, changelog, prefix, env, visited, self, live });
     rows.push(...followed.map((r) => ({ ...r, base: r.base || row.branch })));
   }
   // the checkout back where the job had it
@@ -425,15 +464,19 @@ function table(base, rows) {
 async function run({ github, context, core, exec }) {
   const env = process.env;
   if (!env.TOKEN) throw new Error('no token: the App token was not minted');
-  const base = env.BASE || env.GITHUB_REF_NAME;
+  const { owner, repo } = context.repo;
+  // one PR, its base read from it: a turn's own run, once the turn is over
+  const only = (env.PULL_REQUEST || '').trim();
+  const base = only
+    ? (await github.rest.pulls.get({ owner, repo, pull_number: Number(only) })).data.base.ref
+    : env.BASE || env.GITHUB_REF_NAME;
   if (!base) throw new Error('no base branch');
   const top = await git(exec, env.GITHUB_WORKSPACE || process.cwd(), ['rev-parse', '--show-toplevel'], { ok: true });
   if (top.code) throw new Error('no checkout: run actions/checkout first');
   const gitEnv = { ...env, ...authEnv(core, env.TOKEN, env.GITHUB_SERVER_URL) };
-  const { owner, repo } = context.repo;
-  const rows = await update({ github, core, exec, owner, repo, base, root: top.out.trim(), changelog: env.CHANGELOG || 'CHANGELOG.md', prefix: env.PREFIX ?? 'issue-', env: gitEnv });
+  const rows = await update({ github, core, exec, owner, repo, base, root: top.out.trim(), changelog: env.CHANGELOG || 'CHANGELOG.md', prefix: env.PREFIX ?? 'issue-', env: gitEnv, only, self: env.GITHUB_RUN_ID || '' });
   core.setOutput('results', JSON.stringify(rows));
   await core.summary.addRaw(summaryOf(base, rows)).write();
 }
 
-module.exports = { run, update, unionHunks, unmerged, mergeTreeOf, changes, messageOf, table, summaryOf, authEnv };
+module.exports = { run, update, liveFor, unionHunks, unmerged, mergeTreeOf, changes, messageOf, table, summaryOf, authEnv };

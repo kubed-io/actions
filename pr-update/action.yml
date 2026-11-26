@@ -27,6 +27,12 @@ inputs:
     description: The changelog whose conflict hunks are unioned, from the repository's top.
     required: false
     default: CHANGELOG.md
+  pull-request:
+    description: >
+      One PR to bring up to date, its base read from it, in place of every PR on `base`. A
+      turn's own run sends it once the turn is over: a live turn's PR is never merged under it.
+    required: false
+    default: ''
   prefix:
     description: >
       The head prefix of the agents' PRs: a conflict left on one is dispatched to its agent as
@@ -52,6 +58,7 @@ runs:
       private-key: ${{ inputs.private-key }}
       permission-contents: write
       permission-pull-requests: write
+      permission-actions: read
 
   - name: Update the PRs
     id: update
@@ -61,6 +68,7 @@ runs:
       BASE: ${{ inputs.base }}
       CHANGELOG: ${{ inputs.changelog }}
       PREFIX: ${{ inputs.prefix }}
+      PULL_REQUEST: ${{ inputs.pull-request }}
     with:
       github-token: ${{ steps.app.outputs.token }}
       script: |

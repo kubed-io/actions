@@ -81,6 +81,16 @@ checkout needs no submodules, as the pointer's remote is fetched by url. Give it
 `fetch-depth: 0`; a shallow one is unshallowed the first time a PR needs the merge. The
 step leaves the checkout where it found it.
 
+A PR with a live agent turn is never merged into. A turn's job checks the branch out and
+commits from that checkout, so a merge under it would move the branch, and the commit would be
+refused rather than overwrite (selenium-flow #215 lost a task so). The step reads the
+repository's in-progress runs whose name holds `Agent`, and their jobs. A job still running
+whose name ends `#<n>`, the PR's number or the issue its `issue-<n>` branch is for, defers
+that PR: its row says `deferred: a live turn (run <id>)`. The step's own run is never one.
+agent-pr.yml's last job, *Up to Date After the Turn*, then runs the step with `pull-request`
+once the turn is over, whether it committed or not. Runs that can't be read defer nothing,
+with a warning.
+
 n8n trusts the App's pushes like the agent's own landing commit: one into a live turn is
 delivered to it, one on a draft in its code stage with no live turn dispatches a next-task
 turn.
@@ -107,6 +117,7 @@ turn commits there, as its hand-off does after opening a sub-issue's PR into it.
 | `private-key` | | The App's private key |
 | `base` | `github.ref_name` | The branch whose PRs are updated |
 | `changelog` | `CHANGELOG.md` | The changelog whose hunks are unioned |
+| `pull-request` | | One PR to bring up to date, its base read from it, in place of every PR on `base` |
 
 | Output | |
 |---|---|

@@ -465,3 +465,35 @@ jobs:
       with:
         path: .issue/scratch
         key: agent-scratch-${{ github.repository_owner }}-${{ github.event.repository.name }}-${{ needs.route.outputs.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+  # pr-update leaves a PR with a live turn alone, so the turn never commits on a branch that
+  # moved under it (selenium-flow #215). This brings the PR up to date once the turn is over,
+  # whether it committed or not. A live turn on the same PR started meanwhile defers it again.
+  up-to-date:
+    name: Up to Date After the Turn
+    needs: [route, plan, code]
+    if: >-
+      always() && github.event_name == 'repository_dispatch' && needs.route.outputs.number != '' &&
+        (needs.plan.result == 'success' || needs.plan.result == 'failure' ||
+         needs.code.result == 'success' || needs.code.result == 'failure')
+    runs-on: ubuntu-26.04
+    concurrency:
+      group: pr-update-pr-${{ needs.route.outputs.number }}
+      cancel-in-progress: false
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+
+    # any checkout will do: the update fetches the base and the PR's head itself
+    - name: Checkout
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    - name: Bring the PR Up to Date
+      uses: kubed-io/actions/pr-update@main
+      with:
+        client-id: ${{ vars.GH_CLIENT_ID }}
+        private-key: ${{ secrets.GH_APP_KEY }}
+        pull-request: ${{ needs.route.outputs.number }}
