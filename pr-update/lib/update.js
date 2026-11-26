@@ -84,6 +84,74 @@ function unionHunks(text) {
   return state === null && hunks ? out.join('\n') : null;
 }
 
+// Keep a Changelog's subsection order; another heading goes after these, as first seen
+const ORDER = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security'];
+const UNRELEASED = /^## \[Unreleased\]\s*$/;
+const VERSION = /^## \[/;
+
+// A text's [Unreleased] section: where it starts and ends (the next `## [`, or the end), its
+// prose before the first `###`, and its entries by subsection. An entry is a `- ` line and the
+// lines that continue it. Null when the text has no [Unreleased].
+function unreleasedOf(text) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => UNRELEASED.test(l));
+  if (start < 0) return null;
+  let end = lines.findIndex((l, i) => i > start && VERSION.test(l));
+  if (end < 0) end = lines.length;
+  const prose = [];
+  const groups = new Map();
+  let heading = null;
+  let entry = null;
+  for (const line of lines.slice(start + 1, end)) {
+    const h = /^### (.+?)\s*$/.exec(line);
+    if (h) {
+      heading = h[1];
+      if (!groups.has(heading)) groups.set(heading, []);
+      entry = null;
+    } else if (/^- /.test(line)) {
+      if (!groups.has(heading)) groups.set(heading, []);
+      entry = [line];
+      groups.get(heading).push(entry);
+    } else if (entry && line.trim() && !line.startsWith('#')) {
+      entry.push(line);
+    } else {
+      entry = null;
+      if (heading === null && line.trim()) prose.push(line);
+    }
+  }
+  return { lines, start, end, prose, groups };
+}
+
+// The merged changelog after a base merge, when both sides changed it: the base's text as it
+// is (its released sections are immutable), with its [Unreleased] holding its own entries and
+// then every entry the PR's [Unreleased] has that the base's text lacks, each under its own
+// subsection. A merge alone has no notion of a section rolled into a version: after a release
+// it left a PR's lines under the new version heading (quick-mcp #55, #56). Null when either
+// text has no [Unreleased].
+function placeUnreleased(baseText, headText) {
+  const base = unreleasedOf(baseText);
+  const head = unreleasedOf(headText);
+  if (!base || !head) return null;
+  const known = new Set(base.lines.filter((l) => l.trim()));
+  const groups = new Map([...base.groups].map(([h, es]) => [h, es.slice()]));
+  for (const [h, es] of head.groups) {
+    const fresh = es.filter((e) => !known.has(e[0]));
+    if (!fresh.length) continue;
+    if (!groups.has(h)) groups.set(h, []);
+    groups.get(h).push(...fresh);
+  }
+  const rank = (h) => (h === null ? -1 : ORDER.includes(h) ? ORDER.indexOf(h) : ORDER.length);
+  const heads = [...groups.keys()].filter((h) => groups.get(h).length).sort((a, b) => rank(a) - rank(b));
+  const section = [base.lines[base.start], ''];
+  if (base.prose.length) section.push(...base.prose, '');
+  for (const h of heads) {
+    if (h !== null) section.push(`### ${h}`, '');
+    for (const e of groups.get(h)) section.push(...e);
+    section.push('');
+  }
+  return [...base.lines.slice(0, base.start), ...section, ...base.lines.slice(base.end)].join('\n');
+}
+
 // a submodule's url and branch from .gitmodules, by its path
 async function submoduleOf(exec, root, sub) {
   const file = path.join(root, '.gitmodules');
@@ -194,6 +262,25 @@ async function resolveChangelog({ exec, root, env, conflict }) {
   if (merged === null) return false;
   fs.writeFileSync(file, merged);
   await git(exec, root, ['add', '--', conflict.path], { env });
+  return true;
+}
+
+// the changelog placed from the base's and the head's own texts; null when either lacks it or
+// has no [Unreleased], and the union of hunks then does what it can
+async function placedChangelog({ exec, root, env, base, head, changelog }) {
+  const theirs = await git(exec, root, ['show', `refs/remotes/origin/${base}:${changelog}`], { env, ok: true });
+  const ours = await git(exec, root, ['show', `${head}:${changelog}`], { env, ok: true });
+  if (theirs.code || ours.code) return null;
+  return placeUnreleased(theirs.out, ours.out);
+}
+
+// the placed changelog in the working tree and the index; false when it is what the merge has
+async function writePlaced({ exec, root, env, changelog, placed }) {
+  const file = path.join(root, changelog);
+  const now = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if (now === placed) return false;
+  fs.writeFileSync(file, placed);
+  await git(exec, root, ['add', '--', changelog], { env });
   return true;
 }
 
@@ -335,13 +422,26 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   const workflows = await workflowChanges({ github, owner, repo, base, head: pr.head.sha });
   if (workflows.length) return { ...row, result: await askPerson({ github, owner, repo, base, prefix, pr, workflows }) };
 
+  // both sides changed the changelog: GitHub's own merge can't place the PR's entries in
+  // [Unreleased], so the merge is made here (placeUnreleased)
+  const ownLog = (cmp.files || []).some((f) => f.filename === changelog);
+  let bothLog = false;
+  if (ownLog) {
+    const { data: back } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${pr.head.sha}...${base}` });
+    bothLog = (back.files || []).some((f) => f.filename === changelog);
+  }
+
   // 2. GitHub's own merge, when it has no conflict and the head is still where it was
-  try {
-    await github.rest.pulls.updateBranch({ owner, repo, pull_number: pr.number, expected_head_sha: pr.head.sha });
-    return { ...row, result: 'updated' };
-  } catch (e) {
-    if (e.status !== 422) throw e;
-    core.info(`#${pr.number}: update-branch refused (${e.message}); merging in the checkout`);
+  if (bothLog) {
+    core.info(`#${pr.number}: both sides changed ${changelog}; merging in the checkout`);
+  } else {
+    try {
+      await github.rest.pulls.updateBranch({ owner, repo, pull_number: pr.number, expected_head_sha: pr.head.sha });
+      return { ...row, result: 'updated' };
+    } catch (e) {
+      if (e.status !== 422) throw e;
+      core.info(`#${pr.number}: update-branch refused (${e.message}); merging in the checkout`);
+    }
   }
 
   // 3. the merge here, both branches fetched fresh (the whole history, the first time)
@@ -366,12 +466,16 @@ async function updatePr({ github, core, exec, owner, repo, base, root, changelog
   const links = [];
   let resolvedChangelog = '';
   const left = [];
+  // the changelog from both sides' texts, whether git conflicted on it or not
+  const placed = bothLog ? await placedChangelog({ exec, root, env, base, head, changelog }) : null;
   for (const conflict of unmerged((await git(exec, root, ['ls-files', '-u', '-z'], { env })).out)) {
     const link = isLink(conflict.stages) ? await resolveLink({ exec, root, env, conflict, heads, branch, base }) : null;
     if (link) links.push({ path: conflict.path, ...link });
+    else if (conflict.path === changelog && placed !== null) continue;
     else if (conflict.path === changelog && isText(conflict.stages) && await resolveChangelog({ exec, root, env, conflict })) resolvedChangelog = changelog;
     else left.push(conflict.path);
   }
+  if (placed !== null && !left.length && await writePlaced({ exec, root, env, changelog, placed })) resolvedChangelog = changelog;
   // a wiki merge with markers is pushed only when the code merge completes; beside another
   // conflict its pointer is the agent's, as one that would not merge
   const held = links.filter((l) => l.conflicts?.length);
@@ -479,4 +583,4 @@ async function run({ github, context, core, exec }) {
   await core.summary.addRaw(summaryOf(base, rows)).write();
 }
 
-module.exports = { run, update, liveFor, unionHunks, unmerged, mergeTreeOf, changes, messageOf, table, summaryOf, authEnv };
+module.exports = { run, update, liveFor, placeUnreleased, unionHunks, unmerged, mergeTreeOf, changes, messageOf, table, summaryOf, authEnv };

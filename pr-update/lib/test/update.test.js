@@ -408,3 +408,52 @@ test('liveFor reads the number at the end of a job name only', () => {
   assert.equal(pr.liveFor(live, PR5), undefined);
   assert.equal(pr.liveFor(live, { number: 15, head: { ref: 'renovate' } }).run, 1);
 });
+
+// quick-mcp #55/#56: main released 0.4.0, rolling [Unreleased] into a dated section, and a
+// merge into the PRs left their entries under the new version heading
+const RELEASED = ['# Changelog', '', '## [Unreleased]', '', '## [0.4.0] - 2026-11-26', '', '### Added', '', '- released add', '',
+  '### Changed', '', '- released change', '', '## [0.3.0]', '', '- old', ''].join('\n');
+const PR_LOG = ['# Changelog', '', '## [Unreleased]', '', '### Added', '', '- released add', '- the PR’s add', '', '### Fixed', '',
+  '- the PR’s fix', '  that continues', '', '## [0.3.0]', '', '- old', ''].join('\n');
+
+test("placeUnreleased: after a release, the PR's own entries go back under [Unreleased], and the released section is the base's", () => {
+  assert.equal(pr.placeUnreleased(RELEASED, PR_LOG), ['# Changelog', '', '## [Unreleased]', '', '### Added', '', '- the PR’s add', '',
+    '### Fixed', '', '- the PR’s fix', '  that continues', '', '## [0.4.0] - 2026-11-26', '', '### Added', '', '- released add', '',
+    '### Changed', '', '- released change', '', '## [0.3.0]', '', '- old', ''].join('\n'));
+});
+
+test("placeUnreleased: the base's own unreleased entries come first, its subsections in Keep a Changelog's order", () => {
+  const base = ['## [Unreleased]', '', '### Fixed', '', '- main’s fix', '', '## [1.0.0]', '', '- shipped', ''].join('\n');
+  const head = ['## [Unreleased]', '', '### Fixed', '', '- the PR’s fix', '', '### Added', '', '- the PR’s add', '- shipped', '', '## [1.0.0]', '', '- shipped', ''].join('\n');
+  assert.equal(pr.placeUnreleased(base, head), ['## [Unreleased]', '', '### Added', '', '- the PR’s add', '', '### Fixed', '',
+    '- main’s fix', '- the PR’s fix', '', '## [1.0.0]', '', '- shipped', ''].join('\n'));
+  assert.equal(pr.placeUnreleased('# no section', head), null);
+});
+
+test('both sides changed the changelog: no update-branch, and the merge here places the entries', async () => {
+  const files = [{ filename: 'CHANGELOG.md' }];
+  const t = setup({
+    api: { 'repos.compareCommitsWithBasehead': ({ basehead }) => (basehead === 'main...head5' ? { behind_by: 1, files } : { files }) },
+    routes: {
+      'merge-base --is-ancestor refs/remotes/origin/main': [1, ''],
+      'rev-parse refs/remotes/origin/': 'head5\n',
+      'rev-parse refs/remotes/origin/main': 'base5\n',
+      'rev-parse head5^{tree}': 'htree\n',
+      'write-tree': 'tree5\n',
+      'diff-tree': diff('100644', '100644', 'u1', 'M', 'CHANGELOG.md'),
+      'show refs/remotes/origin/main:CHANGELOG.md': RELEASED,
+      'show head5:CHANGELOG.md': PR_LOG,
+    },
+    // what git's own merge left: the PR's lines under the released heading
+    files: { 'CHANGELOG.md': RELEASED.replace('- released add', '- released add\n- the PR’s add') },
+  });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'merged & resolved: changelog' }]);
+  assert.deepEqual(called(t, 'pulls.updateBranch'), []);
+  assert.equal(fs.readFileSync(path.join(t.root, 'CHANGELOG.md'), 'utf8'), pr.placeUnreleased(RELEASED, PR_LOG));
+  assert.deepEqual(ran(t, 'add'), ['add -- CHANGELOG.md']);
+});
+
+test("only the PR changed the changelog: GitHub's update-branch, as before", async () => {
+  const t = setup({ api: { 'repos.compareCommitsWithBasehead': ({ basehead }) => (basehead === 'main...head5' ? { behind_by: 1, files: [{ filename: 'CHANGELOG.md' }] } : { files: [{ filename: 'src/x.py' }] }) } });
+  assert.deepEqual(await t.go(), [{ number: 5, branch: 'issue-5', result: 'updated' }]);
+});

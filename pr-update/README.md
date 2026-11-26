@@ -81,6 +81,15 @@ checkout needs no submodules, as the pointer's remote is fetched by url. Give it
 `fetch-depth: 0`; a shallow one is unshallowed the first time a PR needs the merge. The
 step leaves the checkout where it found it.
 
+When both the base and the PR changed the changelog, GitHub's update-branch is skipped and the
+merge is made in the checkout, where the changelog is rebuilt from both sides' own texts: the
+base's file as it is, its released sections untouched, with its `[Unreleased]` holding its own
+entries and then each entry the PR's `[Unreleased]` has that the base's text lacks, under its
+own subsection (Keep a Changelog's order). A merge alone has no notion of `[Unreleased]` rolled
+into a version: after a release it left a PR's entries under the new version heading, rewriting
+released notes (quick-mcp #55, #56). Either side without an `[Unreleased]` falls back to the
+union of conflict hunks.
+
 A PR with a live agent turn is never merged into. A turn's job checks the branch out and
 commits from that checkout, so a merge under it would move the branch, and the commit would be
 refused rather than overwrite (selenium-flow #215 lost a task so). The step reads the
