@@ -14,6 +14,13 @@ inputs:
   repository:
     description: 'DockerHub Repository'
     required: false
+  fresh:
+    description: |
+      PyPI packages, space-separated, whose newest release goes into the bake as DEPS_FRESH
+      (`name==version ...`). A Dockerfile that declares `ARG DEPS_FRESH` before its dependency
+      install reinstalls that layer when one of them releases, and reuses it otherwise.
+    required: false
+    default: ''
 runs:
   using: composite
   steps:
@@ -61,6 +68,26 @@ runs:
         echo "GIT_SHA=$(git rev-parse --short HEAD)";
       } >> $GITHUB_ENV
     
+  # the dependency layer is cached on the files that declare it, so a release inside the
+  # declared ranges never reached the image (selenium-flow #229). A release of one of these
+  # changes DEPS_FRESH, and that layer alone reinstalls
+  - name: Fresh Dependencies
+    if: inputs.fresh != ''
+    shell: bash
+    env:
+      FRESH: ${{ inputs.fresh }}
+    run: |
+      key=""
+      for package in $FRESH; do
+        if ! version=$(curl -fsS --retry 3 "https://pypi.org/pypi/${package}/json" | jq -er .info.version); then
+          echo "::warning::no PyPI version for ${package}: the dependency layer keeps its cache"
+          exit 0
+        fi
+        key="${key:+$key }${package}==${version}"
+      done
+      echo "DEPS_FRESH=${key}" >> "$GITHUB_ENV"
+      echo "Dependency layer keyed on: ${key}" >> "$GITHUB_STEP_SUMMARY"
+
   - name: Login to DockerHub
     id: login-dockerhub
     if: inputs.push == 'true'
