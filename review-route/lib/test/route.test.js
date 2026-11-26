@@ -255,7 +255,7 @@ test('a suggestion commit that adds anything else is reviewed', async () => {
     routes: { 'pulls.listCommentsForReview': [suggestionComment], 'repos.getCommit': extra },
   });
   await t.go();
-  assert.deepEqual(t.posted(), ['pending: reviewing (2 of 5)']);
+  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 5)']);
 });
 
 test('only a commit GitHub made from the page counts, not a pushed one with the trailer', async () => {
@@ -265,7 +265,7 @@ test('only a commit GitHub made from the page counts, not a pushed one with the 
       routes: { 'pulls.listCommentsForReview': [suggestionComment], 'repos.getCommit': applied(over) },
     });
     await t.go();
-    assert.deepEqual(t.posted(), ['pending: reviewing (2 of 5)']);
+    assert.deepEqual(t.posted(), ['pending: reviewing (1 of 5)']);
   }
 });
 
@@ -285,6 +285,22 @@ test('a suggestion block in a longer fence, with code fences inside, is read who
   });
   const byPath = await route.suggested(github, { owner: 'o', repo: 'r' }, 7, 1);
   assert.deepEqual([...byPath.get('a.md')], ['```js', 'x()', '```']);
+});
+
+test('a pass ends the run the cap counts: five reviews, the last a pass, are not a stall', async () => {
+  const { commits, statuses } = reviewed(5);
+  statuses[commits[4]] = [mine('success', 'looks good')];
+  const t = setup({ commits, statuses, routes: { 'pulls.listCommentsForReview': [] } });
+  await t.go();
+  assert.deepEqual(t.posted(), ['pending: reviewing (1 of 5)']);
+});
+
+test('the cap counts the reviews after the latest pass', async () => {
+  const { commits, statuses } = reviewed(7);
+  statuses[commits[1]] = [mine('success', 'looks good')];
+  const t = setup({ commits, statuses });
+  await t.go();
+  assert.deepEqual(t.posted(), ['failure: needs a human: 5 reviews without a pass']);
 });
 
 test('reviews stop at the cap, but the owner may always ask again', async () => {

@@ -269,8 +269,12 @@ async function run({ github, context, core, env = process.env }) {
     }
   }
 
-  // reviews this round: commits with a verdict of the review agent's own, not a carried one
-  const done = round.filter((s) => VERDICT.test(s.description)).length;
+  // reviews this round without a pass: the review agent's own verdicts (not carried ones) newer
+  // than its latest pass, which ends a run of them. Counting the pass too stalled a PR whose
+  // last review passed, when a merge of the base was not carried (selenium-flow #218)
+  const own = round.filter((s) => VERDICT.test(s.description));
+  const passed = own.findIndex((s) => s.state === 'success');
+  const done = passed < 0 ? own.length : passed;
   // the owner's own dispatch is never capped
   const capped = !(dispatched && actor === cfg.owner);
   if (capped && done >= cfg.maxReviews) {
