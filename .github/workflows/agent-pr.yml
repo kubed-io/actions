@@ -5,8 +5,8 @@ name: 🛠️ Agent · Pull Request
 # to the branch (docs/). The label starts the code. While the PR is a draft,
 # each code run does one plan task and its changes are committed; that push, relayed by
 # n8n (Agent flow · intake), wakes the next run. The run that finishes the plan says `done`: its
-# commit carries `Agent: done`, which wakes nothing, and the PR is marked ready, which
-# starts the checks and, after them, agent-review.yml. Failed checks and a review asking
+# commit carries `Agent: done`, which wakes nothing; the PR is marked ready just before it, so
+# that push starts the checks and, after them, agent-review.yml. Failed checks and a review asking
 # for changes both come back as the `agent-code` dispatch, the code agent's one event
 # interface: {pull_request, reason, run_id or review_id}.
 #
@@ -385,6 +385,26 @@ jobs:
         # pr-checks/rerun
         permission-actions: write
 
+    # done: out of draft BEFORE the final commit, so its push runs the checks and the review
+    # once, on a PR that is no longer a draft. Marked after it, the push's draft run (its checks
+    # skipped) could land after ready_for_review's, and the merge box, which reads only a
+    # workflow's latest run, then waited for those checks forever (quick-mcp #66). Its
+    # ready_for_review run on the old head is cancelled by the push's. A downstream PR is
+    # `held` in draft until its epic's final (R-UR19); only an explicit 'false' lets it go
+    - name: Mark Ready
+      id: ready
+      # a failed mark never costs the commit: the PR then stays a draft, as before
+      continue-on-error: true
+      if: >-
+        steps.still.outputs.stage == 'code' &&
+        steps.still.outputs.held == 'false' &&
+        fromJSON(steps.agent.outputs.output || '{}').done == true
+      uses: kubed-io/actions/git/pr@main
+      with:
+        token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
+        branch: ${{ needs.route.outputs.head }}
+        draft: false
+
     # the turn's work, one signed commit. The run that finishes the plan says `Agent: done` on
     # it, so its push wakes nothing
     - name: Commit the Turn
@@ -406,19 +426,14 @@ jobs:
         # what a failed commit leaves is kept in the scratchpad for the next turn
         keep_to: .issue/scratch/uncommitted
 
-    # done: out of draft, after the commit and on the App's token, so ready_for_review starts
-    # the checks and the review once, on the final commit. A downstream PR is `held` in draft
-    # until its epic's final (R-UR19); only an explicit 'false' lets it go
-    - name: Mark Ready
-      if: >-
-        steps.still.outputs.stage == 'code' && steps.commit.outcome != 'failure' &&
-        steps.still.outputs.held == 'false' &&
-        fromJSON(steps.agent.outputs.output || '{}').done == true
-      uses: kubed-io/actions/git/pr@main
-      with:
-        token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
-        branch: ${{ needs.route.outputs.head }}
-        draft: false
+    # a refused commit leaves the turn's work unpushed: back to draft, so no review reads the
+    # old head as the finished work (review-route passes a draft by)
+    - name: Back to Draft
+      if: steps.ready.outcome == 'success' && steps.commit.outcome == 'failure'
+      env:
+        GH_TOKEN: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+      run: gh pr ready --undo "$NUMBER" -R "$GITHUB_REPOSITORY"
 
     - name: Answer
       if: steps.comment.outputs.comment_id != ''
