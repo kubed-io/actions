@@ -410,6 +410,22 @@ test('held: a downstream code turn holds until an App final note for its epic is
   assert.deepEqual([t.core.outputs.stage, t.core.outputs.upstream, t.core.outputs.held], ['code', '', 'true']);
 });
 
+test('held: a closed epic releases the hold even with no final note on the thread (mcp-kb #107)', async () => {
+  const held = async (epic) => {
+    const t = downstream({
+      ...said({ actor: DRK }), got: { user: { id: DRK }, issue_url: PR_URL },
+      issue: ({ repo, issue_number: n }) => (repo === 'quick-mcp' && n === 16 ? epic() : ISSUE_210),
+    });
+    await t.go();
+    assert.equal(t.core.outputs.stage, 'code');
+    return t.core.outputs.held;
+  };
+  assert.equal(await held(() => ({ state: 'closed' })), 'false');
+  assert.equal(await held(() => ({ state: 'open' })), 'true');
+  // the epic can't be read: the safe side, held
+  assert.equal(await held(() => fake.notFound()), 'true');
+});
+
 test('held: every non-downstream code turn says false, so Mark Ready still runs', async () => {
   for (const ctx of [said(), approval(), dispatch('ci', { run_id: 42 }), push(APP)]) {
     const t = setup(ctx);

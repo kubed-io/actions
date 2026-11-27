@@ -164,6 +164,21 @@ async function finalNoted({ github, context, cfg, upstream, numbers }) {
   return false;
 }
 
+// the epic is closed: its family PR merged, which is its final release, whether or not that
+// note reached this thread. A downstream issue that wasn't labelled when the final went out
+// never gets the note, and its PR would stay a draft for good (mcp-kb #107). Unreadable: false,
+// the safe side
+async function epicClosed({ github, upstream }) {
+  const m = /^([^/\s]+)\/([^#\s]+)#(\d+)$/.exec(upstream || '');
+  if (!m) return false;
+  try {
+    const { data } = await github.rest.issues.get({ owner: m[1], repo: m[2], issue_number: Number(m[3]) });
+    return data?.state === 'closed';
+  } catch {
+    return false;
+  }
+}
+
 async function run({ github, context, core, env = process.env }) {
   const cfg = settings(env);
   const e = context.payload;
@@ -296,10 +311,16 @@ async function run({ github, context, core, env = process.env }) {
   // the start of a turn, so it cannot follow the thread's messages
   // the epic's final leads into the thread's unseen posts, the note among them
   core.setOutput('prompt_when', dispatched ? 'always' : facts.upstreamFinal ? 'lead' : 'quiet');
-  // a code turn on a downstream PR stays draft until its epic's final (R-UR19); any other's never
+  // a code turn on a downstream PR stays draft until its epic's final (R-UR19), noted on the thread
+  // or shown by the epic being closed; any other's never
   // holds, so Mark Ready runs as ever. Not a code turn: no word
   let held = '';
-  if (stage === 'code') held = marked ? String(!(upstream && (await finalNoted({ github, context, cfg, upstream, numbers: [number, issueNumber] })))) : 'false';
+  if (stage === 'code') {
+    held = marked
+      ? String(!(upstream && ((await finalNoted({ github, context, cfg, upstream, numbers: [number, issueNumber] }))
+        || (await epicClosed({ github, upstream })))))
+      : 'false';
+  }
   core.setOutput('held', held);
   // the checks run whose report the code job downloads
   const runId = dispatched && facts.reason === 'ci' ? Number(e.client_payload?.run_id) || 0 : 0;
