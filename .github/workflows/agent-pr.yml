@@ -385,6 +385,29 @@ jobs:
         # pr-checks/rerun
         permission-actions: write
 
+    # internal work earns no changelog line (each repo's CONTRIBUTING): the agent says why, and
+    # the label goes on before the final commit, so that push's changelog check already sees
+    # it. The review reads every skip (review role): a change a user notices under it is a finding
+    - name: No Changelog
+      id: nochangelog
+      if: >-
+        steps.still.outputs.stage == 'code' &&
+        fromJSON(steps.agent.outputs.output || '{}').done == true &&
+        fromJSON(steps.agent.outputs.output || '{}').no_changelog
+      # a label that didn't go on costs nothing but a red changelog check
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
+        NUMBER: ${{ needs.route.outputs.number }}
+        REASON: ${{ fromJSON(steps.agent.outputs.output || '{}').no_changelog }}
+      run: |
+        gh api "repos/${GITHUB_REPOSITORY}/issues/${NUMBER}/labels" -f "labels[]=no changelog" --silent
+        {
+          echo 'note<<NOTE_END'
+          printf '\n\n🏷️ `no changelog`: %s\n' "$REASON"
+          echo 'NOTE_END'
+        } >> "$GITHUB_OUTPUT"
+
     # done: out of draft BEFORE the final commit, so its push runs the checks and the review
     # once, on a PR that is no longer a draft. Marked after it, the push's draft run (its checks
     # skipped) could land after ready_for_review's, and the merge box, which reads only a
@@ -442,7 +465,7 @@ jobs:
         github_token: ${{ steps.fresh.outputs.token || steps.app.outputs.token }}
         number: ${{ needs.route.outputs.number }}
         comment_id: ${{ steps.agent.outputs.comment_id }}
-        append: ${{ steps.commit.outputs.summary }}
+        append: ${{ steps.commit.outputs.summary }}${{ steps.nochangelog.outputs.note }}
 
     - name: The Commit Failed
       if: steps.commit.outcome == 'failure'
